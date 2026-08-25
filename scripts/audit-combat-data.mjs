@@ -9,9 +9,15 @@ const deck = read("client/src/game/deck.ts");
 const visual = read("client/src/game/cardVisuals.ts");
 const audio = read("client/src/game/cardAudioRecipes.ts");
 const world = read("client/src/game/GameWorld.ts");
+const overload = read("client/src/game/data/overloadCards.ts");
 
 const cardIds = idsFrom(deck);
 const uniqueIds = new Set(cardIds);
+const overloadIds = [...overload.matchAll(/id: "([a-z-]+)"/g)].map(
+  match => match[1]
+);
+const overloadCodeCount = (overload.match(/code: "!"/g) ?? []).length;
+const overloadFlags = (overload.match(/isOverload: true/g) ?? []).length;
 const vfxIds = new Set(
   [...visual.matchAll(/^\s{2}([a-z]+): \{ label:/gm)].map(match => match[1])
 );
@@ -27,6 +33,8 @@ const report = [
   `音響レシピ: ${audioIds.size}`,
   `不足描写: ${missingVfx.length ? missingVfx.join(", ") : "なし"}`,
   `不足音響: ${missingAudio.length ? missingAudio.join(", ") : "なし"}`,
+  `過負荷カード: ${overloadIds.length}`,
+  `過負荷コード: ${overloadCodeCount === overloadIds.length ? "!" : "不一致"}`,
   `戦闘時計の直接参照: ${world.includes("performance.now()") ? "あり" : "なし"}`,
 ];
 console.log(report.join("\n"));
@@ -36,6 +44,10 @@ if (
   uniqueIds.size !== 50 ||
   missingVfx.length ||
   missingAudio.length ||
+  overloadIds.length !== 5 ||
+  new Set(overloadIds).size !== 5 ||
+  overloadCodeCount !== 5 ||
+  overloadFlags !== 5 ||
   world.includes("performance.now()")
 ) {
   process.exitCode = 1;

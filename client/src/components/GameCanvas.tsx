@@ -14,6 +14,9 @@ const initialSnapshot: BattleSnapshot = {
   playerGrid: { col: 1, row: 1 },
   gauge: 0,
   sync: false,
+  emotion: "normal",
+  emotionRemaining: 0,
+  corruption: 0,
   charging: 0,
   barrier: 0,
   invincible: false,
@@ -42,6 +45,14 @@ const initialSnapshot: BattleSnapshot = {
 function meterStyle(value: number) {
   return { transform: `scaleX(${Math.max(0, Math.min(1, value / 100))})` };
 }
+
+const emotionLabels: Record<BattleSnapshot["emotion"], string> = {
+  normal: "平常",
+  synchronized: "完全同期",
+  shaken: "動揺",
+  enraged: "激昂",
+  corrupted: "侵食",
+};
 
 function timecode(seconds: number) {
   const minutes = Math.floor(seconds / 60)
@@ -244,6 +255,16 @@ export default function GameCanvas() {
                   ? `BARRIER // ${snapshot.barrier}`
                   : "SYNC LINK // STANDBY"}
           </div>
+          <div className={`emotion-status emotion-${snapshot.emotion}`}>
+            <span>精神状態</span>
+            <strong>{emotionLabels[snapshot.emotion]}</strong>
+            {snapshot.emotionRemaining > 0 && (
+              <small>{snapshot.emotionRemaining.toFixed(1)}秒</small>
+            )}
+            {snapshot.corruption > 0 && (
+              <small>侵食 {snapshot.corruption}/3</small>
+            )}
+          </div>
         </section>
 
         <section className="enemy-console technical-panel">
@@ -255,13 +276,15 @@ export default function GameCanvas() {
                 <b>{enemy.name}</b>
               </div>
               <small>
-                {enemy.state === "windup"
-                  ? "VECTOR LOCK"
-                  : enemy.state === "stunned"
-                    ? "STUNNED"
-                    : enemy.state === "deleted"
-                      ? "OFFLINE"
-                      : enemy.pattern.replace("-", " ").toUpperCase()}
+                {enemy.counterWindow
+                  ? "完全同期カウンター受付"
+                  : enemy.state === "windup"
+                    ? "VECTOR LOCK"
+                    : enemy.state === "stunned"
+                      ? "STUNNED"
+                      : enemy.state === "deleted"
+                        ? "OFFLINE"
+                        : enemy.pattern.replace("-", " ").toUpperCase()}
               </small>
               <div className="meter enemy-meter">
                 <span style={meterStyle((enemy.hp / enemy.maxHp) * 100)} />
@@ -296,7 +319,7 @@ export default function GameCanvas() {
                 <>
                   <strong>{snapshot.queue[0].name}</strong>
                   <span>
-                    {snapshot.sync
+                    {snapshot.sync || snapshot.emotion === "enraged"
                       ? snapshot.queue[0].power * 2
                       : snapshot.queue[0].power}{" "}
                     OUT
@@ -314,8 +337,16 @@ export default function GameCanvas() {
               <div className="meter gauge-meter">
                 <span style={meterStyle(snapshot.gauge)} />
               </div>
-              <button type="button" onClick={() => controller?.openCustom()}>
-                ROUTE C
+              <button
+                type="button"
+                disabled={
+                  snapshot.gauge < 100 ||
+                  snapshot.paused ||
+                  snapshot.charging > 0
+                }
+                onClick={() => controller?.openCustom()}
+              >
+                カード選択
               </button>
             </section>
             <section className="skill-rail" aria-label="送信済みカード">
@@ -348,7 +379,9 @@ export default function GameCanvas() {
               RELAY CONSOLE / WAVE 0{snapshot.wave} /{" "}
               {snapshot.elapsed > 0 ? "10S RE-ROUTE" : "FIRST ROUTE"}
             </span>
-            <span>手札 {String(snapshot.customHand.length).padStart(2, "0")} / 05</span>
+            <span>
+              手札 {String(snapshot.customHand.length).padStart(2, "0")} / 05
+            </span>
           </div>
           <div className="custom-heading">
             <p>SELECT CARDS</p>
@@ -378,13 +411,18 @@ export default function GameCanvas() {
             {snapshot.customHand.map((card, index) => {
               const selected = snapshot.selected.includes(index);
               const focused = snapshot.focusedCard === index;
-              const canJoin = selected || validateSelection(snapshot.customHand, [...snapshot.selected, index]).valid;
+              const canJoin =
+                selected ||
+                validateSelection(snapshot.customHand, [
+                  ...snapshot.selected,
+                  index,
+                ]).valid;
               const selectionOrder = snapshot.selected.indexOf(index) + 1;
               return (
                 <button
                   type="button"
                   key={`${card.id}-${index}`}
-                  className={`signal-card ${selected ? "selected" : ""} ${focused ? "focused" : ""} ${!canJoin ? "unavailable" : ""} ${card.tier === "mega" ? "mega-card" : ""}`}
+                  className={`signal-card ${selected ? "selected" : ""} ${focused ? "focused" : ""} ${!canJoin ? "unavailable" : ""} ${card.tier === "mega" ? "mega-card" : ""} ${card.isOverload ? "overload-card" : ""}`}
                   onClick={() => controller?.toggleCard(index)}
                   aria-disabled={!canJoin}
                 >
@@ -393,16 +431,22 @@ export default function GameCanvas() {
                     <span className="selection-order">{selectionOrder}</span>
                   )}
                   <span className="card-lane">
-                    {card.tier === "mega" ? "メガ" : card.family}
+                    {card.isOverload
+                      ? "過負荷"
+                      : card.tier === "mega"
+                        ? "メガ"
+                        : card.family}
                   </span>
                   <strong>{card.name}</strong>
-                  <small>{canJoin ? card.description : "この選択には接続できません"}</small>
+                  <small>
+                    {canJoin ? card.description : "この選択には接続できません"}
+                  </small>
                   <b>
                     {card.power}
                     <em>OUT</em>
                   </b>
-                    <i>コード {card.selectedCode ?? card.code}</i>
-                  </button>
+                  <i>コード {card.selectedCode ?? card.code}</i>
+                </button>
               );
             })}
           </div>
@@ -468,7 +512,9 @@ export default function GameCanvas() {
           <div className="custom-footer">
             <p>
               <span>{snapshot.selected.length}</span> / 05 CARDS ROUTED
-              {snapshot.selectionError && <small>{snapshot.selectionError}</small>}
+              {snapshot.selectionError && (
+                <small>{snapshot.selectionError}</small>
+              )}
             </p>
             <div className="custom-footer-actions">
               <button type="button" onClick={() => setFolderEditorOpen(true)}>

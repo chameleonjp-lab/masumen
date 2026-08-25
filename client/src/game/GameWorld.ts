@@ -1,7 +1,9 @@
 /** Signal Relay Tactical core: Japanese battle-chip cards resolve through shared target shapes, status effects, and counter windows. */
 import { validateSelection, CARD_CATALOG } from "./deck";
 import { FixedStepClock } from "./core/FixedStepClock";
+import { Random } from "./core/Random";
 import { COMBAT_BALANCE } from "./data/balance";
+import { OVERLOAD_CARDS } from "./data/overloadCards";
 import {
   activeFolder as getActiveFolder,
   BattleDeck,
@@ -10,11 +12,14 @@ import {
 } from "./folder";
 import { ObjectSystem } from "./systems/ObjectSystem";
 import { PanelSystem } from "./systems/PanelSystem";
+import { createMeleePlan, getMeleeRange } from "./systems/AttackSystem";
 import {
-  createMeleePlan,
-  getMeleeRange,
-  isCounterWindow,
-} from "./systems/AttackSystem";
+  createCounterWindow,
+  isCounterWindowOpen,
+  type CounterWindow,
+} from "./systems/CounterSystem";
+import { CustomSystem } from "./systems/CustomSystem";
+import { EmotionSystem } from "./systems/EmotionSystem";
 import { ProjectileSystem } from "./systems/ProjectileSystem";
 import type {
   BattleEvent,
@@ -53,6 +58,8 @@ interface Enemy extends EnemySnapshot {
   attackStartedAt: number;
   counterStartAt: number | null;
   counterEndAt: number | null;
+  counterWindowMs: number;
+  counterWindowState: CounterWindow | null;
 }
 interface PendingMelee {
   card: Card;
@@ -71,7 +78,7 @@ interface StoredRecords {
 
 const PLAYER_MAX_HP = 220;
 const FINAL_WAVE = 4;
-const CUSTOM_INTERVAL_SECONDS = 10;
+const CUSTOM_INTERVAL_SECONDS = COMBAT_BALANCE.custom.intervalMs / 1000;
 const TERRITORY_EXPANSION_DURATION_MS = 10000;
 const STORAGE_KEY = "grid-signal-arena-records-v2";
 const PATTERN_LABEL: Record<Pattern, string> = {
@@ -116,8 +123,14 @@ export class GameWorld {
   private hitstopRemainingMs = 0;
   private mode: BattleSnapshot["mode"] = "custom";
   private playerHp = PLAYER_MAX_HP;
+  private playerMaxHp = PLAYER_MAX_HP;
   private playerGrid: GridPosition = { col: 1, row: 1 };
-  private gauge = 0;
+  private readonly customSystem = new CustomSystem(
+    COMBAT_BALANCE.custom.intervalMs,
+    COMBAT_BALANCE.custom.max,
+    COMBAT_BALANCE.custom.baseMultiplier
+  );
+  private readonly emotionSystem = new EmotionSystem();
   private sync = false;
   private charging = 0;
   private isCharging = false;
@@ -127,6 +140,12 @@ export class GameWorld {
   private playerDamageInvulnerableUntil = 0;
   private retaliateDamage = 0;
   private nextCardBoost = 1;
+  private normalShotDamageMultiplier = 1;
+  private contaminationActive = false;
+  private forcedRepairDrainActive = false;
+  private nextForcedRepairDrainAt = 0;
+  private handSizeReduction = 0;
+  private overloadRandom = new Random(0x51a7c0de);
   private activeFolder: SavedFolder = getActiveFolder(loadSaveData());
   private battleDeck = new BattleDeck(this.activeFolder, 1009);
   private customHand: Card[] = [];
@@ -209,11 +228,8 @@ export class GameWorld {
 
     this.gameTimeMs += deltaMs;
     this.elapsed += delta;
-    this.customRemaining = Math.max(0, this.customRemaining - delta);
-    this.gauge = Math.min(
-      100,
-      (1 - this.customRemaining / CUSTOM_INTERVAL_SECONDS) * 100
-    );
+    this.customSystem.advance(delta, this.gameTimeMs);
+    this.syncCustomRemaining();
     if (this.isCharging)
       this.charging = Math.min(
         1,
@@ -224,10 +240,6 @@ export class GameWorld {
     this.syncBoardOccupancy();
     if (panelUpdate.restoredTerritoryColumns.length > 0)
       this.returnPlayerToSafeTerritory();
-    if (this.customRemaining <= 0) {
-      this.beginCustom("カスタムタイム — 次のカードを選択");
-      return;
-    }
     const projectileResolutions = this.projectileSystem.advance(now, deltaMs, {
       collision: (projectile, positions) =>
         this.resolveProjectileCollision(projectile, positions),
@@ -252,6 +264,8 @@ export class GameWorld {
       this.updateStatus(enemy, now);
       this.updateEnemy(enemy, now);
     }
+    this.updateForcedRepairDrain(now);
+    this.emotionSystem.update(now, this.playerHp, this.playerMaxHp, this.sync);
     this.syncBoardOccupancy();
     if (this.playerHp <= 0) {
       this.finishRun(false);
@@ -346,14 +360,14 @@ export class GameWorld {
     enemy.windupUntil =
       now + enemy.windupMs + (now < enemy.slowUntil ? 280 : 0);
     enemy.attackStartedAt = now;
-    enemy.counterStartAt = Math.max(
+    enemy.counterWindowState = createCounterWindow(
       now,
-      enemy.windupUntil - COMBAT_BALANCE.counter.windowMs
+      enemy.windupUntil,
+      enemy.counterWindowMs,
+      COMBAT_BALANCE.counter.endMarginMs
     );
-    enemy.counterEndAt = Math.max(
-      enemy.counterStartAt,
-      enemy.windupUntil - COMBAT_BALANCE.counter.endMarginMs
-    );
+    enemy.counterStartAt = enemy.counterWindowState.startAt;
+    enemy.counterEndAt = enemy.counterWindowState.endAt;
     enemy.lockedTargets.forEach(target =>
       this.onEvent({ type: "warning", at: target, enabled: true })
     );
@@ -462,7 +476,10 @@ export class GameWorld {
       position => this.objectSystem.isSolidAt(position)
     );
     if (!next) return;
-    this.panelSystem.vacate(this.playerGrid, this.gameTimeMs);
+    const previous = { ...this.playerGrid };
+    this.panelSystem.vacate(previous, this.gameTimeMs);
+    if (this.contaminationActive)
+      this.panelSystem.setTerrain(previous, "poison", this.gameTimeMs);
     this.playerGrid = next;
     this.panelSystem.occupy(this.playerGrid, "player");
     this.message = this.isCharging ? "チャージを維持して移動" : "位置を更新";
@@ -493,7 +510,9 @@ export class GameWorld {
       motion: "straight",
       position: { ...this.playerGrid },
       direction: { col: 1, row: 0 },
-      damage: COMBAT_BALANCE.normalShot.damage,
+      damage: Math.round(
+        COMBAT_BALANCE.normalShot.damage * this.normalShotDamageMultiplier
+      ),
       charged: false,
       speedCellsPerSecond: COMBAT_BALANCE.normalShot.speedCellsPerSecond,
     });
@@ -527,9 +546,12 @@ export class GameWorld {
       motion: "straight",
       position: { ...this.playerGrid },
       direction: { col: 1, row: 0 },
-      damage: charged
-        ? COMBAT_BALANCE.chargeShot.damage
-        : COMBAT_BALANCE.chargeShot.shortDamage,
+      damage: Math.round(
+        (charged
+          ? COMBAT_BALANCE.chargeShot.damage
+          : COMBAT_BALANCE.chargeShot.shortDamage) *
+          this.normalShotDamageMultiplier
+      ),
       charged,
       speedCellsPerSecond: charged
         ? COMBAT_BALANCE.chargeShot.speedCellsPerSecond
@@ -543,6 +565,20 @@ export class GameWorld {
     this.charging = 0;
   }
 
+  private syncCustomRemaining(): void {
+    this.customRemaining = this.customSystem.remainingSeconds();
+  }
+
+  private updateForcedRepairDrain(now: number): void {
+    if (!this.forcedRepairDrainActive || now < this.nextForcedRepairDrainAt)
+      return;
+    this.playerHp = Math.max(
+      0,
+      this.playerHp - COMBAT_BALANCE.overload.forcedRepairDrainPerSecond
+    );
+    this.nextForcedRepairDrainAt += 1000;
+  }
+
   private useSkill(): void {
     if (
       this.mode !== "battle" ||
@@ -554,8 +590,9 @@ export class GameWorld {
     const card = this.queue.shift();
     if (!card) return;
     const usedSync = this.sync;
+    const rageReady = this.emotionSystem.snapshot(this.gameTimeMs).rageReady;
     const power = Math.round(
-      card.power * (usedSync ? 2 : 1) * this.nextCardBoost
+      card.power * (usedSync || rageReady ? 2 : 1) * this.nextCardBoost
     );
     this.nextCardBoost = 1;
     const resolution = this.cardTargets(card.target);
@@ -584,11 +621,26 @@ export class GameWorld {
       duration: hitstopDuration,
       tier: card.tier,
     });
-    if (usedSync && card.power > 0) this.sync = false;
-    this.message = `${card.name} を送信${usedSync ? " — フルシンクロ×2" : ""}`;
+    let consumedEmotion: "synchronized" | "enraged" | null = null;
+    if (card.power > 0) {
+      consumedEmotion = this.emotionSystem.consumePower(usedSync);
+      if (usedSync) this.sync = false;
+    }
+    const multiplierLabel =
+      usedSync || consumedEmotion === "synchronized"
+        ? " — フルシンクロ×2"
+        : consumedEmotion === "enraged"
+          ? " — 激昂×2"
+          : "";
+    this.message = `${card.name} を送信${multiplierLabel}`;
     this.notify();
   }
   private dispatchCardAttack(card: Card, power: number): GridPosition[] {
+    if (
+      card.id === "overload-forced-repair" ||
+      card.id === "overload-collapse-field"
+    )
+      return [];
     if (card.power <= 0) return [];
     if (card.family === "近接") return this.dispatchMeleeCard(card, power);
     const scaleDamage = (base: number): number =>
@@ -623,6 +675,28 @@ export class GameWorld {
       );
       return { col: 5, row: origin.row };
     };
+    if (card.id === "overload-limit-cannon") {
+      const lostHp = Math.max(0, this.playerMaxHp - this.playerHp);
+      return [
+        straight(
+          Math.min(
+            COMBAT_BALANCE.overload.limitCannonMaxDamage,
+            Math.max(1, lostHp * 2)
+          )
+        ),
+      ];
+    }
+    if (card.id === "overload-contamination") {
+      straight(COMBAT_BALANCE.overload.contaminationDamage, {
+        splashRadius: 1,
+        stopOnObject: false,
+      });
+      return [3, 4, 5].flatMap(col =>
+        [origin.row - 1, origin.row, origin.row + 1]
+          .filter(row => row >= 0 && row < 3)
+          .map(row => ({ col, row }))
+      );
+    }
     if (card.id === "rapid") {
       for (let index = 0; index < 3; index += 1) straight(12, {}, index * 90);
       return [3, 4, 5].map(col => ({ col, row: origin.row }));
@@ -767,17 +841,24 @@ export class GameWorld {
     return [];
   }
   private dispatchMeleeCard(card: Card, power: number): GridPosition[] {
+    const resolvedPower =
+      card.id === "overload-severing-blade"
+        ? Math.round(
+            COMBAT_BALANCE.overload.severingBladeDamage *
+              (power / Math.max(1, card.power))
+          )
+        : power;
     const target =
-      card.id === "dashslash"
+      card.id === "dashslash" || card.id === "overload-severing-blade"
         ? (this.closestEnemy()?.grid ?? null)
         : (this.frontTarget()?.grid ?? null);
     const plan = createMeleePlan(
       this.playerGrid,
       target,
-      power,
+      resolvedPower,
       getMeleeRange(card),
       {
-        dash: card.id === "dashslash",
+        dash: card.id === "dashslash" || card.id === "overload-severing-blade",
         cross: card.id === "gridcut",
         timing: { startupMs: card.id === "moonblade" ? 220 : 90 },
         canEnter: position =>
@@ -948,7 +1029,7 @@ export class GameWorld {
     }
     if (projectile.owner === "player") {
       const card = projectile.sourceCardId
-        ? CARD_CATALOG.find(
+        ? [...CARD_CATALOG, ...OVERLOAD_CARDS].find(
             candidate => candidate.id === projectile.sourceCardId
           )
         : undefined;
@@ -998,6 +1079,14 @@ export class GameWorld {
       this.playerDamageInvulnerableUntil =
         now + COMBAT_BALANCE.playerHit.invulnerableMs;
       this.sync = false;
+      this.emotionSystem.recordDamage(
+        now,
+        remaining,
+        this.playerHp,
+        this.playerMaxHp
+      );
+      if (this.emotionSystem.isRageStaggerImmune(now))
+        this.playerControlLockedUntil = now;
       this.message = "被弾 — 退避してください";
       this.onEvent({
         type: "impact",
@@ -1027,6 +1116,12 @@ export class GameWorld {
         enemyId,
       });
     }
+  }
+  private healPlayer(amount: number): void {
+    const adjusted = Math.floor(
+      Math.max(0, amount) * this.emotionSystem.healMultiplier()
+    );
+    this.playerHp = Math.min(this.playerMaxHp, this.playerHp + adjusted);
   }
   private updateFieldObjects(now: number): void {
     const beforeExpiry = this.objectSystem
@@ -1122,6 +1217,7 @@ export class GameWorld {
     this.objectTriggerCount.delete(id);
   }
   private applyPlayerCardEffect(card: Card): void {
+    if (card.isOverload) this.applyOverloadEffect(card);
     const value = card.effectValue ?? 0;
     if (card.status === "barrier")
       this.barrier = Math.min(220, this.barrier + value);
@@ -1131,11 +1227,25 @@ export class GameWorld {
         this.gameTimeMs + COMBAT_BALANCE.phase.invincibilityMs
       );
     if (card.status === "recover") {
-      this.playerHp = Math.min(PLAYER_MAX_HP, this.playerHp + value);
+      this.healPlayer(value);
+      this.emotionSystem.recover();
       if (card.id === "sanctum" || card.id === "sanctuary")
         this.barrier = Math.min(220, this.barrier + 42);
     }
-    if (card.status === "gauge") this.gauge = Math.min(100, this.gauge + value);
+    if (
+      card.status === "gauge" &&
+      card.id !== "fastsync" &&
+      card.id !== "reroute" &&
+      card.id !== "sector"
+    )
+      this.customSystem.add(value);
+    if (card.id === "fastsync")
+      this.customSystem.setTemporaryMultiplier(
+        COMBAT_BALANCE.custom.fastSyncMultiplier,
+        COMBAT_BALANCE.custom.fastSyncDurationMs,
+        this.gameTimeMs
+      );
+    if (card.id === "reroute") this.customSystem.fill();
     if (card.status === "boost") this.nextCardBoost = value / 100;
     if (card.status === "counter") this.retaliateDamage = value;
     if (card.id === "magguard") this.barrier = Math.min(220, this.barrier + 24);
@@ -1214,6 +1324,58 @@ export class GameWorld {
         null,
         "damage"
       );
+    this.syncCustomRemaining();
+  }
+
+  private applyOverloadEffect(card: Card): void {
+    const result = this.emotionSystem.registerOverload();
+    this.playerMaxHp = Math.max(
+      1,
+      this.playerMaxHp - result.appliedMaxHpReduction
+    );
+    this.playerHp = Math.min(this.playerHp, this.playerMaxHp);
+    this.score = Math.max(0, this.score - COMBAT_BALANCE.overload.scorePenalty);
+    if (card.id === "overload-limit-cannon") {
+      this.normalShotDamageMultiplier = 0.5;
+      this.message = "限界砲 — このWaveは通常射撃が半減";
+    }
+    if (card.id === "overload-contamination") {
+      this.contaminationActive = true;
+      this.message = "汚染拡散 — 移動した自陣が毒化";
+    }
+    if (card.id === "overload-forced-repair") {
+      this.healPlayer(this.playerMaxHp);
+      this.forcedRepairDrainActive = true;
+      this.nextForcedRepairDrainAt = this.gameTimeMs + 1000;
+      this.message = "強制修復 — 修復後の維持負荷が発生";
+    }
+    if (card.id === "overload-collapse-field") {
+      this.panelSystem
+        .snapshot()
+        .filter(panel => panel.owner === "enemy")
+        .forEach(panel =>
+          this.panelSystem.setTerrain(panel, "poison", this.gameTimeMs, 8000)
+        );
+      this.panelSystem
+        .snapshot()
+        .filter(
+          panel => panel.owner === "player" && !sameTile(panel, this.playerGrid)
+        )
+        .forEach(panel =>
+          this.panelSystem.setTerrain(panel, "hole", this.gameTimeMs, 4000)
+        );
+      this.handSizeReduction = Math.max(
+        this.handSizeReduction,
+        COMBAT_BALANCE.overload.collapseHandReduction
+      );
+      this.message = "崩落領域 — 次の手札が減少";
+    }
+    if (card.id === "overload-severing-blade") {
+      this.customSystem.setBaseMultiplier(
+        COMBAT_BALANCE.custom.severingBladeMultiplier
+      );
+      this.message = "断絶刃 — ゲージ上昇速度が低下";
+    }
   }
 
   private paintSanctuary(durationMs: number): void {
@@ -1359,30 +1521,22 @@ export class GameWorld {
     enemy.hp = Math.max(0, enemy.hp - damage);
     const counter = Boolean(
       card &&
+        card.power > 0 &&
+        !charged &&
         enemy.state === "windup" &&
-        isCounterWindow(this.gameTimeMs - enemy.attackStartedAt, {
-          startupMs: enemy.windupUntil - enemy.attackStartedAt,
-          counterStartMs:
-            enemy.counterStartAt === null
-              ? null
-              : enemy.counterStartAt - enemy.attackStartedAt,
-          counterEndMs:
-            enemy.counterEndAt === null
-              ? null
-              : enemy.counterEndAt - enemy.attackStartedAt,
-          activeMs: 0,
-          recoveryMs: 0,
-        })
+        isCounterWindowOpen(this.gameTimeMs, enemy.counterWindowState)
     );
     if (counter) {
       this.clearWarnings(enemy);
       enemy.lockedTargets = [];
       enemy.state = "stunned";
       enemy.stunnedUntil = this.gameTimeMs + COMBAT_BALANCE.counter.stunMs;
-      this.sync = true;
+      this.sync = this.emotionSystem.counterSuccess();
       this.counters += 1;
       this.score += 150;
-      this.message = "カードカウンター — フルシンクロ";
+      this.message = this.sync
+        ? "カードカウンター — フルシンクロ"
+        : "カードカウンター — 激昂を維持";
       this.onEvent({ type: "counter", at: { ...enemy.grid } });
     }
     this.onEvent({
@@ -1443,10 +1597,31 @@ export class GameWorld {
 
   private resetBattleDeck(): void {
     this.battleDeck.resetWave(this.deckSeed());
-    this.customHand = this.battleDeck.drawHand();
+    this.customHand = this.drawCustomHand();
     this.selected = [];
     this.focusedCard = null;
     this.selectionError = null;
+  }
+
+  private drawCustomHand(): Card[] {
+    const hand = this.battleDeck.drawHand();
+    const chance = this.emotionSystem.overloadChance();
+    if (hand.length > 0 && this.overloadRandom.next() < chance) {
+      const slot = this.overloadRandom.int(hand.length);
+      const overload = this.overloadRandom.pick(OVERLOAD_CARDS);
+      if (overload) {
+        hand[slot] = {
+          ...overload,
+          folderClass: "overload",
+          instanceId: hand[slot].instanceId,
+          selectedCode: "!",
+          allowedCodes: ["!"],
+        };
+      }
+    }
+    return this.handSizeReduction > 0
+      ? hand.slice(0, Math.max(1, hand.length - this.handSizeReduction))
+      : hand;
   }
 
   private reloadFolder(): void {
@@ -1455,8 +1630,8 @@ export class GameWorld {
     this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed());
     this.queue = [];
     this.mode = "custom";
-    this.gauge = 0;
-    this.customRemaining = CUSTOM_INTERVAL_SECONDS;
+    this.customSystem.reset();
+    this.syncCustomRemaining();
     this.message = `${this.activeFolder.name}を読み込みました — カードを選択`;
     this.resetBattleDeck();
     this.notify();
@@ -1467,12 +1642,12 @@ export class GameWorld {
   }
 
   private beginCustom(message: string): void {
+    if (!this.customSystem.isFull()) return;
     this.mode = "custom";
     this.clock.discardPendingTime();
     this.cancelCharge();
     this.hitstopRemainingMs = 0;
-    this.gauge = 100;
-    this.customHand = this.battleDeck.drawHand();
+    this.customHand = this.drawCustomHand();
     this.selected = [];
     this.focusedCard = null;
     this.selectionError = null;
@@ -1481,6 +1656,16 @@ export class GameWorld {
   }
   private openCustom(): void {
     if (this.mode !== "battle" || this.paused) return;
+    if (this.isCharging) {
+      this.message = "チャージを解除してからカード選択を開いてください";
+      this.notify();
+      return;
+    }
+    if (!this.customSystem.isFull()) {
+      this.message = "カスタムゲージが満タンになるまで開けません";
+      this.notify();
+      return;
+    }
     this.beginCustom("カスタム画面 — 次のカードを選択");
   }
   private toggleCard(index: number): void {
@@ -1491,6 +1676,17 @@ export class GameWorld {
       this.focusedCard = null;
       this.selectionError = null;
       this.message = `${card.name} の選択を解除`;
+    } else if (
+      this.selected.length > 0 &&
+      !validateSelection(this.customHand, [...this.selected, index]).valid
+    ) {
+      const reason = validateSelection(this.customHand, [
+        ...this.selected,
+        index,
+      ]).reason;
+      this.focusedCard = null;
+      this.selectionError = reason;
+      this.message = reason;
     } else if (this.focusedCard !== index) {
       this.focusedCard = index;
       this.selectionError = null;
@@ -1519,13 +1715,25 @@ export class GameWorld {
       this.notify();
       return;
     }
-    this.queue = this.battleDeck.commitSelection(this.selected);
+    const committed = this.battleDeck.commitSelection(this.selected);
+    const committedByInstance = new Map(
+      committed.map(card => [card.instanceId, card])
+    );
+    this.queue = this.selected.flatMap(index => {
+      const offered = this.customHand[index];
+      if (!offered) return [];
+      if (offered.isOverload) return [offered];
+      const committedCard = offered.instanceId
+        ? committedByInstance.get(offered.instanceId)
+        : undefined;
+      return committedCard ? [committedCard] : [];
+    });
     this.focusedCard = null;
     this.selectionError = null;
     this.mode = "battle";
     this.clock.discardPendingTime();
-    this.customRemaining = CUSTOM_INTERVAL_SECONDS;
-    this.gauge = 0;
+    this.customSystem.resetGauge();
+    this.syncCustomRemaining();
     this.message =
       this.queue.length > 0
         ? `WAVE 0${this.wave} — 接続開始`
@@ -1552,8 +1760,9 @@ export class GameWorld {
     this.syncBoardOccupancy();
     this.mode = this.wave >= FINAL_WAVE ? "result" : "intermission";
     if (this.mode === "intermission") {
-      this.playerHp = Math.min(PLAYER_MAX_HP, this.playerHp + 32);
-      this.message = `WAVE 0${this.wave} 完了 — 耐久+32`;
+      const recovery = Math.ceil(this.playerMaxHp * 0.15);
+      this.healPlayer(recovery);
+      this.message = `WAVE 0${this.wave} 完了 — 耐久を15%回復`;
     } else this.finishRun(true);
     this.notify();
   }
@@ -1562,8 +1771,10 @@ export class GameWorld {
     this.wave += 1;
     this.clock.discardPendingTime();
     this.playerGrid = { col: 1, row: 1 };
-    this.gauge = 0;
+    this.customSystem.reset();
+    this.syncCustomRemaining();
     this.sync = false;
+    this.emotionSystem.resetWave();
     this.charging = 0;
     this.isCharging = false;
     this.barrier = 0;
@@ -1572,6 +1783,11 @@ export class GameWorld {
     this.playerDamageInvulnerableUntil = 0;
     this.retaliateDamage = 0;
     this.nextCardBoost = 1;
+    this.normalShotDamageMultiplier = 1;
+    this.contaminationActive = false;
+    this.forcedRepairDrainActive = false;
+    this.nextForcedRepairDrainAt = 0;
+    this.handSizeReduction = 0;
     this.hitstopRemainingMs = 0;
     this.projectileSystem.reset();
     this.pendingMelee = [];
@@ -1579,7 +1795,6 @@ export class GameWorld {
     this.selected = [];
     this.focusedCard = null;
     this.selectionError = null;
-    this.customRemaining = CUSTOM_INTERVAL_SECONDS;
     this.resetBattleDeck();
     this.resetBoard();
     this.mode = "custom";
@@ -1593,9 +1808,12 @@ export class GameWorld {
     this.mode = "custom";
     this.paused = false;
     this.playerHp = PLAYER_MAX_HP;
+    this.playerMaxHp = PLAYER_MAX_HP;
     this.playerGrid = { col: 1, row: 1 };
-    this.gauge = 0;
+    this.customSystem.reset();
+    this.syncCustomRemaining();
     this.sync = false;
+    this.emotionSystem.resetRun();
     this.charging = 0;
     this.isCharging = false;
     this.barrier = 0;
@@ -1604,6 +1822,11 @@ export class GameWorld {
     this.playerDamageInvulnerableUntil = 0;
     this.retaliateDamage = 0;
     this.nextCardBoost = 1;
+    this.normalShotDamageMultiplier = 1;
+    this.contaminationActive = false;
+    this.forcedRepairDrainActive = false;
+    this.nextForcedRepairDrainAt = 0;
+    this.handSizeReduction = 0;
     this.wave = 1;
     this.score = 0;
     this.selected = [];
@@ -1616,9 +1839,9 @@ export class GameWorld {
     this.rank = "—";
     this.activeFolder = getActiveFolder(loadSaveData());
     this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed());
+    this.overloadRandom = new Random(0x51a7c0de);
     this.projectileSystem.reset();
     this.pendingMelee = [];
-    this.customRemaining = CUSTOM_INTERVAL_SECONDS;
     this.nextFireAt = 0;
     this.resetBattleDeck();
     this.resetBoard();
@@ -1644,7 +1867,10 @@ export class GameWorld {
     this.syncBoardOccupancy();
     this.mode = "result";
     if (victory) {
-      this.score += this.counters * 80 + Math.ceil(this.playerHp / 10);
+      this.score = Math.max(
+        0,
+        this.score + this.counters * 80 + Math.ceil(this.playerHp / 10)
+      );
       this.rank = this.score >= 1500 ? "S" : this.score >= 1000 ? "A" : "B";
       this.message = "ネットワーク制圧完了";
     } else {
@@ -1681,6 +1907,7 @@ export class GameWorld {
       maxHp: Math.round(hp * scale),
       grid,
       state: "idle",
+      counterWindow: false,
       windupUntil: 0,
       recoverUntil: 0,
       stunnedUntil: 0,
@@ -1697,6 +1924,10 @@ export class GameWorld {
       attackStartedAt: 0,
       counterStartAt: null,
       counterEndAt: null,
+      counterWindowMs:
+        COMBAT_BALANCE.counter.patternWindowMs[pattern] ??
+        COMBAT_BALANCE.counter.windowMs,
+      counterWindowState: null,
     });
     const layouts: (() => Enemy[])[] = [
       () => [
@@ -1832,13 +2063,17 @@ export class GameWorld {
   }
   private notify(): void {
     const now = this.gameTimeMs;
+    const emotion = this.emotionSystem.snapshot(now);
     this.onSnapshot({
       mode: this.mode,
       playerHp: this.playerHp,
-      playerMaxHp: PLAYER_MAX_HP,
+      playerMaxHp: this.playerMaxHp,
       playerGrid: { ...this.playerGrid },
-      gauge: this.gauge,
+      gauge: this.customSystem.value,
       sync: this.sync,
+      emotion: emotion.state,
+      emotionRemaining: emotion.remainingMs / 1000,
+      corruption: emotion.corruption,
       charging: this.charging,
       barrier: this.barrier,
       invincible: now < this.invincibleUntil,
@@ -1866,8 +2101,17 @@ export class GameWorld {
           attackStartedAt: _as,
           counterStartAt: _cs,
           counterEndAt: _ce,
+          counterWindowMs: _cwm,
+          counterWindowState: _cws,
           ...enemy
-        }) => ({ ...enemy, grid: { ...enemy.grid } })
+        }) => ({
+          ...enemy,
+          grid: { ...enemy.grid },
+          counterWindow:
+            this.sync &&
+            enemy.state === "windup" &&
+            isCounterWindowOpen(now, _cws),
+        })
       ),
       panels: this.panelSystem.snapshot(),
       objects: this.objectSystem.snapshot(),

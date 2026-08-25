@@ -58,6 +58,7 @@ const CARD_CODE_OPTIONS: Record<string, ConnectionCode[]> = {
 };
 
 export function getAllowedCodes(card: Card): ConnectionCode[] {
+  if (card.isOverload) return ["!"];
   const configured = CARD_CODE_OPTIONS[card.id];
   if (configured) return [...configured];
   if (/^[A-F]$/.test(card.code)) return [card.code as ConnectionCode];
@@ -65,6 +66,7 @@ export function getAllowedCodes(card: Card): ConnectionCode[] {
 }
 
 export function getFolderCardClass(card: Card): FolderCardClass {
+  if (card.isOverload) return "overload";
   if (card.id === "overdrive") return "trump";
   if (card.id === "moonblade") return "upper";
   if (card.tier === "mega") return "upper";

@@ -33,7 +33,7 @@ const standardCards: Card[] = [
   { id: "sanctum", name: "聖域セル", code: "A", tier: "standard", family: "地形", target: "self", power: 0, status: "recover", effectValue: 24, description: "小回復と障壁を得る" },
   { id: "crack", name: "亀裂線", code: "B", tier: "standard", family: "地形", target: "row", power: 34, status: "slow", durationMs: 2400, description: "横列の攻撃を遅らせる" },
   { id: "rush", name: "強襲転送", code: "B", tier: "standard", family: "地形", target: "self", power: 0, status: "invincible", durationMs: 5000, description: "5秒間の無敵を得る" },
-  { id: "sector", name: "区画拡張", code: "C", tier: "standard", family: "地形", target: "self", power: 0, status: "gauge", effectValue: 42, description: "回復しカスタムを加速" },
+  { id: "sector", name: "区画拡張", code: "C", tier: "standard", family: "地形", target: "self", power: 0, description: "敵前列を一時的に自陣化" },
   { id: "gravity", name: "引力場", code: "C", tier: "standard", family: "地形", target: "cross", power: 22, status: "slow", durationMs: 2600, description: "十字対象を減速" },
   { id: "gustwall", name: "乱流壁", code: "D", tier: "standard", family: "地形", target: "row", power: 25, status: "root", durationMs: 1800, description: "行への接近を拘束" },
   { id: "hole", name: "逆位相穴", code: "E", tier: "standard", family: "地形", target: "enemy-field", power: 16, status: "slow", durationMs: 2900, description: "敵全体を減速" },
@@ -59,7 +59,7 @@ const megaCards: Card[] = [
 
 export const CARD_CATALOG = [...standardCards, ...megaCards];
 
-export type SelectionRule = "name" | "code" | "wildcard" | null;
+export type SelectionRule = "name" | "code" | "wildcard" | "overload" | null;
 export interface SelectionValidation {
   valid: boolean;
   rule: SelectionRule;
@@ -100,6 +100,16 @@ export function validateSelection(
   const cards = selected.map(index => hand[index]);
   if (cards.some(card => !card))
     return { valid: false, rule: null, reason: "存在しないカードが選ばれています" };
+  const overloadCards = cards.filter(card => card.isOverload);
+  if (overloadCards.length > 0) {
+    return overloadCards.length === 1 && cards.length === 1
+      ? { valid: true, rule: "overload", reason: "過負荷カードを単独で接続" }
+      : {
+          valid: false,
+          rule: null,
+          reason: "過負荷カードは他のカードと同時選択できません",
+        };
+  }
   const names = new Set(cards.map(card => card.name));
   const codes = cards.map(card => card.selectedCode ?? card.code);
   const uniqueCodes = new Set(codes);
