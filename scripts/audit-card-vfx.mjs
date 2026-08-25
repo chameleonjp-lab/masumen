@@ -15,7 +15,7 @@ const cardIds = idsFrom(deck, /id: "([a-z]+)"/g);
 const recipeIds = idsFrom(recipes, /^\s{2}([a-z]+): \{ label:/gm);
 const audioRecipeIds = idsFrom(audioRecipes, /^\s{2}([a-z]+): \{ wave:/gm);
 const signatureIds = idsFrom(scene, /case "([a-z]+)":/g);
-const meleeIds = idsFrom(scene, /^\s{6}([a-z]+): \{ arcs:/gm);
+const meleeIds = idsFrom(scene, /^\s{6}([a-z]+): \{\s*arcs:/gm);
 const renderedIds = unique([...signatureIds, ...meleeIds]);
 const missingRecipes = cardIds.filter((id) => !recipeIds.includes(id));
 const orphanRecipes = recipeIds.filter((id) => !cardIds.includes(id));

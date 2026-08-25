@@ -126,4 +126,49 @@ describe("GameWorldの現行Wave基準", () => {
       expect(latest?.paused).toBe(false);
     }
   });
+
+  it("publishes the board state, blocks enemy-territory entry, and resets it on restart", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      () => undefined
+    );
+    const initial = latest;
+    expect(initial?.panels).toHaveLength(18);
+    expect(
+      initial?.panels.filter(panel => panel.owner === "player")
+    ).toHaveLength(9);
+    expect(
+      initial?.panels
+        .filter(panel => panel.occupantId !== null)
+        .map(panel => panel.occupantId)
+    ).toEqual(expect.arrayContaining(["player", "bulwark", "scanner"]));
+    expect(
+      new Set(
+        initial?.panels
+          .filter(panel => panel.occupantId !== null)
+          .map(panel => panel.occupantId)
+      ).size
+    ).toBe(initial?.enemies.length ? initial.enemies.length + 1 : 0);
+
+    world.controller.toggleCard(0);
+    world.controller.toggleCard(0);
+    world.controller.confirmCustom();
+    world.controller.move(1, 0);
+    expect(latest?.playerGrid).toEqual({ col: 2, row: 1 });
+    world.controller.move(1, 0);
+    expect(latest?.playerGrid).toEqual({ col: 2, row: 1 });
+
+    world.controller.restart();
+    expect(latest?.playerGrid).toEqual({ col: 1, row: 1 });
+    expect(latest?.objects).toHaveLength(0);
+    expect(
+      latest?.panels.filter(panel => panel.owner === "player")
+    ).toHaveLength(9);
+    expect(
+      latest?.panels.find(panel => panel.occupantId === "player")?.terrain
+    ).toBe("normal");
+  });
 });
