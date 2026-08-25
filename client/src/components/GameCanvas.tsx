@@ -23,6 +23,7 @@ const initialSnapshot: BattleSnapshot = {
   enemies: [],
   panels: [],
   objects: [],
+  projectiles: [],
   message: "INITIALIZING TERMINAL",
   elapsed: 0,
   counters: 0,
@@ -49,21 +50,40 @@ function timecode(seconds: number) {
   return `${minutes}:${secs}`;
 }
 
-function previewTargets(card: BattleSnapshot["customHand"][number] | undefined) {
+function previewTargets(
+  card: BattleSnapshot["customHand"][number] | undefined
+) {
   if (!card) return new Set<string>();
   if (card.target === "self") return new Set(["1:1"]);
   if (card.target === "near") return new Set(["3:0", "3:1", "3:2"]);
-  if (card.target === "front" || card.target === "row") return new Set(["3:1", "4:1", "5:1"]);
+  if (card.target === "front" || card.target === "row")
+    return new Set(["3:1", "4:1", "5:1"]);
   if (card.target === "column") return new Set(["4:0", "4:1", "4:2"]);
-  if (card.target === "cross") return new Set(["3:1", "4:1", "5:1", "4:0", "4:2"]);
-  return new Set(["3:0", "3:1", "3:2", "4:0", "4:1", "4:2", "5:0", "5:1", "5:2"]);
+  if (card.target === "cross")
+    return new Set(["3:1", "4:1", "5:1", "4:0", "4:2"]);
+  return new Set([
+    "3:0",
+    "3:1",
+    "3:2",
+    "4:0",
+    "4:1",
+    "4:2",
+    "5:0",
+    "5:1",
+    "5:2",
+  ]);
 }
 
-function previewDelay(card: BattleSnapshot["customHand"][number] | undefined, col: number, row: number) {
+function previewDelay(
+  card: BattleSnapshot["customHand"][number] | undefined,
+  col: number,
+  row: number
+) {
   if (!card || card.target === "self") return 0;
   if (card.target === "front" || card.target === "row") return (col - 3) * 135;
   if (card.target === "column" || card.target === "near") return row * 135;
-  if (card.target === "cross") return (Math.abs(col - 4) + Math.abs(row - 1)) * 120;
+  if (card.target === "cross")
+    return (Math.abs(col - 4) + Math.abs(row - 1)) * 120;
   return (col - 3) * 140 + row * 42;
 }
 
@@ -127,7 +147,12 @@ export default function GameCanvas() {
 
   const controller = controllerRef.current;
   const hpRatio = (snapshot.playerHp / snapshot.playerMaxHp) * 100;
-  const crisisState = snapshot.mode === "battle" && hpRatio <= 15 ? "critical" : snapshot.mode === "battle" && hpRatio <= 30 ? "caution" : "normal";
+  const crisisState =
+    snapshot.mode === "battle" && hpRatio <= 15
+      ? "critical"
+      : snapshot.mode === "battle" && hpRatio <= 30
+        ? "caution"
+        : "normal";
   const toggleSound = () => {
     const next = !soundEnabled;
     setSoundEnabled(next);
@@ -144,8 +169,15 @@ export default function GameCanvas() {
   };
 
   return (
-    <main className={`game-shell ${crisisState !== "normal" ? `is-${crisisState}` : ""}`}>
-      <canvas ref={canvasRef} className="game-canvas" style={{ touchAction: "none" }} aria-label="Grid Signal Arenaの戦闘フィールド" />
+    <main
+      className={`game-shell ${crisisState !== "normal" ? `is-${crisisState}` : ""}`}
+    >
+      <canvas
+        ref={canvasRef}
+        className="game-canvas"
+        style={{ touchAction: "none" }}
+        aria-label="Grid Signal Arenaの戦闘フィールド"
+      />
       <div className="screen-noise" aria-hidden="true" />
       <div className="crisis-frame" aria-hidden="true" />
       <div className="signal-hud">
@@ -158,23 +190,38 @@ export default function GameCanvas() {
           <span className="brand-node" />
         </header>
         {snapshot.mode === "battle" && (
-          <button type="button" className="pause-button" onClick={() => controller?.togglePause()} aria-pressed={snapshot.paused} aria-label="一時停止メニューを開く">
+          <button
+            type="button"
+            className="pause-button"
+            onClick={() => controller?.togglePause()}
+            aria-pressed={snapshot.paused}
+            aria-label="一時停止メニューを開く"
+          >
             {snapshot.paused ? "▶ 再開" : "Ⅱ 停止"}
           </button>
         )}
 
-        <section className={`player-console technical-panel ${crisisState !== "normal" ? "is-crisis" : ""}`}>
+        <section
+          className={`player-console technical-panel ${crisisState !== "normal" ? "is-crisis" : ""}`}
+        >
           <p className="eyebrow">01 / PILOT STATUS // WAVE 0{snapshot.wave}</p>
           <div className="metric-row">
             <span>INTEGRITY</span>
-            <strong className={crisisState !== "normal" ? "is-crisis" : ""}>{String(snapshot.playerHp).padStart(3, "0")}</strong>
+            <strong className={crisisState !== "normal" ? "is-crisis" : ""}>
+              {String(snapshot.playerHp).padStart(3, "0")}
+            </strong>
           </div>
-          <div className={`meter hp-meter ${crisisState !== "normal" ? `is-${crisisState}` : ""}`}>
+          <div
+            className={`meter hp-meter ${crisisState !== "normal" ? `is-${crisisState}` : ""}`}
+          >
             <span style={meterStyle(hpRatio)} />
           </div>
           {crisisState !== "normal" && (
             <div className={`crisis-readout is-${crisisState}`}>
-              <i /> {crisisState === "critical" ? "CRITICAL // EVASIVE ACTION" : "CAUTION // INTEGRITY LOW"}
+              <i />{" "}
+              {crisisState === "critical"
+                ? "CRITICAL // EVASIVE ACTION"
+                : "CAUTION // INTEGRITY LOW"}
             </div>
           )}
           <div className="metric-row compact">
@@ -184,7 +231,14 @@ export default function GameCanvas() {
             </strong>
           </div>
           <div className={`sync-status ${snapshot.sync ? "is-synced" : ""}`}>
-            <i /> {snapshot.sync ? "FULL SYNC // 次カード x2" : snapshot.invincible ? `PHASE VEIL // ${snapshot.invincibleRemaining.toFixed(1)}S` : snapshot.barrier > 0 ? `BARRIER // ${snapshot.barrier}` : "SYNC LINK // STANDBY"}
+            <i />{" "}
+            {snapshot.sync
+              ? "FULL SYNC // 次カード x2"
+              : snapshot.invincible
+                ? `PHASE VEIL // ${snapshot.invincibleRemaining.toFixed(1)}S`
+                : snapshot.barrier > 0
+                  ? `BARRIER // ${snapshot.barrier}`
+                  : "SYNC LINK // STANDBY"}
           </div>
         </section>
 
@@ -193,9 +247,18 @@ export default function GameCanvas() {
           {snapshot.enemies.map(enemy => (
             <div className="enemy-readout" key={enemy.id}>
               <div>
-                <span className={`enemy-state state-${enemy.state}`} /> <b>{enemy.name}</b>
+                <span className={`enemy-state state-${enemy.state}`} />{" "}
+                <b>{enemy.name}</b>
               </div>
-              <small>{enemy.state === "windup" ? "VECTOR LOCK" : enemy.state === "stunned" ? "STUNNED" : enemy.state === "deleted" ? "OFFLINE" : enemy.pattern.replace("-", " ").toUpperCase()}</small>
+              <small>
+                {enemy.state === "windup"
+                  ? "VECTOR LOCK"
+                  : enemy.state === "stunned"
+                    ? "STUNNED"
+                    : enemy.state === "deleted"
+                      ? "OFFLINE"
+                      : enemy.pattern.replace("-", " ").toUpperCase()}
+              </small>
               <div className="meter enemy-meter">
                 <span style={meterStyle((enemy.hp / enemy.maxHp) * 100)} />
               </div>
@@ -216,7 +279,8 @@ export default function GameCanvas() {
             <strong>{String(snapshot.score).padStart(5, "0")}</strong>
           </div>
           <small>
-            BEST {String(snapshot.highScore).padStart(5, "0")} / WAVE {String(snapshot.bestWave).padStart(2, "0")}
+            BEST {String(snapshot.highScore).padStart(5, "0")} / WAVE{" "}
+            {String(snapshot.bestWave).padStart(2, "0")}
           </small>
         </section>
 
@@ -227,7 +291,12 @@ export default function GameCanvas() {
               {snapshot.queue.length > 0 ? (
                 <>
                   <strong>{snapshot.queue[0].name}</strong>
-                  <span>{snapshot.sync ? snapshot.queue[0].power * 2 : snapshot.queue[0].power} OUT</span>
+                  <span>
+                    {snapshot.sync
+                      ? snapshot.queue[0].power * 2
+                      : snapshot.queue[0].power}{" "}
+                    OUT
+                  </span>
                 </>
               ) : (
                 <strong className="empty-queue">送信済みカードなし</strong>
@@ -247,7 +316,10 @@ export default function GameCanvas() {
             </section>
             <section className="skill-rail" aria-label="送信済みカード">
               {snapshot.queue.map((card, index) => (
-                <div className={`queued-card ${index === 0 ? "next" : ""} ${card.tier === "mega" ? "mega" : ""}`} key={`${card.id}-${index}`}>
+                <div
+                  className={`queued-card ${index === 0 ? "next" : ""} ${card.tier === "mega" ? "mega" : ""}`}
+                  key={`${card.id}-${index}`}
+                >
                   <em>
                     {index + 1} / {card.tier === "mega" ? "メガ" : card.family}
                   </em>
@@ -262,10 +334,15 @@ export default function GameCanvas() {
 
       {snapshot.mode === "custom" && (
         <section className="custom-console" aria-label="カスタムコンソール">
-          <div className="reference-ghost" style={{ backgroundImage: `url(${ASSET_URLS.reference})` }} aria-hidden="true" />
+          <div
+            className="reference-ghost"
+            style={{ backgroundImage: `url(${ASSET_URLS.reference})` }}
+            aria-hidden="true"
+          />
           <div className="custom-topline">
             <span>
-              RELAY CONSOLE / WAVE 0{snapshot.wave} / {snapshot.elapsed > 0 ? "10S RE-ROUTE" : "FIRST ROUTE"}
+              RELAY CONSOLE / WAVE 0{snapshot.wave} /{" "}
+              {snapshot.elapsed > 0 ? "10S RE-ROUTE" : "FIRST ROUTE"}
             </span>
             <span>HAND 05</span>
           </div>
@@ -276,12 +353,16 @@ export default function GameCanvas() {
               <br />
               接続する。
             </h1>
-            <span>カードは組み合わせを問わず、最大5枚まで自由に送信できます。</span>
+            <span>
+              カードは組み合わせを問わず、最大5枚まで自由に送信できます。
+            </span>
             <div className="card-inspector" aria-live="polite">
               {snapshot.focusedCard !== null ? (
                 <>
                   <b>{snapshot.customHand[snapshot.focusedCard]?.name}</b>
-                  <span>{snapshot.customHand[snapshot.focusedCard]?.description}</span>
+                  <span>
+                    {snapshot.customHand[snapshot.focusedCard]?.description}
+                  </span>
                   <em>もう一度タップして選択</em>
                 </>
               ) : (
@@ -295,10 +376,19 @@ export default function GameCanvas() {
               const focused = snapshot.focusedCard === index;
               const selectionOrder = snapshot.selected.indexOf(index) + 1;
               return (
-                <button type="button" key={`${card.id}-${index}`} className={`signal-card ${selected ? "selected" : ""} ${focused ? "focused" : ""} ${card.tier === "mega" ? "mega-card" : ""}`} onClick={() => controller?.toggleCard(index)}>
+                <button
+                  type="button"
+                  key={`${card.id}-${index}`}
+                  className={`signal-card ${selected ? "selected" : ""} ${focused ? "focused" : ""} ${card.tier === "mega" ? "mega-card" : ""}`}
+                  onClick={() => controller?.toggleCard(index)}
+                >
                   <span className="card-index">0{index + 1}</span>
-                  {selected && <span className="selection-order">{selectionOrder}</span>}
-                  <span className="card-lane">{card.tier === "mega" ? "メガ" : card.family}</span>
+                  {selected && (
+                    <span className="selection-order">{selectionOrder}</span>
+                  )}
+                  <span className="card-lane">
+                    {card.tier === "mega" ? "メガ" : card.family}
+                  </span>
                   <strong>{card.name}</strong>
                   <small>{card.description}</small>
                   <b>
@@ -310,14 +400,31 @@ export default function GameCanvas() {
               );
             })}
           </div>
-          <section className="custom-range-preview" aria-label="カード攻撃範囲プレビュー">
+          <section
+            className="custom-range-preview"
+            aria-label="カード攻撃範囲プレビュー"
+          >
             <div className="range-preview-label">
-              <span>RANGE MAP / {snapshot.customHand[snapshot.focusedCard ?? snapshot.selected[0] ?? 0]?.target ?? "front"}</span>
-              <b>{snapshot.customHand[snapshot.focusedCard ?? snapshot.selected[0] ?? 0]?.name ?? "カード選択"}</b>
+              <span>
+                RANGE MAP /{" "}
+                {snapshot.customHand[
+                  snapshot.focusedCard ?? snapshot.selected[0] ?? 0
+                ]?.target ?? "front"}
+              </span>
+              <b>
+                {snapshot.customHand[
+                  snapshot.focusedCard ?? snapshot.selected[0] ?? 0
+                ]?.name ?? "カード選択"}
+              </b>
             </div>
-            <div className={`range-board range-${snapshot.customHand[snapshot.focusedCard ?? snapshot.selected[0] ?? 0]?.target ?? "front"}`}>
+            <div
+              className={`range-board range-${snapshot.customHand[snapshot.focusedCard ?? snapshot.selected[0] ?? 0]?.target ?? "front"}`}
+            >
               {Array.from({ length: 18 }, (_, index) => {
-                const previewCard = snapshot.customHand[snapshot.focusedCard ?? snapshot.selected[0] ?? 0];
+                const previewCard =
+                  snapshot.customHand[
+                    snapshot.focusedCard ?? snapshot.selected[0] ?? 0
+                  ];
                 const col = Math.floor(index / 3);
                 const row = index % 3;
                 const tileKey = `${col}:${row}`;
@@ -341,14 +448,26 @@ export default function GameCanvas() {
               })}
             </div>
             <small>
-              <b className="range-vector">{previewVector(snapshot.customHand[snapshot.focusedCard ?? snapshot.selected[0] ?? 0])}</b> 自陣中央の P から、説明中または選択中のカードが作用する対象マスを順に走査
+              <b className="range-vector">
+                {previewVector(
+                  snapshot.customHand[
+                    snapshot.focusedCard ?? snapshot.selected[0] ?? 0
+                  ]
+                )}
+              </b>{" "}
+              自陣中央の P
+              から、説明中または選択中のカードが作用する対象マスを順に走査
             </small>
           </section>
           <div className="custom-footer">
             <p>
               <span>{snapshot.selected.length}</span> / 05 CARDS ROUTED
             </p>
-            <button type="button" className="engage-button" onClick={() => controller?.confirmCustom()}>
+            <button
+              type="button"
+              className="engage-button"
+              onClick={() => controller?.confirmCustom()}
+            >
               ENGAGE <span>↗</span>
             </button>
           </div>
@@ -443,7 +562,12 @@ export default function GameCanvas() {
       )}
 
       {snapshot.mode === "battle" && snapshot.paused && (
-        <section className="pause-console" aria-modal="true" role="dialog" aria-label="一時停止と設定">
+        <section
+          className="pause-console"
+          aria-modal="true"
+          role="dialog"
+          aria-label="一時停止と設定"
+        >
           <p className="eyebrow">COMBAT PAUSED / SETTINGS</p>
           <h2>
             戦闘を
@@ -451,17 +575,40 @@ export default function GameCanvas() {
             一時停止中
           </h2>
           <div className="pause-settings">
-            <button type="button" className="sound-toggle" onClick={toggleSound} aria-pressed={soundEnabled}>
+            <button
+              type="button"
+              className="sound-toggle"
+              onClick={toggleSound}
+              aria-pressed={soundEnabled}
+            >
               SFX {soundEnabled ? "ON" : "OFF"}
             </button>
             <label className="volume-control">
-              音量 <input type="range" min="0" max="100" value={soundVolume} onChange={event => updateVolume(Number(event.target.value))} aria-label="効果音の音量" disabled={!soundEnabled} />
+              音量{" "}
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={soundVolume}
+                onChange={event => updateVolume(Number(event.target.value))}
+                aria-label="効果音の音量"
+                disabled={!soundEnabled}
+              />
             </label>
-            <button type="button" className="vibration-toggle" onClick={toggleVibration} aria-pressed={vibrationEnabled}>
+            <button
+              type="button"
+              className="vibration-toggle"
+              onClick={toggleVibration}
+              aria-pressed={vibrationEnabled}
+            >
               振動 {vibrationEnabled ? "ON" : "OFF"}
             </button>
           </div>
-          <button type="button" className="engage-button" onClick={() => controller?.togglePause()}>
+          <button
+            type="button"
+            className="engage-button"
+            onClick={() => controller?.togglePause()}
+          >
             RESUME <span>↗</span>
           </button>
         </section>
@@ -488,7 +635,11 @@ export default function GameCanvas() {
               COUNTERS <b>{String(snapshot.counters).padStart(2, "0")}</b>
             </span>
           </div>
-          <button type="button" className="engage-button" onClick={() => controller?.nextWave()}>
+          <button
+            type="button"
+            className="engage-button"
+            onClick={() => controller?.nextWave()}
+          >
             NEXT WAVE <span>↗</span>
           </button>
         </section>
@@ -496,7 +647,9 @@ export default function GameCanvas() {
 
       {snapshot.mode === "result" && (
         <section className="result-console" aria-live="polite">
-          <p className="eyebrow">RESULT / {snapshot.rank === "R" ? "RETRY CHANNEL" : "DATA SECURED"}</p>
+          <p className="eyebrow">
+            RESULT / {snapshot.rank === "R" ? "RETRY CHANNEL" : "DATA SECURED"}
+          </p>
           <h2>{snapshot.rank === "R" ? "SIGNAL LOST" : "NETWORK CLEARED"}</h2>
           <div className="rank-dial">
             <span>RANK</span>
@@ -513,7 +666,11 @@ export default function GameCanvas() {
               WAVE <b>{String(snapshot.bestWave).padStart(2, "0")}</b>
             </span>
           </div>
-          <button type="button" className="engage-button" onClick={() => controller?.restart()}>
+          <button
+            type="button"
+            className="engage-button"
+            onClick={() => controller?.restart()}
+          >
             RELINK <span>↗</span>
           </button>
         </section>

@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Audit combat data
-        run: pnpm audit:card-vfx && pnpm audit:combat-data && pnpm audit:encounters && pnpm audit:board-data
+        run: pnpm audit:card-vfx && pnpm audit:combat-data && pnpm audit:encounters && pnpm audit:board-data && pnpm audit:attack-data
       - name: Run unit tests
         run: pnpm test
       - name: Type check
