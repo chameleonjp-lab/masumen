@@ -48,6 +48,51 @@ describe("GameWorldの現行Wave基準", () => {
     );
   });
 
+  it("starts from five folder cards with stable instance identities", () => {
+    let latest: BattleSnapshot | undefined;
+    new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      () => undefined
+    );
+    expect(latest?.customHand).toHaveLength(5);
+    expect(
+      new Set(latest?.customHand.map(card => card.instanceId)).size
+    ).toBe(5);
+    expect(latest?.customHand.every(card => card.selectedCode)).toBe(true);
+  });
+
+  it("allows returning to battle with zero selected cards", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      () => undefined
+    );
+    world.controller.confirmCustom();
+    expect(latest?.mode).toBe("battle");
+    expect(latest?.queue).toHaveLength(0);
+    expect(latest?.message).toContain("カードなし");
+  });
+
+  it("rejects a mixed-name and mixed-code selection using the whole set", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      () => undefined
+    );
+    world.controller.toggleCard(0);
+    world.controller.toggleCard(0);
+    world.controller.toggleCard(1);
+    world.controller.toggleCard(1);
+    expect(latest?.mode).toBe("custom");
+    expect(latest?.selectionError).toContain("同名、同じ接続コード");
+  });
+
   it("keeps battle time stable across render rates", () => {
     const run = (renderRate: number): BattleSnapshot => {
       let latest: BattleSnapshot | undefined;

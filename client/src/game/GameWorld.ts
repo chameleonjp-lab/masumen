@@ -1,7 +1,13 @@
 /** Signal Relay Tactical core: Japanese battle-chip cards resolve through shared target shapes, status effects, and counter windows. */
-import { canAppendSelection, drawHand, CARD_CATALOG } from "./deck";
+import { validateSelection, CARD_CATALOG } from "./deck";
 import { FixedStepClock } from "./core/FixedStepClock";
 import { COMBAT_BALANCE } from "./data/balance";
+import {
+  activeFolder as getActiveFolder,
+  BattleDeck,
+  loadSaveData,
+  type SavedFolder,
+} from "./folder";
 import { ObjectSystem } from "./systems/ObjectSystem";
 import { PanelSystem } from "./systems/PanelSystem";
 import {
@@ -121,9 +127,12 @@ export class GameWorld {
   private playerDamageInvulnerableUntil = 0;
   private retaliateDamage = 0;
   private nextCardBoost = 1;
-  private customHand = drawHand(0);
+  private activeFolder: SavedFolder = getActiveFolder(loadSaveData());
+  private battleDeck = new BattleDeck(this.activeFolder, 1009);
+  private customHand: Card[] = [];
   private selected: number[] = [];
   private focusedCard: number | null = null;
+  private selectionError: string | null = null;
   private queue: Card[] = [];
   private wave = 1;
   private score = 0;
@@ -133,7 +142,6 @@ export class GameWorld {
   private elapsed = 0;
   private counters = 0;
   private rank = "—";
-  private round = 0;
   private notifyTimer = 0;
   private paused = false;
   private customRemaining = CUSTOM_INTERVAL_SECONDS;
@@ -150,10 +158,9 @@ export class GameWorld {
     this.onEvent = onEvent;
     if (startWave > 1 && startWave <= FINAL_WAVE) {
       this.wave = startWave;
-      this.round = startWave - 1;
-      this.customHand = drawHand(this.round);
       this.message = `WAVE 0${this.wave} デモ — カードを選択`;
     }
+    this.resetBattleDeck();
     this.resetBoard();
     if (new URLSearchParams(window.location.search).has("panic")) {
       this.playerHp = 28;
@@ -171,6 +178,7 @@ export class GameWorld {
     openCustom: () => this.openCustom(),
     toggleCard: i => this.toggleCard(i),
     confirmCustom: () => this.confirmCustom(),
+    reloadFolder: () => this.reloadFolder(),
     nextWave: () => this.nextWave(),
     restart: () => this.restart(),
     togglePause: () => this.togglePause(),
@@ -1433,16 +1441,41 @@ export class GameWorld {
     this.syncBoardOccupancy();
   }
 
+  private resetBattleDeck(): void {
+    this.battleDeck.resetWave(this.deckSeed());
+    this.customHand = this.battleDeck.drawHand();
+    this.selected = [];
+    this.focusedCard = null;
+    this.selectionError = null;
+  }
+
+  private reloadFolder(): void {
+    const saveData = loadSaveData();
+    this.activeFolder = getActiveFolder(saveData);
+    this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed());
+    this.queue = [];
+    this.mode = "custom";
+    this.gauge = 0;
+    this.customRemaining = CUSTOM_INTERVAL_SECONDS;
+    this.message = `${this.activeFolder.name}を読み込みました — カードを選択`;
+    this.resetBattleDeck();
+    this.notify();
+  }
+
+  private deckSeed(): number {
+    return this.wave === 1 ? 12345 : this.wave * 1009 + 17;
+  }
+
   private beginCustom(message: string): void {
     this.mode = "custom";
     this.clock.discardPendingTime();
     this.cancelCharge();
     this.hitstopRemainingMs = 0;
-    this.round += 1;
     this.gauge = 100;
-    this.customHand = drawHand(this.round);
+    this.customHand = this.battleDeck.drawHand();
     this.selected = [];
     this.focusedCard = null;
+    this.selectionError = null;
     this.message = message;
     this.notify();
   }
@@ -1456,30 +1489,47 @@ export class GameWorld {
     if (this.selected.includes(index)) {
       this.selected = this.selected.filter(selected => selected !== index);
       this.focusedCard = null;
+      this.selectionError = null;
       this.message = `${card.name} の選択を解除`;
     } else if (this.focusedCard !== index) {
       this.focusedCard = index;
+      this.selectionError = null;
       this.message = `${card.name}: ${card.description} — もう一度タップで選択`;
-    } else if (canAppendSelection(this.customHand, this.selected, index)) {
-      this.selected = [...this.selected, index];
-      this.focusedCard = null;
-      this.message = `${card.name} を ${this.selected.length} 番目に選択`;
-    } else this.message = "選択できるカードは最大5枚です";
+    } else {
+      const nextSelection = [...this.selected, index];
+      const validation = validateSelection(this.customHand, nextSelection);
+      if (validation.valid) {
+        this.selected = nextSelection;
+        this.focusedCard = null;
+        this.selectionError = null;
+        this.message = `${card.name} を ${this.selected.length} 番目に選択`;
+      } else {
+        this.selectionError = validation.reason;
+        this.message = validation.reason;
+      }
+    }
     this.notify();
   }
   private confirmCustom(): void {
-    if (this.mode !== "custom" || this.selected.length === 0) {
-      this.message = "カードを1枚以上選択してください";
+    if (this.mode !== "custom") return;
+    const validation = validateSelection(this.customHand, this.selected);
+    if (!validation.valid) {
+      this.selectionError = validation.reason;
+      this.message = validation.reason;
       this.notify();
       return;
     }
-    this.queue = this.selected.map(index => this.customHand[index]);
+    this.queue = this.battleDeck.commitSelection(this.selected);
     this.focusedCard = null;
+    this.selectionError = null;
     this.mode = "battle";
     this.clock.discardPendingTime();
     this.customRemaining = CUSTOM_INTERVAL_SECONDS;
     this.gauge = 0;
-    this.message = `WAVE 0${this.wave} — 接続開始`;
+    this.message =
+      this.queue.length > 0
+        ? `WAVE 0${this.wave} — 接続開始`
+        : `WAVE 0${this.wave} — カードなしで戦闘開始`;
     const now = this.gameTimeMs;
     this.enemies.forEach((enemy, index) => {
       if (enemy.state !== "deleted")
@@ -1528,9 +1578,9 @@ export class GameWorld {
     this.queue = [];
     this.selected = [];
     this.focusedCard = null;
+    this.selectionError = null;
     this.customRemaining = CUSTOM_INTERVAL_SECONDS;
-    this.round += 1;
-    this.customHand = drawHand(this.round);
+    this.resetBattleDeck();
     this.resetBoard();
     this.mode = "custom";
     this.message = `WAVE 0${this.wave} 接近 — カードを選択`;
@@ -1556,19 +1606,21 @@ export class GameWorld {
     this.nextCardBoost = 1;
     this.wave = 1;
     this.score = 0;
-    this.customHand = drawHand(0);
     this.selected = [];
     this.focusedCard = null;
+    this.selectionError = null;
     this.queue = [];
     this.message = "カードを選択してください";
     this.elapsed = 0;
     this.counters = 0;
     this.rank = "—";
-    this.round = 0;
+    this.activeFolder = getActiveFolder(loadSaveData());
+    this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed());
     this.projectileSystem.reset();
     this.pendingMelee = [];
     this.customRemaining = CUSTOM_INTERVAL_SECONDS;
     this.nextFireAt = 0;
+    this.resetBattleDeck();
     this.resetBoard();
     this.notify();
   }
@@ -1794,6 +1846,7 @@ export class GameWorld {
       customHand: this.customHand,
       selected: this.selected,
       focusedCard: this.focusedCard,
+      selectionError: this.selectionError,
       queue: this.queue,
       enemies: this.enemies.map(
         ({

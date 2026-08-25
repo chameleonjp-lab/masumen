@@ -2,6 +2,18 @@
 export type BattleMode = "custom" | "battle" | "intermission" | "result";
 export type EnemyState = "idle" | "windup" | "recover" | "stunned" | "deleted";
 export type CardTier = "standard" | "mega";
+export type ConnectionCode =
+  | "A"
+  | "B"
+  | "C"
+  | "D"
+  | "E"
+  | "F"
+  | "*"
+  | "M"
+  | "S"
+  | "X";
+export type FolderCardClass = "standard" | "upper" | "trump" | "overload";
 export type CardFamily =
   | "射撃"
   | "範囲"
@@ -123,6 +135,10 @@ export interface Card {
   name: string;
   code: string;
   tier: CardTier;
+  folderClass?: FolderCardClass;
+  allowedCodes?: ConnectionCode[];
+  instanceId?: string;
+  selectedCode?: ConnectionCode;
   family: CardFamily;
   target: TargetShape;
   power: number;
@@ -154,6 +170,7 @@ export interface BattleSnapshot {
   customHand: Card[];
   selected: number[];
   focusedCard: number | null;
+  selectionError: string | null;
   queue: Card[];
   enemies: EnemySnapshot[];
   panels: PanelState[];
@@ -223,6 +240,7 @@ export interface GameController {
   openCustom: () => void;
   toggleCard: (index: number) => void;
   confirmCustom: () => void;
+  reloadFolder?: () => void;
   nextWave: () => void;
   restart: () => void;
   togglePause: () => void;

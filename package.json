@@ -16,6 +16,7 @@
     "audit:encounters": "node scripts/audit-encounters.mjs",
     "audit:board-data": "node scripts/audit-board-data.mjs",
     "audit:attack-data": "node scripts/audit-attack-data.mjs",
+    "audit:folder-data": "node scripts/audit-folder-data.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {
