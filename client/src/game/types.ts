@@ -28,6 +28,7 @@ export type BattleEvent =
   | { type: "deleted"; id: string; at: GridPosition };
 export interface GameController {
   move: (dx: number, dy: number) => void; fire: () => void; startCharge: () => void; releaseCharge: () => void; useSkill: () => void;
+  cancelCharge: () => void;
   openCustom: () => void; toggleCard: (index: number) => void; confirmCustom: () => void; nextWave: () => void; restart: () => void; togglePause: () => void;
   setSoundEnabled?: (enabled: boolean) => void; setSoundVolume?: (volume: number) => void; setVibrationEnabled?: (enabled: boolean) => void;
 }

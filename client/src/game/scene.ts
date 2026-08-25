@@ -593,8 +593,21 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
       world.controller.releaseCharge();
     }
   };
+  const cancelInterruptedInput = () => {
+    world.controller.cancelCharge();
+    world.onVisibilityChange(false);
+    hitstopUntil = 0;
+  };
+  const handleVisibilityChange = () => {
+    if (document.hidden) cancelInterruptedInput();
+    else world.onVisibilityChange(true);
+  };
   window.addEventListener("keydown", keyDown);
   window.addEventListener("keyup", keyUp);
+  window.addEventListener("blur", cancelInterruptedInput);
+  window.addEventListener("pagehide", cancelInterruptedInput);
+  window.addEventListener("pointercancel", cancelInterruptedInput, { passive: true });
+  document.addEventListener("visibilitychange", handleVisibilityChange);
 
   let demoInterval: number | undefined;
   let demoTimeout: number | undefined;
@@ -646,9 +659,9 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
   let nextPlayerReactionPreviewAt = performance.now() + 240;
 
   scene.onBeforeRenderObservable.add(() => {
-    const rawDelta = engine.getDeltaTime() / 1000;
+    const rawDelta = Math.max(0, engine.getDeltaTime() / 1000);
     world.update(rawDelta);
-    const delta = latest?.paused || performance.now() < hitstopUntil ? 0 : rawDelta;
+    const delta = latest?.paused || performance.now() < hitstopUntil ? 0 : Math.min(rawDelta, 0.05);
     if (!latest) return;
     if (requestedVfxCard && performance.now() >= nextVfxPreviewAt) {
       const tiles = debugVfxTiles(requestedVfxCard.target, latest.playerGrid);
@@ -784,6 +797,10 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
       if (pauseTimeout) window.clearTimeout(pauseTimeout);
       window.removeEventListener("keydown", keyDown);
       window.removeEventListener("keyup", keyUp);
+      window.removeEventListener("blur", cancelInterruptedInput);
+      window.removeEventListener("pagehide", cancelInterruptedInput);
+      window.removeEventListener("pointercancel", cancelInterruptedInput);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pointerdown", unlockAudio);
       window.removeEventListener("keydown", unlockAudio);
       (navigator as unknown as { vibrate?: (value: number) => boolean }).vibrate?.(0);
