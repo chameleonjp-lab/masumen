@@ -14,6 +14,7 @@
     "audit:card-vfx": "node scripts/audit-card-vfx.mjs",
     "audit:combat-data": "node scripts/audit-combat-data.mjs",
     "audit:encounters": "node scripts/audit-encounters.mjs",
+    "audit:board-data": "node scripts/audit-board-data.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {
