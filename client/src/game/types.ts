@@ -2,15 +2,66 @@
 export type BattleMode = "custom" | "battle" | "intermission" | "result";
 export type EnemyState = "idle" | "windup" | "recover" | "stunned" | "deleted";
 export type CardTier = "standard" | "mega";
-export type CardFamily = "射撃" | "範囲" | "属性" | "近接" | "設置" | "地形" | "防御" | "反撃" | "回復" | "補助" | "高出力";
-export type TargetShape = "front" | "near" | "row" | "column" | "cross" | "enemy-field" | "self";
-export type CardStatus = "burn" | "stun" | "root" | "slow" | "barrier" | "invincible" | "recover" | "boost" | "gauge" | "counter";
+export type CardFamily =
+  | "射撃"
+  | "範囲"
+  | "属性"
+  | "近接"
+  | "設置"
+  | "地形"
+  | "防御"
+  | "反撃"
+  | "回復"
+  | "補助"
+  | "高出力";
+export type TargetShape =
+  | "front"
+  | "near"
+  | "row"
+  | "column"
+  | "cross"
+  | "enemy-field"
+  | "self";
+export type CardStatus =
+  | "burn"
+  | "stun"
+  | "root"
+  | "slow"
+  | "barrier"
+  | "invincible"
+  | "recover"
+  | "boost"
+  | "gauge"
+  | "counter";
+export type ProjectileMotion =
+  | "straight"
+  | "piercing"
+  | "wave"
+  | "thrown"
+  | "homing"
+  | "reflect"
+  | "orbit";
+export interface AttackTiming {
+  startupMs: number;
+  counterStartMs: number | null;
+  counterEndMs: number | null;
+  activeMs: number;
+  recoveryMs: number;
+}
 export interface GridPosition {
   col: number;
   row: number;
 }
 export type PanelOwner = "player" | "enemy" | "neutral";
-export type PanelTerrain = "normal" | "cracked" | "hole" | "grass" | "ice" | "lava" | "poison" | "holy";
+export type PanelTerrain =
+  | "normal"
+  | "cracked"
+  | "hole"
+  | "grass"
+  | "ice"
+  | "lava"
+  | "poison"
+  | "holy";
 export interface PanelState {
   col: number;
   row: number;
@@ -20,8 +71,19 @@ export interface PanelState {
   objectId: string | null;
   expiresAt: number | null;
 }
-export type FieldObjectKind = "bomb" | "mine" | "turret" | "cube" | "stake" | "field-device";
-export type ObjectTrigger = "timer" | "contact" | "enemy-contact" | "damage" | "none";
+export type FieldObjectKind =
+  | "bomb"
+  | "mine"
+  | "turret"
+  | "cube"
+  | "stake"
+  | "field-device";
+export type ObjectTrigger =
+  | "timer"
+  | "contact"
+  | "enemy-contact"
+  | "damage"
+  | "none";
 export interface FieldObject {
   id: string;
   owner: "player" | "enemy";
@@ -31,6 +93,30 @@ export interface FieldObject {
   expiresAt: number | null;
   collision: "solid" | "passable";
   trigger: ObjectTrigger;
+}
+export interface ProjectileState {
+  id: string;
+  owner: "player" | "enemy";
+  motion: ProjectileMotion;
+  position: GridPosition;
+  direction: GridPosition;
+  origin: GridPosition;
+  target: GridPosition | null;
+  damage: number;
+  sourceId: string | null;
+  sourceCardId: string | null;
+  charged: boolean;
+  activeAt: number;
+  expiresAt: number;
+  speedCellsPerSecond: number;
+  travelProgress: number;
+  flightMs: number;
+  bouncesRemaining: number;
+  rowSpan: boolean;
+  splashRadius: number;
+  stopOnObject: boolean;
+  hitTargets: string[];
+  hitObjects: string[];
 }
 export interface Card {
   id: string;
@@ -72,6 +158,7 @@ export interface BattleSnapshot {
   enemies: EnemySnapshot[];
   panels: PanelState[];
   objects: FieldObject[];
+  projectiles: ProjectileState[];
   message: string;
   elapsed: number;
   counters: number;
@@ -91,6 +178,8 @@ export type BattleEvent =
       to: GridPosition;
       side: "player" | "enemy";
       charged?: boolean;
+      id?: string;
+      motion?: ProjectileMotion;
     }
   | {
       type: "card";

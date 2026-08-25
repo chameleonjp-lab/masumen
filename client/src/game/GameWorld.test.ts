@@ -171,4 +171,82 @@ describe("GameWorldの現行Wave基準", () => {
       latest?.panels.find(panel => panel.occupantId === "player")?.terrain
     ).toBe("normal");
   });
+
+  it("moves normal and card attacks as projectiles instead of applying immediate damage", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      () => undefined
+    );
+    const enemyBefore =
+      latest?.enemies.find(enemy => enemy.id === "bulwark")?.hp ?? 0;
+    world.controller.toggleCard(0);
+    world.controller.toggleCard(0);
+    world.controller.confirmCustom();
+    world.controller.fire();
+
+    expect(latest?.projectiles).toHaveLength(1);
+    expect(latest?.enemies.find(enemy => enemy.id === "bulwark")?.hp).toBe(
+      enemyBefore
+    );
+    world.update(0.12);
+    world.controller.move(0, 0);
+    expect(latest?.projectiles[0]?.position.col).toBeGreaterThan(1);
+
+    world.update(0.2);
+    world.update(0.2);
+    world.update(0.2);
+    expect(
+      latest?.enemies.find(enemy => enemy.id === "bulwark")?.hp
+    ).toBeLessThan(enemyBefore);
+  });
+
+  it("creates three independent projectiles for a multi-shot card", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      () => undefined
+    );
+    const cardIndex =
+      latest?.customHand.findIndex(card => card.id === "triplet") ?? -1;
+    expect(cardIndex).toBeGreaterThanOrEqual(0);
+    world.controller.toggleCard(cardIndex);
+    world.controller.toggleCard(cardIndex);
+    world.controller.confirmCustom();
+    world.controller.useSkill();
+
+    expect(latest?.projectiles).toHaveLength(3);
+    expect(
+      latest?.projectiles.map(projectile => projectile.sourceCardId)
+    ).toEqual(["triplet", "triplet", "triplet"]);
+  });
+
+  it("reaches full charge at the configured 850ms and keeps the shot in flight", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      () => undefined
+    );
+    world.controller.toggleCard(0);
+    world.controller.toggleCard(0);
+    world.controller.confirmCustom();
+    world.controller.startCharge();
+    world.update(0.2);
+    world.update(0.2);
+    world.update(0.2);
+    world.update(0.2);
+    world.update(0.1);
+    world.controller.move(0, 0);
+    expect(latest?.charging).toBeCloseTo(1, 4);
+    world.controller.releaseCharge();
+
+    expect(latest?.projectiles[0]?.charged).toBe(true);
+    expect(latest?.projectiles[0]?.damage).toBe(42);
+  });
 });
