@@ -208,7 +208,7 @@ export default function GameCanvas() {
       {snapshot.mode === "custom" && (
         <section className="custom-console" aria-label="カスタムコンソール">
           <div className="reference-ghost" style={{ backgroundImage: `url(${ASSET_URLS.reference})` }} aria-hidden="true" />
-          <div className="custom-topline"><span>RELAY CONSOLE / WAVE 0{snapshot.wave} / {snapshot.elapsed > 0 ? "17S RE-ROUTE" : "FIRST ROUTE"}</span><span>HAND 05</span></div>
+          <div className="custom-topline"><span>RELAY CONSOLE / WAVE 0{snapshot.wave} / {snapshot.elapsed > 0 ? "10S RE-ROUTE" : "FIRST ROUTE"}</span><span>HAND 05</span></div>
           <div className="custom-heading">
             <p>SELECT CARDS</p>
             <h1>次の一手を、<br />接続する。</h1>
@@ -300,7 +300,7 @@ export default function GameCanvas() {
         </section>
       )}
 
-      <footer className="control-guide"><span><b>MOVE</b> WASD / ARROWS</span><span><b>FIRE</b> Z / 正面直線</span><span><b>CHARGE</b> HOLD SPACE + MOVE</span><span><b>CARD</b> X</span><span><b>CUSTOM</b> 17 SEC</span></footer>
+      <footer className="control-guide"><span><b>MOVE</b> WASD / ARROWS</span><span><b>FIRE</b> Z / 正面直線</span><span><b>CHARGE</b> HOLD SPACE + MOVE</span><span><b>CARD</b> X</span><span><b>CUSTOM</b> 10 SEC</span></footer>
     </main>
   );
 }

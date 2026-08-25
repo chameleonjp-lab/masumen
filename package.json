@@ -9,7 +9,11 @@
     "start": "NODE_ENV=production node dist/index.js",
     "preview": "vite preview --host",
     "check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "audit:card-vfx": "node scripts/audit-card-vfx.mjs",
+    "audit:combat-data": "node scripts/audit-combat-data.mjs",
+    "audit:encounters": "node scripts/audit-encounters.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {
