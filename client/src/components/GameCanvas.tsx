@@ -2,8 +2,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { ASSET_URLS } from "@/game/assets";
+import { validateSelection } from "@/game/deck";
 import { createGameScene } from "@/game/scene";
 import type { BattleSnapshot, GameHandle } from "@/game/types";
+import FolderEditor from "@/components/game/FolderEditor";
 
 const initialSnapshot: BattleSnapshot = {
   mode: "custom",
@@ -19,6 +21,7 @@ const initialSnapshot: BattleSnapshot = {
   customHand: [],
   selected: [],
   focusedCard: null,
+  selectionError: null,
   queue: [],
   enemies: [],
   panels: [],
@@ -105,6 +108,7 @@ export default function GameCanvas() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [soundVolume, setSoundVolume] = useState(70);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
+  const [folderEditorOpen, setFolderEditorOpen] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -344,7 +348,7 @@ export default function GameCanvas() {
               RELAY CONSOLE / WAVE 0{snapshot.wave} /{" "}
               {snapshot.elapsed > 0 ? "10S RE-ROUTE" : "FIRST ROUTE"}
             </span>
-            <span>HAND 05</span>
+            <span>手札 {String(snapshot.customHand.length).padStart(2, "0")} / 05</span>
           </div>
           <div className="custom-heading">
             <p>SELECT CARDS</p>
@@ -354,7 +358,7 @@ export default function GameCanvas() {
               接続する。
             </h1>
             <span>
-              カードは組み合わせを問わず、最大5枚まで自由に送信できます。
+              同名、同じ接続コード、または共通コード*で最大5枚を送信できます。
             </span>
             <div className="card-inspector" aria-live="polite">
               {snapshot.focusedCard !== null ? (
@@ -374,13 +378,15 @@ export default function GameCanvas() {
             {snapshot.customHand.map((card, index) => {
               const selected = snapshot.selected.includes(index);
               const focused = snapshot.focusedCard === index;
+              const canJoin = selected || validateSelection(snapshot.customHand, [...snapshot.selected, index]).valid;
               const selectionOrder = snapshot.selected.indexOf(index) + 1;
               return (
                 <button
                   type="button"
                   key={`${card.id}-${index}`}
-                  className={`signal-card ${selected ? "selected" : ""} ${focused ? "focused" : ""} ${card.tier === "mega" ? "mega-card" : ""}`}
+                  className={`signal-card ${selected ? "selected" : ""} ${focused ? "focused" : ""} ${!canJoin ? "unavailable" : ""} ${card.tier === "mega" ? "mega-card" : ""}`}
                   onClick={() => controller?.toggleCard(index)}
+                  aria-disabled={!canJoin}
                 >
                   <span className="card-index">0{index + 1}</span>
                   {selected && (
@@ -390,13 +396,13 @@ export default function GameCanvas() {
                     {card.tier === "mega" ? "メガ" : card.family}
                   </span>
                   <strong>{card.name}</strong>
-                  <small>{card.description}</small>
+                  <small>{canJoin ? card.description : "この選択には接続できません"}</small>
                   <b>
                     {card.power}
                     <em>OUT</em>
                   </b>
-                  <i>{card.tier === "mega" ? "メガ" : card.family}</i>
-                </button>
+                    <i>コード {card.selectedCode ?? card.code}</i>
+                  </button>
               );
             })}
           </div>
@@ -462,14 +468,20 @@ export default function GameCanvas() {
           <div className="custom-footer">
             <p>
               <span>{snapshot.selected.length}</span> / 05 CARDS ROUTED
+              {snapshot.selectionError && <small>{snapshot.selectionError}</small>}
             </p>
-            <button
-              type="button"
-              className="engage-button"
-              onClick={() => controller?.confirmCustom()}
-            >
-              ENGAGE <span>↗</span>
-            </button>
+            <div className="custom-footer-actions">
+              <button type="button" onClick={() => setFolderEditorOpen(true)}>
+                フォルダ編集
+              </button>
+              <button
+                type="button"
+                className="engage-button"
+                onClick={() => controller?.confirmCustom()}
+              >
+                戦闘へ戻る <span>↗</span>
+              </button>
+            </div>
           </div>
         </section>
       )}
@@ -674,6 +686,16 @@ export default function GameCanvas() {
             RELINK <span>↗</span>
           </button>
         </section>
+      )}
+
+      {folderEditorOpen && (
+        <FolderEditor
+          onClose={() => setFolderEditorOpen(false)}
+          onSaved={() => {
+            controllerRef.current?.reloadFolder?.();
+            setFolderEditorOpen(false);
+          }}
+        />
       )}
 
       <footer className="control-guide">

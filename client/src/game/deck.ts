@@ -1,5 +1,5 @@
 /** Signal Relay Tactical deck: every Japanese battle-chip card can be freely routed together, up to five cards. */
-import type { Card } from "./types";
+import type { Card, ConnectionCode } from "./types";
 
 const standardCards: Card[] = [
   { id: "rapid", name: "連射弾", code: "A", tier: "standard", family: "射撃", target: "front", power: 30, description: "3連射の基本弾" },
@@ -59,6 +59,13 @@ const megaCards: Card[] = [
 
 export const CARD_CATALOG = [...standardCards, ...megaCards];
 
+export type SelectionRule = "name" | "code" | "wildcard" | null;
+export interface SelectionValidation {
+  valid: boolean;
+  rule: SelectionRule;
+  reason: string;
+}
+
 export function drawHand(round: number): Card[] {
   const leadIndex = (round * 7 + 3) % standardCards.length;
   const lead = standardCards[leadIndex];
@@ -75,5 +82,47 @@ export function drawHand(round: number): Card[] {
 }
 
 export function canAppendSelection(hand: Card[], selected: number[], candidate: number): boolean {
-  return Boolean(hand[candidate]) && !selected.includes(candidate) && selected.length < 5;
+  if (!hand[candidate] || selected.includes(candidate)) return false;
+  return validateSelection(hand, [...selected, candidate]).valid;
+}
+
+export function validateSelection(
+  hand: readonly Card[],
+  selected: readonly number[]
+): SelectionValidation {
+  if (selected.length === 0)
+    return { valid: true, rule: null, reason: "カードを選ばず戦闘へ戻れます" };
+  if (selected.length > 5)
+    return { valid: false, rule: null, reason: "選択できるカードは最大5枚です" };
+  if (new Set(selected).size !== selected.length)
+    return { valid: false, rule: null, reason: "同じ手札を重ねて選べません" };
+
+  const cards = selected.map(index => hand[index]);
+  if (cards.some(card => !card))
+    return { valid: false, rule: null, reason: "存在しないカードが選ばれています" };
+  const names = new Set(cards.map(card => card.name));
+  const codes = cards.map(card => card.selectedCode ?? card.code);
+  const uniqueCodes = new Set(codes);
+  if (names.size === 1)
+    return { valid: true, rule: "name", reason: "同名カードで接続" };
+  if (codes.every(code => code === "*"))
+    return { valid: true, rule: "wildcard", reason: "共通コード*で接続" };
+  if (uniqueCodes.size === 1)
+    return { valid: true, rule: "code", reason: `接続コード${codes[0]}で接続` };
+
+  const normalCodes = new Set(
+    codes.filter((code): code is ConnectionCode => code !== "*")
+  );
+  if (
+    normalCodes.size === 0 ||
+    (normalCodes.size === 1 &&
+      codes.every(code => code === "*" || code === Array.from(normalCodes)[0]))
+  )
+    return { valid: true, rule: "wildcard", reason: "共通コードで接続" };
+
+  return {
+    valid: false,
+    rule: null,
+    reason: "同名、同じ接続コード、または共通コード*でそろえてください",
+  };
 }
