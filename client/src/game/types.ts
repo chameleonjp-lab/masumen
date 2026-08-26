@@ -1,6 +1,12 @@
 /** Signal Relay Tactical game vocabulary: state is explicit so the terminal HUD mirrors the arena without hidden rules. */
 export type BattleMode = "custom" | "battle" | "intermission" | "result";
 export type EnemyState = "idle" | "windup" | "recover" | "stunned" | "deleted";
+export type EmotionState =
+  | "normal"
+  | "synchronized"
+  | "shaken"
+  | "enraged"
+  | "corrupted";
 export type CardTier = "standard" | "mega";
 export type ConnectionCode =
   | "A"
@@ -10,6 +16,7 @@ export type ConnectionCode =
   | "E"
   | "F"
   | "*"
+  | "!"
   | "M"
   | "S"
   | "X";
@@ -146,6 +153,8 @@ export interface Card {
   status?: CardStatus;
   effectValue?: number;
   durationMs?: number;
+  isOverload?: boolean;
+  overloadPenalty?: string;
 }
 export interface EnemySnapshot {
   id: string;
@@ -155,6 +164,7 @@ export interface EnemySnapshot {
   grid: GridPosition;
   state: EnemyState;
   pattern: string;
+  counterWindow: boolean;
 }
 export interface BattleSnapshot {
   mode: BattleMode;
@@ -163,6 +173,9 @@ export interface BattleSnapshot {
   playerGrid: GridPosition;
   gauge: number;
   sync: boolean;
+  emotion: EmotionState;
+  emotionRemaining: number;
+  corruption: number;
   charging: number;
   barrier: number;
   invincible: boolean;

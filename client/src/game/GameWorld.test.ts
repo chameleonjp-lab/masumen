@@ -16,6 +16,11 @@ function installWindowStub(): void {
   });
 }
 
+function advanceAtFixedRate(world: GameWorld, seconds: number): void {
+  const steps = Math.round(seconds * 60);
+  for (let step = 0; step < steps; step += 1) world.update(1 / 60);
+}
+
 describe("GameWorldの現行Wave基準", () => {
   beforeEach(() => installWindowStub());
 
@@ -57,9 +62,9 @@ describe("GameWorldの現行Wave基準", () => {
       () => undefined
     );
     expect(latest?.customHand).toHaveLength(5);
-    expect(
-      new Set(latest?.customHand.map(card => card.instanceId)).size
-    ).toBe(5);
+    expect(new Set(latest?.customHand.map(card => card.instanceId)).size).toBe(
+      5
+    );
     expect(latest?.customHand.every(card => card.selectedCode)).toBe(true);
   });
 
@@ -145,6 +150,70 @@ describe("GameWorldの現行Wave基準", () => {
     world.update(1 / 60);
     world.controller.move(0, 0);
     expect(latest?.elapsed).toBeCloseTo(1 / 30, 5);
+  });
+
+  it("keeps the battle open at a full gauge until the player opens custom", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      () => undefined
+    );
+    world.controller.confirmCustom();
+    advanceAtFixedRate(world, 10);
+    world.controller.move(0, 0);
+    expect(latest?.mode).toBe("battle");
+    expect(latest?.gauge).toBeCloseTo(100, 5);
+    expect(latest?.customRemaining).toBeCloseTo(0, 5);
+    world.controller.openCustom();
+    expect(latest?.mode).toBe("custom");
+  });
+
+  it("does not open custom before full or while charge is held", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      () => undefined
+    );
+    world.controller.confirmCustom();
+    advanceAtFixedRate(world, 2);
+    world.controller.openCustom();
+    expect(latest?.mode).toBe("battle");
+    expect(latest?.message).toContain("満タン");
+
+    advanceAtFixedRate(world, 8);
+    world.controller.startCharge();
+    world.controller.openCustom();
+    expect(latest?.mode).toBe("battle");
+    expect(latest?.message).toContain("チャージ");
+    world.controller.cancelCharge();
+  });
+
+  it("does not advance the gauge while paused or during hitstop", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      () => undefined
+    );
+    world.controller.toggleCard(0);
+    world.controller.toggleCard(0);
+    world.controller.confirmCustom();
+    advanceAtFixedRate(world, 1);
+    const beforePause = latest?.gauge ?? 0;
+    world.controller.togglePause();
+    advanceAtFixedRate(world, 1);
+    expect(latest?.gauge).toBeCloseTo(beforePause, 5);
+    world.controller.togglePause();
+    world.controller.useSkill();
+    const duringHitstop = latest?.gauge ?? 0;
+    world.update(0.03);
+    world.controller.move(0, 0);
+    expect(latest?.gauge).toBeCloseTo(duringHitstop, 5);
   });
 
   it("resets transient battle state on ten consecutive restarts", () => {

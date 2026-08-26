@@ -5,6 +5,7 @@ import {
   drawHand,
   validateSelection,
 } from "./deck";
+import { OVERLOAD_CARDS } from "./data/overloadCards";
 
 describe("現行カードカタログの基準", () => {
   it("contains the protected 50-card catalog", () => {
@@ -52,5 +53,15 @@ describe("現行カードカタログの基準", () => {
     expect(validateSelection(hand, [0, 5])).toMatchObject({
       valid: false,
     });
+  });
+
+  it("allows an overload card only as a single ! connection", () => {
+    const overload = OVERLOAD_CARDS[0];
+    const hand = [overload, CARD_CATALOG[0]];
+    expect(validateSelection(hand, [0])).toMatchObject({
+      valid: true,
+      rule: "overload",
+    });
+    expect(validateSelection(hand, [0, 1]).valid).toBe(false);
   });
 });
