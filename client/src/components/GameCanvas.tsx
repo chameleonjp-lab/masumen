@@ -65,6 +65,13 @@ function timecode(seconds: number) {
   return `${minutes}:${secs}`;
 }
 
+function cardClassLabel(card: BattleSnapshot["queue"][number]): string {
+  if (card.isOverload) return "過負荷";
+  if (card.folderClass === "trump") return "切札";
+  if (card.folderClass === "upper" || card.tier === "mega") return "上位";
+  return card.family;
+}
+
 function previewTargets(
   card: BattleSnapshot["customHand"][number] | undefined,
   playerGrid: BattleSnapshot["playerGrid"],
@@ -353,7 +360,7 @@ export default function GameCanvas() {
                   key={`${card.id}-${index}`}
                 >
                   <em>
-                    {index + 1} / {card.tier === "mega" ? "メガ" : card.family}
+                    {index + 1} / {cardClassLabel(card)}
                   </em>
                   <span>{card.name}</span>
                   <b>{card.power}</b>
@@ -428,11 +435,7 @@ export default function GameCanvas() {
                     <span className="selection-order">{selectionOrder}</span>
                   )}
                   <span className="card-lane">
-                    {card.isOverload
-                      ? "過負荷"
-                      : card.tier === "mega"
-                        ? "メガ"
-                        : card.family}
+                    {cardClassLabel(card)}
                   </span>
                   <strong>{card.name}</strong>
                   <small>
