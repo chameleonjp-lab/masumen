@@ -2763,6 +2763,16 @@ export class GameWorld {
           object.sourceCardId
         )
       );
+    expiring
+      .filter(object => object.effectId === "enemy-bomb")
+      .forEach(object => {
+        this.triggerEnemyObjectExplosion(
+          object.panel,
+          object.damage ?? 26,
+          object.sourceId
+        );
+        this.removeFieldObject(object.id);
+      });
 
     for (const object of this.objectSystem.snapshot()) {
       if (object.expiresAt !== null && now >= object.expiresAt) continue;
@@ -2887,6 +2897,25 @@ export class GameWorld {
       damage,
     });
   }
+  private triggerEnemyObjectExplosion(
+    panel: GridPosition,
+    damage: number,
+    enemyId?: string
+  ): void {
+    const area = this.areaAround(panel, 1);
+    if (area.some(position => sameTile(position, this.playerGrid)))
+      this.applyPlayerHit(damage, enemyId);
+    area.forEach(position => this.panelSystem.crack(position));
+    this.onEvent({
+      type: "impact",
+      at: { ...panel },
+      side: "enemy",
+      enemyId,
+      damage,
+    });
+    this.message = "敵の爆弾が起爆";
+  }
+
   private removeFieldObject(id: string): void {
     const object = this.objectSystem.remove(id);
     if (!object) return;
