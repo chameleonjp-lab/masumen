@@ -3310,7 +3310,9 @@ export class GameWorld {
         { id: "razor", grid: { col: 5, row: 2 } },
       ],
     ];
-    return layouts[Math.min(wave - 1, layouts.length - 1)]().map(factory);
+    return layouts[Math.min(wave - 1, layouts.length - 1)]().map(
+      spawn => factory(spawn.id, spawn.grid)
+    );
   }
   private notify(): void {
     const now = this.gameTimeMs;
