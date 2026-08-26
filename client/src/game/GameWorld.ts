@@ -2490,12 +2490,34 @@ export class GameWorld {
       targetIds
         .map(id => this.enemies.find(enemy => enemy.id === id))
         .filter((enemy): enemy is Enemy => Boolean(enemy))
-        .forEach(enemy =>
-          this.strikeEnemy(enemy, projectile.damage, card, projectile.charged)
-        );
+        .forEach(enemy => {
+          const frontalShot =
+            projectile.motion === "straight" &&
+            projectile.direction.col > 0 &&
+            projectile.direction.row === 0;
+          const shouldReflect =
+            enemy.definitionId === "mirror-node" &&
+            enemy.defense === "reflect" &&
+            frontalShot &&
+            !card?.properties?.includes("破砕") &&
+            ["idle", "startup", "counter-window"].includes(enemy.actionPhase);
+          if (shouldReflect) {
+            this.reflectPlayerProjectile(enemy, projectile);
+            return;
+          }
+          this.strikeEnemy(enemy, projectile.damage, card, projectile.charged);
+        });
       return;
     }
     if (targetIds.includes("player")) {
+      const sourceEnemy = projectile.sourceId
+        ? this.enemies.find(enemy => enemy.id === projectile.sourceId)
+        : undefined;
+      const action = sourceEnemy
+        ? getEnemyDefinition(sourceEnemy.definitionId)?.actions.find(
+            candidate => candidate.id === projectile.sourceActionId
+          )
+        : undefined;
       this.applyPlayerHit(projectile.damage, projectile.sourceId ?? undefined);
       if (projectile.sourceActionId === "scanner-signal-lock") {
         this.playerBlindUntil = Math.max(this.playerBlindUntil, this.gameTimeMs + 900);
@@ -2504,6 +2526,20 @@ export class GameWorld {
       if (projectile.sourceActionId === "sentinel-chain-bolt") {
         this.playerStunnedUntil = Math.max(this.playerStunnedUntil, this.gameTimeMs + 500);
         this.message = "連鎖電撃 — 麻痺";
+      }
+      if (action?.status === "stun") {
+        this.playerStunnedUntil = Math.max(
+          this.playerStunnedUntil,
+          this.gameTimeMs + (action.statusDurationMs ?? 0)
+        );
+        this.message = action.name + " — 麻痺";
+      }
+      if (action?.status === "root") {
+        this.playerControlLockedUntil = Math.max(
+          this.playerControlLockedUntil,
+          this.gameTimeMs + (action.statusDurationMs ?? 0)
+        );
+        this.message = action.name + " — 拘束";
       }
     }
   }
@@ -2565,7 +2601,8 @@ export class GameWorld {
   private applyPlayerHit(
     damage: number,
     enemyId?: string,
-    source: "direct" | "terrain" = "direct"
+    source: "direct" | "terrain" = "direct",
+    ignoreDamageInvulnerability = false
   ): void {
     const now = this.gameTimeMs;
     const terrainDamage = source === "terrain";
@@ -2631,7 +2668,8 @@ export class GameWorld {
         });
         return;
       }
-      if (now < this.playerDamageInvulnerableUntil) return;
+      if (!ignoreDamageInvulnerability && now < this.playerDamageInvulnerableUntil)
+        return;
     }
 
     let incoming = Math.max(0, damage);
