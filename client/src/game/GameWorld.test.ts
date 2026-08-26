@@ -55,7 +55,7 @@ describe("GameWorldの現行Wave基準", () => {
     const names = new Set(
       snapshots.flatMap(snapshot => snapshot.enemies.map(enemy => enemy.name))
     );
-    expect(names).toEqual(
+    expect([...names]).toEqual(
       expect.arrayContaining([
         "BULWARK-3",
         "SCANNER-8",
