@@ -1684,6 +1684,7 @@ export class GameWorld {
       return;
     const card = this.queue.shift();
     if (!card) return;
+    if (card.power > 0) this.lastAttackCard = { ...card };
     const usedSync = this.sync;
     const rageReady = this.emotionSystem.snapshot(this.gameTimeMs).rageReady;
     const swordBonus = card.properties?.includes("剣")
@@ -3690,6 +3691,7 @@ export class GameWorld {
     this.projectileSystem.reset();
     this.pendingMelee = [];
     this.pendingChainEffects = [];
+    this.lastAttackCard = null;
     this.dreamAuraUntil = 0;
     this.overdrivePrompt = null;
     this.playerStunnedUntil = 0;
@@ -3918,6 +3920,7 @@ export class GameWorld {
     this.hitstopRemainingMs = 0;
     this.projectileSystem.reset();
     this.pendingMelee = [];
+    this.lastAttackCard = null;
     this.queue = [];
     this.selected = [];
     this.focusedCard = null;
@@ -4033,18 +4036,20 @@ export class GameWorld {
   }
   private makeEnemies(wave: number): Enemy[] {
     const now = this.gameTimeMs;
-    const scale = 1 + (wave - 1) * 0.18;
-    const factory = (id: EnemyId, grid: GridPosition): Enemy => {
-      const definition = ENEMY_DEFINITIONS[id];
+    const scale = wave === FINAL_WAVE ? 1 : 1 + (wave - 1) * 0.18;
+    const factory = (spawn: EncounterSpawn): Enemy => {
+      const definition = getEnemyDefinition(spawn.enemyId);
+      if (!definition) throw new Error("未知の敵編成です");
       const firstAction = definition.actions[0];
       if (!firstAction) throw new Error("敵の行動定義がありません");
+      const firstPhase = definition.phases?.[0];
       return {
         id: definition.id,
         name: definition.name,
         pattern: firstAction.pattern,
         hp: Math.round(definition.maxHp * scale),
         maxHp: Math.round(definition.maxHp * scale),
-        grid: { ...grid },
+        grid: { ...spawn.grid },
         state: "idle",
         counterWindow: false,
         element: definition.element,
@@ -4056,8 +4061,19 @@ export class GameWorld {
         activeUntil: 0,
         warningAt: 0,
         warningShown: false,
-        defense: definition.defense,
-        movement: definition.movement,
+        defense: firstPhase?.defense ?? definition.defense,
+        movement: firstPhase?.movement ?? definition.movement,
+        isBoss: definition.rank === "boss",
+        bossPhase: firstPhase?.phase ?? 0,
+        bossPhaseLabel: firstPhase?.label ?? null,
+        weaknessElement:
+          firstPhase?.weaknessElement ??
+          definition.weakness ??
+          definition.element,
+        barrier: 0,
+        baseDefense: definition.defense,
+        baseMovement: definition.movement,
+        lastMirrorCardId: null,
         windupUntil: 0,
         recoverUntil: 0,
         stunnedUntil: 0,
@@ -4079,31 +4095,41 @@ export class GameWorld {
         nextTerrainDamageAt: 0,
       };
     };
-    const layouts: (() => Array<{ id: EnemyId; grid: GridPosition }>)[] = [
-      () => [
-        { id: "bulwark", grid: { col: 4, row: 1 } },
-        { id: "scanner", grid: { col: 5, row: 0 } },
-      ],
-      () => [
-        { id: "razor", grid: { col: 4, row: 0 } },
-        { id: "mortar", grid: { col: 5, row: 1 } },
-        { id: "scanner", grid: { col: 3, row: 2 } },
-      ],
-      () => [
-        { id: "bulwark", grid: { col: 4, row: 1 } },
-        { id: "razor", grid: { col: 3, row: 0 } },
-        { id: "sentinel", grid: { col: 5, row: 2 } },
-      ],
-      () => [
-        { id: "mortar", grid: { col: 5, row: 0 } },
-        { id: "sentinel", grid: { col: 4, row: 2 } },
-        { id: "bulwark", grid: { col: 3, row: 1 } },
-        { id: "razor", grid: { col: 5, row: 2 } },
-      ],
-    ];
-    return layouts[Math.min(wave - 1, layouts.length - 1)]().map(
-      spawn => factory(spawn.id, spawn.grid)
+
+    if (wave < FINAL_WAVE) {
+      const encounterWave = Math.min(3, Math.max(1, wave)) as 1 | 2 | 3;
+      const templates = getEncounterTemplates(encounterWave);
+      const template =
+        templates[(wave - 1) % templates.length] ?? templates[0];
+      if (!template || !encounterHasSafeStart(template.spawns))
+        throw new Error("安全な敵編成がありません");
+      return template.spawns.map(factory);
+    }
+
+    const availableBosses = BOSS_ENEMY_IDS.filter(
+      id => !this.bossHistory.slice(-2).includes(id)
     );
+    const bossPool = availableBosses.length > 0 ? availableBosses : BOSS_ENEMY_IDS;
+    const selectedBoss =
+      new Random(0xb055 + this.wave * 97 + this.bossHistory.length).pick(
+        bossPool
+      ) ?? BOSS_ENEMY_IDS[0];
+    this.bossHistory = [...this.bossHistory, selectedBoss].slice(-2);
+    saveBossHistory(this.bossHistory);
+
+    const bossSpawn: EncounterSpawn = {
+      enemyId: selectedBoss,
+      grid: { col: 4, row: 1 },
+    };
+    const spawns: EncounterSpawn[] = [bossSpawn];
+    if (
+      (selectedBoss === "bastion-prime" ||
+        selectedBoss === "climate-engine") &&
+      !spawns.some(spawn => sameTile(spawn.grid, BOSS_SUPPORT_SPAWN.grid)) &&
+      encounterHasSafeStart([...spawns, BOSS_SUPPORT_SPAWN])
+    )
+      spawns.push({ ...BOSS_SUPPORT_SPAWN, grid: { ...BOSS_SUPPORT_SPAWN.grid } });
+    return spawns.map(factory);
   }
   private notify(): void {
     const now = this.gameTimeMs;
