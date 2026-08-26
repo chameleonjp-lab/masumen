@@ -398,7 +398,7 @@ export class GameWorld {
   };
 
   private startPractice(): void {
-    if (this.mode !== "custom") return;
+    if (this.mode !== "custom" || this.wave !== 1 || this.elapsed !== 0) return;
     this.clock.discardPendingTime();
     this.cancelCharge();
     this.paused = false;
