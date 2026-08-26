@@ -2006,9 +2006,9 @@ export class GameWorld {
       charged,
       counter,
     });
-    if (card?.status && enemy.state !== "deleted")
+    if (card?.status && enemy.hp > 0)
       this.applyStatus(enemy, card.status, card.durationMs ?? 0);
-    if (card?.id === "volt" && chainDepth === 0 && enemy.state !== "deleted") {
+    if (card?.id === "volt" && chainDepth === 0 && enemy.hp > 0) {
       const chained = this.enemies
         .filter(candidate =>
           candidate.id !== enemy.id &&
