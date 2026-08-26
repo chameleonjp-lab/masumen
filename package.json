@@ -13,6 +13,7 @@
     "test:watch": "vitest",
     "audit:card-vfx": "node scripts/audit-card-vfx.mjs",
     "audit:combat-data": "node scripts/audit-combat-data.mjs",
+    "audit:card-combat": "node scripts/audit-card-combat.mjs",
     "audit:encounters": "node scripts/audit-encounters.mjs",
     "audit:board-data": "node scripts/audit-board-data.mjs",
     "audit:attack-data": "node scripts/audit-attack-data.mjs",

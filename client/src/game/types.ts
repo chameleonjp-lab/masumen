@@ -21,6 +21,17 @@ export type ConnectionCode =
   | "S"
   | "X";
 export type FolderCardClass = "standard" | "upper" | "trump" | "overload";
+export type CardElement = "none" | "fire" | "water" | "electric" | "wood";
+export type AttackProperty =
+  | "射撃"
+  | "剣"
+  | "破砕"
+  | "風"
+  | "地形"
+  | "回復"
+  | "補助"
+  | "罠"
+  | "看破";
 export type CardFamily =
   | "射撃"
   | "範囲"
@@ -60,6 +71,7 @@ export type ProjectileMotion =
   | "homing"
   | "reflect"
   | "orbit";
+export type ProjectileSplashShape = "square" | "cross" | "two-by-two";
 export interface AttackTiming {
   startupMs: number;
   counterStartMs: number | null;
@@ -133,6 +145,8 @@ export interface ProjectileState {
   bouncesRemaining: number;
   rowSpan: boolean;
   splashRadius: number;
+  splashShape: ProjectileSplashShape;
+  affectsObjects: boolean;
   stopOnObject: boolean;
   hitTargets: string[];
   hitObjects: string[];
@@ -155,6 +169,14 @@ export interface Card {
   durationMs?: number;
   isOverload?: boolean;
   overloadPenalty?: string;
+  element?: CardElement;
+  properties?: readonly AttackProperty[];
+  actionId?: string;
+  powerPerHit?: number;
+  hitCount?: number;
+  rangePreviewId?: string;
+  vfxId?: string;
+  audioId?: string;
 }
 export interface EnemySnapshot {
   id: string;
@@ -165,6 +187,7 @@ export interface EnemySnapshot {
   state: EnemyState;
   pattern: string;
   counterWindow: boolean;
+  element?: CardElement;
 }
 export interface BattleSnapshot {
   mode: BattleMode;

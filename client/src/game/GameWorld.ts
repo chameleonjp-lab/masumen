@@ -4,6 +4,7 @@ import { FixedStepClock } from "./core/FixedStepClock";
 import { Random } from "./core/Random";
 import { COMBAT_BALANCE } from "./data/balance";
 import { OVERLOAD_CARDS } from "./data/overloadCards";
+import { cardPreviewTiles, getCardCombatProfile, getElementalMultiplier } from "./data/cardCombatData";
 import {
   activeFolder as getActiveFolder,
   BattleDeck,
@@ -25,6 +26,7 @@ import type {
   BattleEvent,
   BattleSnapshot,
   Card,
+  CardElement,
   CardStatus,
   EnemySnapshot,
   EnemyState,
@@ -61,15 +63,19 @@ interface Enemy extends EnemySnapshot {
   counterWindowMs: number;
   counterWindowState: CounterWindow | null;
 }
+interface PendingMeleeStage {
+  activeAt: number;
+  tiles: GridPosition[];
+  damage: number;
+  resolved: boolean;
+}
 interface PendingMelee {
   card: Card;
-  damage: number;
-  tiles: GridPosition[];
+  stages: PendingMeleeStage[];
   dashTo: GridPosition | null;
   returnTo: GridPosition | null;
-  activeAt: number;
   recoveryAt: number;
-  hitResolved: boolean;
+  dashApplied: boolean;
 }
 interface StoredRecords {
   highScore: number;
@@ -98,6 +104,11 @@ const uniqueTiles = (tiles: GridPosition[]) =>
   tiles.filter(
     (tile, index) => tiles.findIndex(other => sameTile(other, tile)) === index
   );
+const columnAtPreview = (column: number): GridPosition[] =>
+  [0, 1, 2].map(row => ({
+    col: Math.max(0, Math.min(5, column)),
+    row,
+  }));
 function loadRecords(): StoredRecords {
   if (typeof window === "undefined") return { highScore: 0, bestWave: 0 };
   try {
@@ -595,7 +606,7 @@ export class GameWorld {
       card.power * (usedSync || rageReady ? 2 : 1) * this.nextCardBoost
     );
     this.nextCardBoost = 1;
-    const resolution = this.cardTargets(card.target);
+    const resolution = this.cardTargets(card);
     this.applyPlayerCardEffect(card);
     const attackTiles = this.dispatchCardAttack(card, power);
     const displayTiles =
@@ -636,19 +647,18 @@ export class GameWorld {
     this.notify();
   }
   private dispatchCardAttack(card: Card, power: number): GridPosition[] {
-    if (
-      card.id === "overload-forced-repair" ||
-      card.id === "overload-collapse-field"
-    )
+    if (card.id === "overload-forced-repair" || card.id === "overload-collapse-field")
       return [];
     if (card.power <= 0) return [];
-    if (card.family === "近接") return this.dispatchMeleeCard(card, power);
+
+    const action = getCardCombatProfile(card.id).actionId;
     const scaleDamage = (base: number): number =>
-      card.power > 0
-        ? Math.max(0, Math.round((base * power) / card.power))
-        : base;
+      Math.max(0, Math.round((base * power) / Math.max(1, card.power)));
     const origin = { ...this.playerGrid };
     const right = { col: 1, row: 0 };
+    const enemies = this.enemies.filter(enemy => enemy.state !== "deleted").map(enemy => enemy.grid);
+    const preview = cardPreviewTiles(card, origin, enemies);
+    this.applyElementalPanelInteraction(card.element, preview);
     const spawn = (
       options: Parameters<ProjectileSystem["spawn"]>[0],
       delayMs = 0
@@ -660,253 +670,195 @@ export class GameWorld {
       damage: number,
       options: Partial<Parameters<ProjectileSystem["spawn"]>[0]> = {},
       delayMs = 0
-    ): GridPosition => {
-      spawn(
-        {
-          owner: "player",
-          motion: "straight",
-          position: origin,
-          direction: right,
-          damage: scaleDamage(damage),
-          sourceCardId: card.id,
-          ...options,
-        },
-        delayMs
-      );
-      return { col: 5, row: origin.row };
+    ): GridPosition[] => {
+      spawn({
+        owner: "player",
+        motion: "straight",
+        position: origin,
+        direction: right,
+        damage: scaleDamage(damage),
+        sourceCardId: card.id,
+        ...options,
+      }, delayMs);
+      return preview;
     };
-    if (card.id === "overload-limit-cannon") {
+    const columnTarget = this.enemies
+      .filter(enemy => enemy.state !== "deleted")
+      .sort((a, b) =>
+        Math.abs(a.grid.col - origin.col) + Math.abs(a.grid.row - origin.row) -
+        (Math.abs(b.grid.col - origin.col) + Math.abs(b.grid.row - origin.row))
+      )[0]?.grid ?? { col: Math.min(5, origin.col + 2), row: origin.row };
+    const pointTarget = this.enemies
+      .filter(enemy => enemy.state !== "deleted")
+      .sort((a, b) =>
+        Math.abs(a.grid.col - origin.col) + Math.abs(a.grid.row - origin.row) -
+        (Math.abs(b.grid.col - origin.col) + Math.abs(b.grid.row - origin.row))
+      )[0]?.grid ?? { col: Math.min(5, Math.max(3, origin.col + 2)), row: origin.row };
+
+    if (action === "overload-limit-cannon") {
       const lostHp = Math.max(0, this.playerMaxHp - this.playerHp);
-      return [
-        straight(
-          Math.min(
-            COMBAT_BALANCE.overload.limitCannonMaxDamage,
-            Math.max(1, lostHp * 2)
-          )
-        ),
-      ];
+      return straight(Math.min(COMBAT_BALANCE.overload.limitCannonMaxDamage, Math.max(1, lostHp * 2)));
     }
-    if (card.id === "overload-contamination") {
-      straight(COMBAT_BALANCE.overload.contaminationDamage, {
-        splashRadius: 1,
-        stopOnObject: false,
-      });
-      return [3, 4, 5].flatMap(col =>
-        [origin.row - 1, origin.row, origin.row + 1]
-          .filter(row => row >= 0 && row < 3)
-          .map(row => ({ col, row }))
-      );
-    }
-    if (card.id === "rapid") {
+    if (action === "overload-contamination")
+      return straight(COMBAT_BALANCE.overload.contaminationDamage, { splashRadius: 1, stopOnObject: false });
+    if (action === "rapid") {
       for (let index = 0; index < 3; index += 1) straight(12, {}, index * 90);
-      return [3, 4, 5].map(col => ({ col, row: origin.row }));
+      return preview;
     }
-    if (card.id === "lance") {
+    if (action === "lance") {
       straight(60, { motion: "piercing", stopOnObject: false });
-      return [3, 4, 5].map(col => ({ col, row: origin.row }));
+      return preview;
     }
-    if (card.id === "seeker") {
+    if (action === "seeker") {
       straight(45);
-      return [3, 4, 5].map(col => ({ col, row: origin.row }));
+      return preview;
     }
-    if (card.id === "triplet") {
+    if (action === "triplet") {
       for (let index = 0; index < 3; index += 1) straight(20, {}, index * 160);
-      return [3, 4, 5].map(col => ({ col, row: origin.row }));
+      return preview;
     }
-    if (card.id === "wide" || card.id === "frost") {
-      straight(card.id === "wide" ? 40 : 35, {
-        motion: "wave",
-        rowSpan: true,
-        stopOnObject: false,
-      });
-      return [3, 4, 5].flatMap(col => [0, 1, 2].map(row => ({ col, row })));
+    if (action === "wide" || action === "frost") {
+      straight(action === "wide" ? 40 : 35, { motion: "wave", rowSpan: true, stopOnObject: false });
+      if (action === "frost") this.freezeEmptyEnemyPanels();
+      return preview;
     }
-    if (
-      card.id === "column" ||
-      card.id === "fireline" ||
-      card.id === "thunderline" ||
-      card.id === "breakpillar"
-    ) {
-      const target = { col: Math.min(5, origin.col + 2), row: origin.row };
+    if (action === "column" || action === "fireline" || action === "thunderline") {
+      const targetColumn = action === "fireline" ? Math.min(5, origin.col + 2) : columnTarget.col;
       spawn({
         owner: "player",
         motion: "thrown",
         position: origin,
-        target,
-        damage: scaleDamage(
-          card.id === "column" ? 55 : card.id === "breakpillar" ? 90 : 40
-        ),
+        target: { col: targetColumn, row: origin.row },
+        damage: scaleDamage(action === "column" ? 55 : 40),
         sourceCardId: card.id,
         rowSpan: true,
         flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
       });
-      return [0, 1, 2].map(row => ({ col: target.col, row }));
+      return columnAtPreview(targetColumn);
     }
-    if (card.id === "cross") {
-      straight(40, { splashRadius: 1 });
-      return [3, 4, 5].flatMap(col =>
-        [origin.row, origin.row - 1, origin.row + 1]
-          .filter(row => row >= 0 && row < 3)
-          .map(row => ({ col, row }))
-      );
+    if (action === "cross") {
+      straight(40);
+      straight(20, { splashRadius: 1, splashShape: "cross", stopOnObject: false });
+      return preview;
     }
-    if (card.id === "fan") {
-      for (const direction of [
-        { col: 1, row: 0 },
-        { col: 1, row: -1 },
-        { col: 1, row: 1 },
-      ])
-        spawn({
-          owner: "player",
-          motion: "straight",
-          position: origin,
-          direction,
-          damage: scaleDamage(30),
-          sourceCardId: card.id,
-        });
-      return [3, 4, 5].flatMap(col =>
-        [origin.row - 1, origin.row, origin.row + 1]
-          .filter(row => row >= 0 && row < 3)
-          .map(row => ({ col, row }))
-      );
+    if (action === "fan") {
+      for (const direction of [{ col: 1, row: 0 }, { col: 1, row: -1 }, { col: 1, row: 1 }])
+        spawn({ owner: "player", motion: "straight", position: origin, direction, damage: scaleDamage(30), sourceCardId: card.id });
+      return preview;
     }
-    if (card.id === "volt") {
-      spawn({
-        owner: "player",
-        motion: "homing",
-        position: origin,
-        direction: right,
-        damage: scaleDamage(45),
-        sourceCardId: card.id,
-        speedCellsPerSecond: 8,
-      });
-      return [3, 4, 5].map(col => ({ col, row: origin.row }));
+    if (action === "ember") {
+      straight(50);
+      return preview;
     }
-    if (card.id === "web") {
+    if (action === "icewall") {
       spawn({
         owner: "player",
         motion: "thrown",
         position: origin,
-        target: { col: 4, row: origin.row },
+        target: pointTarget,
+        damage: scaleDamage(40),
+        sourceCardId: card.id,
+        flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+        stopOnObject: false,
+        affectsObjects: false,
+      });
+      return [pointTarget];
+    }
+    if (action === "volt") {
+      spawn({ owner: "player", motion: "homing", position: origin, direction: right, damage: scaleDamage(45), sourceCardId: card.id, speedCellsPerSecond: 8 });
+      return preview;
+    }
+    if (action === "root") {
+      straight(45);
+      return preview;
+    }
+    if (action === "web") {
+      const topLeft = { col: Math.max(3, Math.min(4, pointTarget.col)), row: Math.max(0, Math.min(1, pointTarget.row)) };
+      spawn({
+        owner: "player",
+        motion: "thrown",
+        position: origin,
+        target: topLeft,
         damage: scaleDamage(25),
         sourceCardId: card.id,
         splashRadius: 1,
+        splashShape: "two-by-two",
         flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
       });
-      return uniqueTiles(
-        [
-          { col: 4, row: origin.row },
-          { col: 4, row: origin.row - 1 },
-          { col: 4, row: origin.row + 1 },
-          { col: 3, row: origin.row },
-          { col: 5, row: origin.row },
-        ].filter(tile => tile.row >= 0 && tile.row < 3)
-      );
+      return preview;
     }
-    if (card.id === "meteor") {
-      const targets = this.enemies
-        .filter(enemy => enemy.state !== "deleted")
-        .map(enemy => enemy.grid);
-      for (let index = 0; index < 8; index += 1) {
-        const target = targets[index % Math.max(1, targets.length)] ?? {
-          col: 3 + (index % 3),
-          row: index % 3,
-        };
-        spawn({
-          owner: "player",
-          motion: "thrown",
-          position: origin,
-          target,
-          damage: scaleDamage(25),
-          sourceCardId: card.id,
-          flightMs: COMBAT_BALANCE.projectile.thrownFlightMs + index * 35,
-        });
-      }
-      return targets.length > 0
-        ? targets.map(target => ({ ...target }))
-        : [{ col: 4, row: 1 }];
-    }
-    if (
-      card.family === "射撃" ||
-      card.family === "属性" ||
-      card.family === "範囲" ||
-      card.family === "高出力"
-    ) {
-      straight(power, {
-        motion: card.family === "範囲" ? "wave" : "straight",
-        rowSpan: card.family === "範囲",
-      });
-      return this.resolutionTilesFor(card.target, origin);
+    if (card.family === "射撃" || card.family === "属性" || card.family === "範囲" || card.family === "高出力") {
+      straight(power, { motion: card.family === "範囲" ? "wave" : "straight", rowSpan: card.family === "範囲" });
+      return preview;
     }
     return [];
   }
   private dispatchMeleeCard(card: Card, power: number): GridPosition[] {
-    const resolvedPower =
-      card.id === "overload-severing-blade"
-        ? Math.round(
-            COMBAT_BALANCE.overload.severingBladeDamage *
-              (power / Math.max(1, card.power))
-          )
-        : power;
-    const target =
-      card.id === "dashslash" || card.id === "overload-severing-blade"
-        ? (this.closestEnemy()?.grid ?? null)
-        : (this.frontTarget()?.grid ?? null);
-    const plan = createMeleePlan(
-      this.playerGrid,
-      target,
-      resolvedPower,
-      getMeleeRange(card),
-      {
-        dash: card.id === "dashslash" || card.id === "overload-severing-blade",
-        cross: card.id === "gridcut",
-        timing: { startupMs: card.id === "moonblade" ? 220 : 90 },
-        canEnter: position =>
-          this.panelSystem.canEnter(position, "player", candidate =>
-            this.objectSystem.isSolidAt(candidate)
-          ),
-      }
-    );
-    const recoveryAt =
-      this.gameTimeMs +
-      plan.timing.startupMs +
-      plan.timing.activeMs +
-      plan.timing.recoveryMs;
-    this.pendingMelee.push({
-      card,
-      damage: power,
-      tiles: plan.tiles,
-      dashTo: plan.dashTo,
-      returnTo: plan.returnTo,
-      activeAt: this.gameTimeMs + plan.timing.startupMs,
-      recoveryAt,
-      hitResolved: false,
+    const action = getCardCombatProfile(card.id).actionId;
+    const target = action === "dashslash"
+      ? (this.closestEnemy()?.grid ?? null)
+      : (this.frontTarget()?.grid ?? null);
+    const startupMs = action === "moonblade" ? 380 : action === "gridcut" ? 120 : 90;
+    const activeMs = action === "moonblade" ? 110 : 80;
+    const recoveryMs = action === "moonblade" ? 420 : 180;
+    const plan = createMeleePlan(this.playerGrid, target, power, action === "moonblade" ? 2 : 1, {
+      dash: action === "dashslash",
+      timing: { startupMs, activeMs, recoveryMs },
+      canEnter: position => this.panelSystem.canEnter(position, "player", candidate => this.objectSystem.isSolidAt(candidate)),
     });
-    this.playerControlLockedUntil = Math.max(
-      this.playerControlLockedUntil,
-      recoveryAt
+    const scaleDamage = (base: number): number =>
+      Math.max(0, Math.round((base * power) / Math.max(1, card.power)));
+    const stages: PendingMeleeStage[] =
+      action === "sweep"
+        ? [{ activeAt: this.gameTimeMs + startupMs, tiles: columnAtPreview(this.playerGrid.col + 1), damage: scaleDamage(70), resolved: false }]
+        : action === "gridcut"
+          ? (() => {
+              const point = target ?? { col: Math.min(5, this.playerGrid.col + 2), row: this.playerGrid.row };
+              return [
+                {
+                  activeAt: this.gameTimeMs + startupMs,
+                  tiles: Array.from({ length: 3 }, (_, index) => ({ col: point.col - 1 + index, row: point.row }))
+                    .filter(position => position.col >= 0 && position.col < 6),
+                  damage: scaleDamage(50),
+                  resolved: false,
+                },
+                {
+                  activeAt: this.gameTimeMs + startupMs + 140,
+                  tiles: columnAtPreview(point.col),
+                  damage: scaleDamage(50),
+                  resolved: false,
+                },
+              ];
+            })()
+          : [{
+              activeAt: this.gameTimeMs + startupMs,
+              tiles: plan.tiles,
+              damage: scaleDamage(action === "slash" ? 80 : action === "dashslash" ? 100 : 140),
+              resolved: false,
+            }];
+    const recoveryAt = Math.max(...stages.map(stage => stage.activeAt)) + activeMs + recoveryMs;
+    this.pendingMelee.push({ card, stages, dashTo: plan.dashTo, returnTo: plan.returnTo, recoveryAt, dashApplied: false });
+    this.playerControlLockedUntil = Math.max(this.playerControlLockedUntil, recoveryAt);
+    return stages.flatMap(stage => stage.tiles).filter((tile, index, all) =>
+      all.findIndex(candidate => sameTile(candidate, tile)) === index
     );
-    return plan.tiles;
   }
   private updateMeleeAttacks(now: number): void {
     for (const attack of this.pendingMelee) {
-      if (!attack.hitResolved && now >= attack.activeAt) {
-        if (attack.dashTo && !sameTile(attack.dashTo, this.playerGrid)) {
-          const previous = { ...this.playerGrid };
-          this.panelSystem.vacate(previous, now);
-          this.playerGrid = { ...attack.dashTo };
-          this.panelSystem.occupy(this.playerGrid, "player");
-        }
+      const firstStage = attack.stages[0];
+      if (!attack.dashApplied && attack.dashTo && firstStage && now >= firstStage.activeAt) {
+        const previous = { ...this.playerGrid };
+        this.panelSystem.vacate(previous, now);
+        this.playerGrid = { ...attack.dashTo };
+        this.panelSystem.occupy(this.playerGrid, "player");
+        attack.dashApplied = true;
+      }
+      for (const stage of attack.stages) {
+        if (stage.resolved || now < stage.activeAt) continue;
         this.enemies
-          .filter(
-            enemy =>
-              enemy.state !== "deleted" &&
-              attack.tiles.some(tile => sameTile(tile, enemy.grid))
-          )
-          .forEach(enemy =>
-            this.strikeEnemy(enemy, attack.damage, attack.card, false)
-          );
-        attack.hitResolved = true;
+          .filter(enemy => enemy.state !== "deleted" && stage.tiles.some(tile => sameTile(tile, enemy.grid)))
+          .forEach(enemy => this.strikeEnemy(enemy, stage.damage, attack.card, false));
+        stage.resolved = true;
       }
     }
     this.pendingMelee = this.pendingMelee.filter(attack => {
@@ -1007,7 +959,7 @@ export class GameWorld {
     targetIds: string[],
     objectId: string | null
   ): void {
-    if (objectId) {
+    if (objectId && projectile.affectsObjects) {
       const objectResult = this.objectSystem.damage(
         objectId,
         projectile.damage
@@ -1216,6 +1168,41 @@ export class GameWorld {
     this.objectNextTriggerAt.delete(id);
     this.objectTriggerCount.delete(id);
   }
+  private cardPointTarget(): GridPosition {
+    return this.closestEnemy()?.grid ?? this.closestEmptyEnemyPanel();
+  }
+
+  private freezeEmptyEnemyPanels(): void {
+    this.panelSystem
+      .snapshot()
+      .filter(panel =>
+        panel.owner === "enemy" &&
+        panel.occupantId === null &&
+        panel.objectId === null &&
+        panel.terrain !== "hole"
+      )
+      .forEach(panel => this.panelSystem.setTerrain(panel, "ice", this.gameTimeMs, 2300));
+  }
+
+  private applyElementalPanelInteraction(element: CardElement | undefined, positions: GridPosition[]): void {
+    if (!element || element === "none") return;
+    positions.forEach(position => {
+      const panel = this.panelSystem.get(position);
+      if (!panel) return;
+      if (element === "fire" && panel.terrain === "grass")
+        this.panelSystem.setTerrain(position, "normal", this.gameTimeMs);
+      if (element === "water" && panel.terrain === "lava")
+        this.panelSystem.setTerrain(position, "normal", this.gameTimeMs);
+    });
+  }
+
+  private resolveCardDamage(enemy: Enemy, damage: number, card: Card | undefined): number {
+    if (!card?.element) return Math.max(0, damage);
+    const panel = this.panelSystem.get(enemy.grid);
+    const multiplier = getElementalMultiplier(card.element, enemy.element ?? "none", panel?.terrain ?? "normal");
+    return Math.max(0, Math.round(damage * multiplier));
+  }
+
   private applyPlayerCardEffect(card: Card): void {
     if (card.isOverload) this.applyOverloadEffect(card);
     const value = card.effectValue ?? 0;
@@ -1276,6 +1263,12 @@ export class GameWorld {
         .forEach(panel =>
           this.panelSystem.setTerrain(panel, "hole", this.gameTimeMs, 8000)
         );
+    if (card.id === "frost") this.freezeEmptyEnemyPanels();
+    if (card.id === "icewall") {
+      const point = this.cardPointTarget();
+      this.panelSystem.setTerrain(point, "ice", this.gameTimeMs, 8000);
+      this.placeFieldObject("cube", point, 70, null, "damage");
+    }
     if (card.id === "toxic")
       this.placeFieldObject(
         "field-device",
@@ -1479,35 +1472,18 @@ export class GameWorld {
       )
       .sort((a, b) => a.grid.col - b.grid.col)[0];
   }
-  private cardTargets(shape: TargetShape): {
+  private cardTargets(card: Card): {
     tiles: GridPosition[];
     enemies: Enemy[];
   } {
-    const row = this.playerGrid.row;
-    const tiles =
-      shape === "self"
-        ? [{ ...this.playerGrid }]
-        : shape === "near"
-          ? [0, 1, 2].map(targetRow => ({ col: 3, row: targetRow }))
-          : shape === "front" || shape === "row"
-            ? [3, 4, 5].map(col => ({ col, row }))
-            : shape === "column"
-              ? [0, 1, 2].map(targetRow => ({ col: 4, row: targetRow }))
-              : shape === "cross"
-                ? uniqueTiles([
-                    { col: 3, row },
-                    { col: 4, row },
-                    { col: 5, row },
-                    { col: 4, row: 0 },
-                    { col: 4, row: 2 },
-                  ])
-                : [3, 4, 5].flatMap(col =>
-                    [0, 1, 2].map(targetRow => ({ col, row: targetRow }))
-                  );
-    const enemies = this.enemies.filter(
-      enemy =>
-        enemy.state !== "deleted" &&
-        tiles.some(tile => sameTile(tile, enemy.grid))
+    const tiles = cardPreviewTiles(
+      card,
+      this.playerGrid,
+      this.enemies.filter(enemy => enemy.state !== "deleted").map(enemy => enemy.grid)
+    );
+    const enemies = this.enemies.filter(enemy =>
+      enemy.state !== "deleted" &&
+      tiles.some(tile => sameTile(tile, enemy.grid))
     );
     return { tiles, enemies };
   }
@@ -1515,10 +1491,12 @@ export class GameWorld {
     enemy: Enemy,
     damage: number,
     card: Card | undefined,
-    charged: boolean
+    charged: boolean,
+    chainDepth = 0
   ): void {
     if (enemy.state === "deleted") return;
-    enemy.hp = Math.max(0, enemy.hp - damage);
+    const resolvedDamage = this.resolveCardDamage(enemy, damage, card);
+    enemy.hp = Math.max(0, enemy.hp - resolvedDamage);
     const counter = Boolean(
       card &&
         card.power > 0 &&
@@ -1534,9 +1512,7 @@ export class GameWorld {
       this.sync = this.emotionSystem.counterSuccess();
       this.counters += 1;
       this.score += 150;
-      this.message = this.sync
-        ? "カードカウンター — フルシンクロ"
-        : "カードカウンター — 激昂を維持";
+      this.message = this.sync ? "カードカウンター — フルシンクロ" : "カードカウンター — 激昂を維持";
       this.onEvent({ type: "counter", at: { ...enemy.grid } });
     }
     this.onEvent({
@@ -1545,13 +1521,27 @@ export class GameWorld {
       side: "player",
       enemyId: enemy.id,
       cardId: card?.id,
-      damage,
+      damage: resolvedDamage,
       status: card?.status,
       charged,
       counter,
     });
-    if (card?.status)
-      this.applyStatus(enemy, card.status, card.durationMs ?? 0);
+    if (card?.status) this.applyStatus(enemy, card.status, card.durationMs ?? 0);
+    if (card?.id === "volt" && chainDepth === 0) {
+      const chained = this.enemies
+        .filter(candidate =>
+          candidate.id !== enemy.id &&
+          candidate.state !== "deleted" &&
+          Math.abs(candidate.grid.col - enemy.grid.col) <= 1 &&
+          Math.abs(candidate.grid.row - enemy.grid.row) <= 1
+        )
+        .sort((a, b) =>
+          Math.abs(a.grid.col - enemy.grid.col) + Math.abs(a.grid.row - enemy.grid.row) -
+          (Math.abs(b.grid.col - enemy.grid.col) + Math.abs(b.grid.row - enemy.grid.row))
+        )[0];
+      if (chained)
+        this.strikeEnemy(chained, Math.max(1, Math.round(resolvedDamage / 2)), card, charged, 1);
+    }
     if (enemy.hp <= 0) {
       this.clearWarnings(enemy);
       enemy.state = "deleted";
@@ -1560,6 +1550,7 @@ export class GameWorld {
       this.message = `${enemy.name} を停止`;
     }
   }
+
   private applyStatus(
     enemy: Enemy,
     status: CardStatus,
@@ -1908,6 +1899,7 @@ export class GameWorld {
       grid,
       state: "idle",
       counterWindow: false,
+      element: id === "sentinel" ? "electric" : "none",
       windupUntil: 0,
       recoverUntil: 0,
       stunnedUntil: 0,
