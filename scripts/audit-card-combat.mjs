@@ -15,6 +15,7 @@ const requiredIds = [
   "sanctum", "crack", "rush", "sector", "gravity", "gustwall", "hole",
   "prism", "phase", "return", "substitute", "magguard", "premonition",
   "rectify", "repair", "fastsync", "stamp", "reroute",
+  "meteor", "dream", "sanctuary", "overdrive",
 ];
 const missingProfiles = requiredIds.filter(id => !profileSource.includes(id + ": {"));
 const hasActionHook = id =>
@@ -30,7 +31,7 @@ const incomplete = requiredIds.filter(id => {
   return !block.includes("powerPerHit") || !block.includes("rangePreviewId");
 });
 
-console.log("PR7・PR8対象カード: " + requiredIds.length);
+console.log("PR7〜PR9対象カード: " + requiredIds.length);
 console.log("不足定義: " + (missingProfiles.length ? missingProfiles.join(", ") : "なし"));
 console.log("不足処理: " + (missingActions.length ? missingActions.join(", ") : "なし"));
 console.log("不足デッキ登録: " + (missingCards.length ? missingCards.join(", ") : "なし"));

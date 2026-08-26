@@ -191,6 +191,9 @@ export interface Card {
   rangePreviewId?: string;
   vfxId?: string;
   audioId?: string;
+  /** Populated only for a queue entry created by a matched chain technique. */
+  chainTechniqueId?: string;
+  chainCardIds?: readonly string[];
 }
 export interface EnemySnapshot {
   id: string;
@@ -236,6 +239,11 @@ export interface BattleSnapshot {
   bestWave: number;
   paused: boolean;
   customRemaining: number;
+  /** PR9 battle metadata; optional to keep older renderers compatible. */
+  dreamAuraRemaining?: number;
+  overdriveStep?: number;
+  overdriveRemaining?: number;
+  usedChainTechniques?: string[];
 }
 export type BattleEvent =
   | { type: "attack"; charged: boolean }
