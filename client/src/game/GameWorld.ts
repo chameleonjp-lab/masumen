@@ -27,6 +27,13 @@ import {
 import { CustomSystem } from "./systems/CustomSystem";
 import { EmotionSystem } from "./systems/EmotionSystem";
 import { ProjectileSystem } from "./systems/ProjectileSystem";
+import {
+  ENEMY_DEFINITIONS,
+  getEnemyDefinition,
+  type EnemyActionDefinition,
+  type EnemyId,
+  type EnemyPattern,
+} from "./data/enemies";
 import type {
   BattleEvent,
   BattleSnapshot,
@@ -43,12 +50,7 @@ import type {
   TargetShape,
 } from "./types";
 
-type Pattern =
-  | "lane-sweep"
-  | "column-scan"
-  | "pursuit-dash"
-  | "mortar-spread"
-  | "pulse-grid";
+type Pattern = EnemyPattern;
 interface Enemy extends EnemySnapshot {
   windupUntil: number;
   recoverUntil: number;
@@ -69,6 +71,16 @@ interface Enemy extends EnemySnapshot {
   counterWindowMs: number;
   counterWindowState: CounterWindow | null;
   nextTerrainDamageAt: number;
+  definitionId: EnemyId;
+  actionIndex: number;
+  actionId: string | null;
+  actionName: string | null;
+  actionPhase: import("./types").EnemyActionPhase;
+  activeUntil: number;
+  warningAt: number;
+  warningShown: boolean;
+  defense: import("./types").EnemyDefenseMode;
+  movement: import("./types").EnemyMovementMode;
 }
 interface PendingMeleeStage {
   activeAt: number;
@@ -108,6 +120,8 @@ interface FieldObjectOptions {
   effectId?: FieldObject["effectId"];
   damage?: number;
   sourceCardId?: string;
+  sourceId?: string;
+  owner?: "player" | "enemy";
   hidden?: boolean;
   pushable?: boolean;
   collision?: "solid" | "passable";
@@ -191,6 +205,8 @@ export class GameWorld {
   private invincibleUntil = 0;
   private playerControlLockedUntil = 0;
   private playerDamageInvulnerableUntil = 0;
+  private playerStunnedUntil = 0;
+  private playerBlindUntil = 0;
   private phaseUntil = 0;
   private pendingDefense: "return" | "substitute" | "premonition" | null = null;
   private pendingDefenseUntil = 0;
@@ -350,126 +366,400 @@ export class GameWorld {
       this.strikeEnemy(enemy, 7, undefined, false);
     }
   }
+  private currentEnemyAction(enemy: Enemy): EnemyActionDefinition | undefined {
+    return getEnemyDefinition(enemy.definitionId)?.actions.find(
+      action => action.id === enemy.actionId
+    );
+  }
+
   private updateEnemy(enemy: Enemy, now: number): void {
-    if (enemy.state === "deleted") return;
+    if (enemy.state === "deleted") {
+      enemy.actionPhase = "deleted";
+      return;
+    }
     if (enemy.state === "stunned") {
+      enemy.actionPhase = "stunned";
       if (now >= enemy.stunnedUntil) {
         enemy.state = "recover";
+        enemy.actionPhase = "recovery";
+        enemy.activeUntil = now;
         enemy.recoverUntil = now + 430;
       }
       return;
     }
+
+    const action = this.currentEnemyAction(enemy);
     if (enemy.state === "windup") {
+      if (
+        !enemy.warningShown &&
+        now >= enemy.warningAt &&
+        now < enemy.windupUntil &&
+        now >= this.playerBlindUntil
+      ) {
+        enemy.lockedTargets.forEach(target =>
+          this.onEvent({ type: "warning", at: target, enabled: true })
+        );
+        enemy.warningShown = true;
+      }
+      enemy.actionPhase = isCounterWindowOpen(now, enemy.counterWindowState)
+        ? "counter-window"
+        : "startup";
       if (now >= enemy.windupUntil) {
-        enemy.state = "recover";
-        enemy.recoverUntil = now + 460;
-        this.clearWarnings(enemy);
-        enemy.lockedTargets.forEach((target, index) => {
-          const motion =
-            enemy.pattern === "mortar-spread" || enemy.pattern === "pulse-grid"
-              ? "thrown"
-              : "straight";
-          const projectile = this.projectileSystem.spawn(
-            {
-              owner: "enemy",
-              motion,
-              position: { ...enemy.grid },
-              target,
-              damage: enemy.attackDamage,
-              sourceId: enemy.id,
-              activeAt: now + 250 + index * 105,
-              flightMs:
-                motion === "thrown"
-                  ? COMBAT_BALANCE.projectile.thrownFlightMs
-                  : 0,
-              speedCellsPerSecond:
-                motion === "thrown"
-                  ? COMBAT_BALANCE.projectile.defaultSpeedCellsPerSecond
-                  : 11,
-              rowSpan: false,
-            },
-            now
-          );
-          this.onEvent({
-            type: "projectile",
-            id: projectile.id,
-            motion: projectile.motion,
-            from: { ...enemy.grid },
-            to: target,
-            side: "enemy",
-          });
-        });
+        const targets = [...enemy.lockedTargets];
+        if (enemy.warningShown) this.clearWarnings(enemy);
+        this.executeEnemyAction(enemy, action, now, targets);
         enemy.lockedTargets = [];
+        enemy.state = "recover";
+        enemy.actionPhase = "active";
+        enemy.activeUntil = now + (action?.activeMs ?? 100);
+        enemy.recoverUntil =
+          enemy.activeUntil + (action?.recoveryMs ?? 430);
+        enemy.warningShown = false;
       }
       return;
     }
+
     if (enemy.state === "recover") {
-      if (now >= enemy.recoverUntil) {
-        if (now >= enemy.rootUntil) this.reposition(enemy);
-        enemy.state = "idle";
-        enemy.nextAttackAt =
-          now + enemy.cooldownMs + (now < enemy.slowUntil ? 620 : 0);
+      if (now < enemy.activeUntil) {
+        enemy.actionPhase = "active";
+        return;
       }
+      if (now < enemy.recoverUntil) {
+        enemy.actionPhase = "recovery";
+        return;
+      }
+      if (now >= enemy.rootUntil) this.reposition(enemy);
+      enemy.state = "idle";
+      enemy.actionPhase = "idle";
+      enemy.nextAttackAt =
+        now + (action?.cooldownMs ?? enemy.cooldownMs) +
+        (now < enemy.slowUntil ? 620 : 0);
       return;
     }
+
+    enemy.actionPhase = "idle";
     if (now >= enemy.nextAttackAt) this.prepareAttack(enemy, now);
   }
+
   private prepareAttack(enemy: Enemy, now: number): void {
+    const definition = getEnemyDefinition(enemy.definitionId);
+    const action = definition?.actions[
+      enemy.actionIndex % (definition.actions.length || 1)
+    ];
+    if (!action) return;
+
+    enemy.actionIndex =
+      (enemy.actionIndex + 1) % Math.max(1, definition.actions.length);
     enemy.cycle += 1;
-    enemy.lockedTargets = this.targetsFor(enemy);
-    if (enemy.pattern === "pursuit-dash" && now >= enemy.rootUntil)
-      enemy.grid = { col: 3, row: this.playerGrid.row };
+    enemy.actionId = action.id;
+    enemy.actionName = action.name;
+    enemy.pattern = action.pattern;
+    enemy.attackDamage = action.damage;
+    enemy.windupMs = action.startupMs;
+    enemy.cooldownMs = action.cooldownMs;
+    enemy.counterWindowMs = action.counterWindowMs;
+    if (
+      enemy.movement === "pursuit" &&
+      now >= enemy.rootUntil
+    ) {
+      this.movePursuitEnemy(enemy);
+    }
+    enemy.lockedTargets = this.targetsForAction(enemy, action);
     enemy.state = "windup";
-    enemy.windupUntil =
-      now + enemy.windupMs + (now < enemy.slowUntil ? 280 : 0);
+    enemy.actionPhase = "startup";
+    const slowExtra = now < enemy.slowUntil ? 280 : 0;
+    enemy.windupUntil = now + action.startupMs + slowExtra;
+    enemy.activeUntil = enemy.windupUntil;
+    enemy.recoverUntil = 0;
     enemy.attackStartedAt = now;
     enemy.counterWindowState = createCounterWindow(
       now,
       enemy.windupUntil,
-      enemy.counterWindowMs,
+      action.counterWindowMs,
       COMBAT_BALANCE.counter.endMarginMs
     );
     enemy.counterStartAt = enemy.counterWindowState.startAt;
     enemy.counterEndAt = enemy.counterWindowState.endAt;
-    enemy.lockedTargets.forEach(target =>
-      this.onEvent({ type: "warning", at: target, enabled: true })
-    );
-    this.message = `${enemy.name} — ${PATTERN_LABEL[enemy.pattern as Pattern]}`;
+    enemy.warningAt = now + (action.warningDelayMs ?? 0);
+    enemy.warningShown = false;
+    this.message = enemy.name + " — " + action.name;
   }
-  private targetsFor(enemy: Enemy): GridPosition[] {
-    const p = { ...this.playerGrid };
-    switch (enemy.pattern) {
-      case "lane-sweep":
-        return [0, 1, 2].map(col => ({ col, row: p.row }));
-      case "column-scan":
-        return [0, 1, 2].map(row => ({ col: p.col, row }));
-      case "pursuit-dash":
-        return [p];
-      case "mortar-spread":
+
+  private targetsForAction(
+    enemy: Enemy,
+    action: EnemyActionDefinition
+  ): GridPosition[] {
+    const player = { ...this.playerGrid };
+    switch (action.target) {
+      case "row":
+        return [0, 1, 2].map(col => ({ col, row: player.row }));
+      case "column":
+        return [0, 1, 2].map(row => ({ col: player.col, row }));
+      case "player":
+      case "adjacent":
+      case "mine":
+        return [player];
+      case "cross":
         return uniqueTiles([
-          p,
-          { col: p.col === 2 ? 1 : p.col + 1, row: p.row },
-          { col: p.col, row: p.row === 2 ? 1 : p.row + 1 },
-        ]);
-      case "pulse-grid":
+          player,
+          { col: player.col - 1, row: player.row },
+          { col: player.col + 1, row: player.row },
+          { col: player.col, row: player.row - 1 },
+          { col: player.col, row: player.row + 1 },
+        ]).filter(tile => this.panelSystem.isInside(tile));
+      case "spread":
+        return uniqueTiles([
+          player,
+          { col: player.col, row: player.row - 1 },
+          { col: player.col, row: player.row + 1 },
+        ]).filter(tile => this.panelSystem.isInside(tile));
+      case "alternating":
         return playerTiles().filter(
           tile => (tile.col + tile.row + enemy.cycle) % 2 === 0
         );
       default:
-        return [p];
+        return [player];
     }
   }
-  private reposition(enemy: Enemy): void {
-    if (enemy.pattern === "lane-sweep")
-      enemy.grid.row = (enemy.grid.row + 1) % 3;
-    if (enemy.pattern === "column-scan")
-      enemy.grid.row = (enemy.grid.row + 2) % 3;
-    if (enemy.pattern === "pulse-grid")
-      enemy.grid.row = (enemy.grid.row + 1) % 3;
+
+  private movePursuitEnemy(enemy: Enemy): void {
+    const target = { col: 3, row: this.playerGrid.row };
+    if (!this.canEnemyOccupy(enemy, target)) return;
+    enemy.actionPhase = "moving";
+    enemy.grid = target;
   }
+
+  private reposition(enemy: Enemy): void {
+    if (enemy.movement === "stationary") return;
+    if (enemy.movement === "pursuit") {
+      const target = {
+        col: 3,
+        row: (this.playerGrid.row + enemy.cycle + 1) % 3,
+      };
+      if (this.canEnemyOccupy(enemy, target)) enemy.grid = target;
+      return;
+    }
+    const flying = enemy.movement === "flying";
+    const directions =
+      enemy.movement === "flying"
+        ? [
+            { col: 0, row: 1 },
+            { col: 0, row: -1 },
+            { col: -1, row: 0 },
+            { col: 1, row: 0 },
+          ]
+        : [
+            { col: 0, row: 1 },
+            { col: 0, row: -1 },
+            { col: -1, row: 0 },
+            { col: 1, row: 0 },
+          ];
+    for (const direction of directions) {
+      const destination = this.panelSystem.resolveMovement(
+        enemy.grid,
+        direction,
+        "enemy",
+        position =>
+          this.objectSystem.isSolidAt(position) ||
+          this.enemies.some(
+            other => other.id !== enemy.id && sameTile(other.grid, position)
+          ),
+        flying
+      );
+      if (destination && !sameTile(destination, enemy.grid)) {
+        enemy.grid = destination;
+        return;
+      }
+    }
+  }
+
+  private canEnemyOccupy(enemy: Enemy, position: GridPosition): boolean {
+    const panel = this.panelSystem.get(position);
+    if (!panel || panel.owner !== "enemy") return false;
+    if (!enemy.movement || enemy.movement !== "flying") {
+      if (panel.terrain === "hole") return false;
+    }
+    if (panel.objectId !== null) return false;
+    return !this.enemies.some(
+      other => other.id !== enemy.id &&
+        other.state !== "deleted" &&
+        sameTile(other.grid, position)
+    );
+  }
+
   private clearWarnings(enemy: Enemy): void {
     enemy.lockedTargets.forEach(target =>
       this.onEvent({ type: "warning", at: target, enabled: false })
+    );
+  }
+
+  private executeEnemyAction(
+    enemy: Enemy,
+    action: EnemyActionDefinition | undefined,
+    now: number,
+    targets: GridPosition[]
+  ): void {
+    if (!action) return;
+    const origin = { ...enemy.grid };
+    if (action.id === "bulwark-lane-cannon") {
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: "straight",
+        direction: { col: -1, row: 0 },
+        target: { col: 0, row: this.playerGrid.row },
+      });
+      return;
+    }
+    if (action.id === "bulwark-shield-bash" || action.id === "razor-dash-cut") {
+      this.resolveEnemyMelee(enemy, action, "adjacent");
+      return;
+    }
+    if (action.id === "razor-cross-slash") {
+      this.resolveEnemyMelee(enemy, action, "cross");
+      return;
+    }
+    if (action.id === "scanner-column-scan") {
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: "thrown",
+        target: { col: this.playerGrid.col, row: this.playerGrid.row },
+        rowSpan: true,
+        flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+      });
+      return;
+    }
+    if (action.id === "scanner-signal-lock") {
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: "homing",
+        target: { ...this.playerGrid },
+        speedCellsPerSecond: 9,
+      });
+      return;
+    }
+    if (action.id === "mortar-shell") {
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: "thrown",
+        target: { ...this.playerGrid },
+        flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+      });
+      return;
+    }
+    if (action.id === "mortar-triple-shell") {
+      const shellTargets = targets
+        .filter(target => this.panelSystem.isInside(target))
+        .slice(0, action.projectileCount ?? 3);
+      shellTargets.forEach((target, index) =>
+        this.spawnEnemyProjectile(
+          enemy,
+          action,
+          { ...target },
+          {
+            motion: "thrown",
+            flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+          },
+          index * (action.projectileIntervalMs ?? 110)
+        )
+      );
+      return;
+    }
+    if (action.id === "mortar-mine-drop") {
+      const panel = this.findEnemyMinePlacement();
+      this.placeFieldObject(
+        "mine",
+        panel,
+        35,
+        5000,
+        "enemy-contact",
+        {
+          owner: "enemy",
+          effectId: "enemy-mine",
+          damage: action.damage,
+          sourceId: enemy.id,
+          collision: "passable",
+          pushable: false,
+        }
+      );
+      this.message = enemy.name + " — 地雷を設置";
+      return;
+    }
+    if (action.id === "sentinel-alternating-pulse") {
+      targets.forEach((target, index) =>
+        this.spawnEnemyProjectile(
+          enemy,
+          action,
+          target,
+          {
+            motion: "thrown",
+            flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+          },
+          index * 35
+        )
+      );
+      return;
+    }
+    if (action.id === "sentinel-chain-bolt") {
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: "homing",
+        target: { ...this.playerGrid },
+        speedCellsPerSecond: 9,
+      });
+    }
+  }
+
+  private spawnEnemyProjectile(
+    enemy: Enemy,
+    action: EnemyActionDefinition,
+    options: Partial<Parameters<ProjectileSystem["spawn"]>[0]>,
+    delayMs = 0
+  ): void {
+    const projectile = this.spawnProjectile({
+      owner: "enemy",
+      motion: action.motion ?? "straight",
+      position: { ...enemy.grid },
+      target: { ...this.playerGrid },
+      damage: action.damage,
+      sourceId: enemy.id,
+      sourceActionId: action.id,
+      activeAt: this.gameTimeMs + delayMs,
+      ...options,
+    });
+    if (!projectile) return;
+  }
+
+  private resolveEnemyMelee(
+    enemy: Enemy,
+    action: EnemyActionDefinition,
+    mode: "adjacent" | "cross"
+  ): void {
+    const columnDistance = Math.abs(enemy.grid.col - this.playerGrid.col);
+    const rowDistance = Math.abs(enemy.grid.row - this.playerGrid.row);
+    const hits =
+      mode === "cross"
+        ? columnDistance <= 1 && rowDistance <= 1
+        : columnDistance <= 1 && rowDistance === 0;
+    if (hits) this.applyPlayerHit(action.damage, enemy.id);
+  }
+
+  private findEnemyMinePlacement(): GridPosition {
+    const player = { ...this.playerGrid };
+    const candidates = [
+      player,
+      { col: player.col - 1, row: player.row },
+      { col: player.col + 1, row: player.row },
+      { col: player.col, row: player.row - 1 },
+      { col: player.col, row: player.row + 1 },
+      { col: 2, row: player.row },
+      { col: 1, row: player.row },
+      { col: 0, row: player.row },
+    ];
+    return (
+      candidates.find(position => {
+        const panel = this.panelSystem.get(position);
+        return (
+          panel &&
+          panel.occupantId === null &&
+          panel.objectId === null &&
+          panel.terrain !== "hole"
+        );
+      }) ?? { col: 2, row: player.row }
     );
   }
 
@@ -528,6 +818,7 @@ export class GameWorld {
   private move(dx: number, dy: number): void {
     if (this.mode !== "battle" || this.paused) return;
     if (this.gameTimeMs < this.playerControlLockedUntil) return;
+    if (this.gameTimeMs < this.playerStunnedUntil) return;
     if (dx === 0 && dy === 0) {
       this.notify();
       return;
@@ -551,7 +842,12 @@ export class GameWorld {
   }
   private fire(): void {
     const now = this.gameTimeMs;
-    if (this.mode === "battle" && !this.paused && this.overdrivePrompt) {
+    if (
+      this.mode === "battle" &&
+      !this.paused &&
+      this.gameTimeMs >= this.playerStunnedUntil &&
+      this.overdrivePrompt
+    ) {
       if (now <= this.overdrivePrompt.expiresAt) {
         this.resolveOverdriveInput();
         return;
@@ -563,7 +859,8 @@ export class GameWorld {
       this.paused ||
       this.isCharging ||
       now < this.nextFireAt ||
-      now < this.playerControlLockedUntil
+      now < this.playerControlLockedUntil ||
+      now < this.playerStunnedUntil
     )
       return;
     const target = this.frontTarget();
@@ -594,7 +891,8 @@ export class GameWorld {
     if (
       this.mode === "battle" &&
       !this.paused &&
-      this.gameTimeMs >= this.playerControlLockedUntil
+      this.gameTimeMs >= this.playerControlLockedUntil &&
+      this.gameTimeMs >= this.playerStunnedUntil
     )
       this.isCharging = true;
   }
@@ -603,7 +901,8 @@ export class GameWorld {
       this.mode !== "battle" ||
       this.paused ||
       !this.isCharging ||
-      this.gameTimeMs < this.playerControlLockedUntil
+      this.gameTimeMs < this.playerControlLockedUntil ||
+      this.gameTimeMs < this.playerStunnedUntil
     )
       return;
     const charge = this.charging;
@@ -696,7 +995,8 @@ export class GameWorld {
       this.mode !== "battle" ||
       this.paused ||
       this.queue.length === 0 ||
-      this.gameTimeMs < this.playerControlLockedUntil
+      this.gameTimeMs < this.playerControlLockedUntil ||
+      this.gameTimeMs < this.playerStunnedUntil
     )
       return;
     const card = this.queue.shift();
@@ -1512,8 +1812,17 @@ export class GameWorld {
         );
       return;
     }
-    if (targetIds.includes("player"))
+    if (targetIds.includes("player")) {
       this.applyPlayerHit(projectile.damage, projectile.sourceId ?? undefined);
+      if (projectile.sourceActionId === "scanner-signal-lock") {
+        this.playerBlindUntil = Math.max(this.playerBlindUntil, this.gameTimeMs + 900);
+        this.message = "追尾信号弾 — 目隠し";
+      }
+      if (projectile.sourceActionId === "sentinel-chain-bolt") {
+        this.playerStunnedUntil = Math.max(this.playerStunnedUntil, this.gameTimeMs + 500);
+        this.message = "連鎖電撃 — 麻痺";
+      }
+    }
   }
   private activateSubstitute(): void {
     const previous = { ...this.playerGrid };
@@ -1739,6 +2048,13 @@ export class GameWorld {
       const nextTriggerAt = this.objectNextTriggerAt.get(object.id) ?? now;
       if (now < nextTriggerAt) continue;
       const sourceCard = this.cardForSource(object.sourceCardId);
+      if (object.effectId === "enemy-mine") {
+        if (sameTile(object.panel, this.playerGrid)) {
+          this.removeFieldObject(object.id);
+          this.applyPlayerHit(object.damage ?? 28, object.sourceId);
+        }
+        continue;
+      }
       if (object.effectId === "watch-mine") {
         const target = this.enemies.find(
           enemy =>
@@ -2246,7 +2562,7 @@ export class GameWorld {
     this.objectSequence += 1;
     const result = this.objectSystem.place({
       id,
-      owner: "player",
+      owner: options.owner ?? "player",
       kind,
       panel,
       hp,
@@ -2255,6 +2571,7 @@ export class GameWorld {
       effectId: options.effectId,
       damage: options.damage,
       sourceCardId: options.sourceCardId,
+      sourceId: options.sourceId,
       hidden: options.hidden ?? false,
       pushable:
         options.pushable ??
@@ -2444,6 +2761,23 @@ export class GameWorld {
     return damage + bonus;
   }
 
+  private enemyBlocksDamage(enemy: Enemy, card: Card | undefined): boolean {
+    if (enemy.state === "deleted") return true;
+    if (card?.properties?.includes("破砕")) return false;
+    if (enemy.defense === "guard") {
+      // Keep the low-power basic shot useful while the guard blocks card attacks.
+      if (!card) return false;
+      return ![
+        "counter-window",
+        "active",
+        "recovery",
+        "stunned",
+        "deleted",
+      ].includes(enemy.actionPhase);
+    }
+    return false;
+  }
+
   private strikeEnemy(
     enemy: Enemy,
     damage: number,
@@ -2453,6 +2787,19 @@ export class GameWorld {
     elementOverride?: CardElement
   ): void {
     if (enemy.state === "deleted") return;
+    if (this.enemyBlocksDamage(enemy, card)) {
+      this.message = enemy.name + " — 正面ガード";
+      this.onEvent({
+        type: "impact",
+        at: { ...enemy.grid },
+        side: "player",
+        enemyId: enemy.id,
+        cardId: card?.id,
+        damage: 0,
+        charged,
+      });
+      return;
+    }
     const markedDamage = this.consumeOutputMark(damage, card);
     const resolvedDamage = this.resolveCardDamage(enemy, markedDamage, card, elementOverride);
     enemy.hp = Math.max(0, enemy.hp - resolvedDamage);
@@ -2460,13 +2807,14 @@ export class GameWorld {
       card &&
         card.power > 0 &&
         !charged &&
-        enemy.state === "windup" &&
+        enemy.actionPhase === "counter-window" &&
         isCounterWindowOpen(this.gameTimeMs, enemy.counterWindowState)
     );
     if (counter) {
       this.clearWarnings(enemy);
       enemy.lockedTargets = [];
       enemy.state = "stunned";
+      enemy.actionPhase = "stunned";
       enemy.stunnedUntil = this.gameTimeMs + COMBAT_BALANCE.counter.stunMs;
       this.sync = this.emotionSystem.counterSuccess();
       this.counters += 1;
@@ -2512,6 +2860,7 @@ export class GameWorld {
     if (enemy.hp <= 0) {
       this.clearWarnings(enemy);
       enemy.state = "deleted";
+      enemy.actionPhase = "deleted";
       this.score += 100 + this.wave * 25;
       this.onEvent({ type: "deleted", id: enemy.id, at: { ...enemy.grid } });
       this.message = `${enemy.name} を停止`;
@@ -2532,6 +2881,7 @@ export class GameWorld {
       this.clearWarnings(enemy);
       enemy.lockedTargets = [];
       enemy.state = "stunned";
+      enemy.actionPhase = "stunned";
       enemy.stunnedUntil = Math.max(enemy.stunnedUntil, now + duration);
     }
     if (status === "root")
@@ -2551,6 +2901,8 @@ export class GameWorld {
     this.pendingChainEffects = [];
     this.dreamAuraUntil = 0;
     this.overdrivePrompt = null;
+    this.playerStunnedUntil = 0;
+    this.playerBlindUntil = 0;
     this.objectNextTriggerAt.clear();
     this.objectTriggerCount.clear();
     this.enemies = this.makeEnemies(this.wave);
@@ -2618,6 +2970,11 @@ export class GameWorld {
   }
   private openCustom(): void {
     if (this.mode !== "battle" || this.paused) return;
+    if (this.gameTimeMs < this.playerStunnedUntil) {
+      this.message = "麻痺中 — 移動と攻撃はできません";
+      this.notify();
+      return;
+    }
     if (this.isCharging) {
       this.message = "チャージを解除してからカード選択を開いてください";
       this.notify();
@@ -2752,6 +3109,8 @@ export class GameWorld {
     this.invincibleUntil = 0;
     this.playerControlLockedUntil = 0;
     this.playerDamageInvulnerableUntil = 0;
+    this.playerStunnedUntil = 0;
+    this.playerBlindUntil = 0;
     this.phaseUntil = 0;
     this.pendingDefense = null;
     this.pendingDefenseUntil = 0;
@@ -2797,6 +3156,8 @@ export class GameWorld {
     this.invincibleUntil = 0;
     this.playerControlLockedUntil = 0;
     this.playerDamageInvulnerableUntil = 0;
+    this.playerStunnedUntil = 0;
+    this.playerBlindUntil = 0;
     this.phaseUntil = 0;
     this.pendingDefense = null;
     this.pendingDefenseUntil = 0;
@@ -2848,6 +3209,8 @@ export class GameWorld {
     this.pendingChainEffects = [];
     this.dreamAuraUntil = 0;
     this.overdrivePrompt = null;
+    this.playerStunnedUntil = 0;
+    this.playerBlindUntil = 0;
     this.hitstopRemainingMs = 0;
     this.cancelCharge();
     this.objectSystem.reset();
@@ -2880,178 +3243,74 @@ export class GameWorld {
   private makeEnemies(wave: number): Enemy[] {
     const now = this.gameTimeMs;
     const scale = 1 + (wave - 1) * 0.18;
-    const factory = (
-      id: string,
-      name: string,
-      pattern: Pattern,
-      hp: number,
-      grid: GridPosition,
-      damage: number,
-      windupMs: number,
-      cooldownMs: number
-    ): Enemy => ({
-      id,
-      name,
-      pattern,
-      hp: Math.round(hp * scale),
-      maxHp: Math.round(hp * scale),
-      grid,
-      state: "idle",
-      counterWindow: false,
-      element: id === "sentinel" ? "electric" : "none",
-      windupUntil: 0,
-      recoverUntil: 0,
-      stunnedUntil: 0,
-      nextAttackAt: now + 1900,
-      attackDamage: Math.round(damage * scale),
-      windupMs,
-      cooldownMs,
-      lockedTargets: [],
-      cycle: 0,
-      burnUntil: 0,
-      nextBurnAt: 0,
-      slowUntil: 0,
-      rootUntil: 0,
-      attackStartedAt: 0,
-      counterStartAt: null,
-      counterEndAt: null,
-      counterWindowMs:
-        COMBAT_BALANCE.counter.patternWindowMs[pattern] ??
-        COMBAT_BALANCE.counter.windowMs,
-      counterWindowState: null,
-      nextTerrainDamageAt: 0,
-    });
-    const layouts: (() => Enemy[])[] = [
+    const factory = (id: EnemyId, grid: GridPosition): Enemy => {
+      const definition = ENEMY_DEFINITIONS[id];
+      const firstAction = definition.actions[0];
+      if (!firstAction) throw new Error("敵の行動定義がありません");
+      return {
+        id: definition.id,
+        name: definition.name,
+        pattern: firstAction.pattern,
+        hp: Math.round(definition.maxHp * scale),
+        maxHp: Math.round(definition.maxHp * scale),
+        grid: { ...grid },
+        state: "idle",
+        counterWindow: false,
+        element: definition.element,
+        definitionId: definition.id,
+        actionIndex: 0,
+        actionId: null,
+        actionName: null,
+        actionPhase: "idle",
+        activeUntil: 0,
+        warningAt: 0,
+        warningShown: false,
+        defense: definition.defense,
+        movement: definition.movement,
+        windupUntil: 0,
+        recoverUntil: 0,
+        stunnedUntil: 0,
+        nextAttackAt: now + 1900,
+        attackDamage: Math.round(firstAction.damage * scale),
+        windupMs: firstAction.startupMs,
+        cooldownMs: firstAction.cooldownMs,
+        lockedTargets: [],
+        cycle: 0,
+        burnUntil: 0,
+        nextBurnAt: 0,
+        slowUntil: 0,
+        rootUntil: 0,
+        attackStartedAt: 0,
+        counterStartAt: null,
+        counterEndAt: null,
+        counterWindowMs: firstAction.counterWindowMs,
+        counterWindowState: null,
+        nextTerrainDamageAt: 0,
+      };
+    };
+    const layouts: (() => Array<{ id: EnemyId; grid: GridPosition }>)[] = [
       () => [
-        factory(
-          "bulwark",
-          "BULWARK-3",
-          "lane-sweep",
-          132,
-          { col: 4, row: 1 },
-          24,
-          1080,
-          1550
-        ),
-        factory(
-          "scanner",
-          "SCANNER-8",
-          "column-scan",
-          90,
-          { col: 5, row: 0 },
-          18,
-          820,
-          1150
-        ),
+        { id: "bulwark", grid: { col: 4, row: 1 } },
+        { id: "scanner", grid: { col: 5, row: 0 } },
       ],
       () => [
-        factory(
-          "razor",
-          "RAZOR-6",
-          "pursuit-dash",
-          84,
-          { col: 4, row: 0 },
-          22,
-          600,
-          850
-        ),
-        factory(
-          "mortar",
-          "MORTAR-NODE",
-          "mortar-spread",
-          152,
-          { col: 5, row: 1 },
-          25,
-          1320,
-          1800
-        ),
-        factory(
-          "scanner",
-          "SCANNER-8",
-          "column-scan",
-          96,
-          { col: 3, row: 2 },
-          19,
-          840,
-          1120
-        ),
+        { id: "razor", grid: { col: 4, row: 0 } },
+        { id: "mortar", grid: { col: 5, row: 1 } },
+        { id: "scanner", grid: { col: 3, row: 2 } },
       ],
       () => [
-        factory(
-          "bulwark",
-          "BULWARK-3",
-          "lane-sweep",
-          150,
-          { col: 4, row: 1 },
-          26,
-          1060,
-          1480
-        ),
-        factory(
-          "razor",
-          "RAZOR-6",
-          "pursuit-dash",
-          98,
-          { col: 3, row: 0 },
-          24,
-          570,
-          760
-        ),
-        factory(
-          "sentinel",
-          "VOLT-SENTINEL",
-          "pulse-grid",
-          118,
-          { col: 5, row: 2 },
-          21,
-          980,
-          1040
-        ),
+        { id: "bulwark", grid: { col: 4, row: 1 } },
+        { id: "razor", grid: { col: 3, row: 0 } },
+        { id: "sentinel", grid: { col: 5, row: 2 } },
       ],
       () => [
-        factory(
-          "mortar",
-          "MORTAR-NODE",
-          "mortar-spread",
-          170,
-          { col: 5, row: 0 },
-          29,
-          1280,
-          1680
-        ),
-        factory(
-          "sentinel",
-          "VOLT-SENTINEL",
-          "pulse-grid",
-          142,
-          { col: 4, row: 2 },
-          23,
-          920,
-          920
-        ),
-        factory(
-          "bulwark",
-          "BULWARK-3",
-          "lane-sweep",
-          166,
-          { col: 3, row: 1 },
-          30,
-          980,
-          1320
-        ),
-        factory(
-          "razor",
-          "RAZOR-6",
-          "pursuit-dash",
-          110,
-          { col: 5, row: 2 },
-          26,
-          540,
-          700
-        ),
+        { id: "mortar", grid: { col: 5, row: 0 } },
+        { id: "sentinel", grid: { col: 4, row: 2 } },
+        { id: "bulwark", grid: { col: 3, row: 1 } },
+        { id: "razor", grid: { col: 5, row: 2 } },
       ],
     ];
-    return layouts[Math.min(wave - 1, layouts.length - 1)]();
+    return layouts[Math.min(wave - 1, layouts.length - 1)]().map(factory);
   }
   private notify(): void {
     const now = this.gameTimeMs;
@@ -3099,14 +3358,22 @@ export class GameWorld {
           counterWindowMs: _cwm,
           counterWindowState: _cws,
           nextTerrainDamageAt: _nt,
+          definitionId: _definitionId,
+          actionIndex: _actionIndex,
+          activeUntil: _activeUntil,
+          warningAt: _warningAt,
+          warningShown: _warningShown,
           ...enemy
         }) => ({
           ...enemy,
           grid: { ...enemy.grid },
           counterWindow:
             this.sync &&
-            enemy.state === "windup" &&
+            enemy.actionPhase === "counter-window" &&
             isCounterWindowOpen(now, _cws),
+          counterWindowRemaining: _cws
+            ? Math.max(0, (_cws.endAt - now) / 1000)
+            : 0,
         })
       ),
       panels: this.panelSystem.snapshot(),
@@ -3122,6 +3389,14 @@ export class GameWorld {
       bestWave: this.records.bestWave,
       paused: this.paused,
       customRemaining: this.customRemaining,
+      playerStunnedRemaining: Math.max(
+        0,
+        (this.playerStunnedUntil - now) / 1000
+      ),
+      playerBlindRemaining: Math.max(
+        0,
+        (this.playerBlindUntil - now) / 1000
+      ),
       dreamAuraRemaining: Math.max(
         0,
         (this.dreamAuraUntil - now) / 1000

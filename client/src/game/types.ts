@@ -1,6 +1,17 @@
 /** Signal Relay Tactical game vocabulary: state is explicit so the terminal HUD mirrors the arena without hidden rules. */
 export type BattleMode = "custom" | "battle" | "intermission" | "result";
 export type EnemyState = "idle" | "windup" | "recover" | "stunned" | "deleted";
+export type EnemyActionPhase =
+  | "idle"
+  | "moving"
+  | "startup"
+  | "counter-window"
+  | "active"
+  | "recovery"
+  | "stunned"
+  | "deleted";
+export type EnemyMovementMode = "ground" | "flying" | "stationary" | "pursuit";
+export type EnemyDefenseMode = "none" | "guard" | "airborne";
 export type EmotionState =
   | "normal"
   | "synchronized"
@@ -123,6 +134,7 @@ export type FieldObjectEffect =
   | "poison-mist"
   | "gravity-field"
   | "decoy"
+  | "enemy-mine"
   | null;
 export interface FieldObject {
   id: string;
@@ -136,6 +148,7 @@ export interface FieldObject {
   effectId?: FieldObjectEffect;
   damage?: number;
   sourceCardId?: string;
+  sourceId?: string;
   hidden?: boolean;
   pushable?: boolean;
 }
@@ -149,6 +162,7 @@ export interface ProjectileState {
   target: GridPosition | null;
   damage: number;
   sourceId: string | null;
+  sourceActionId?: string | null;
   sourceCardId: string | null;
   charged: boolean;
   activeAt: number;
@@ -205,6 +219,12 @@ export interface EnemySnapshot {
   pattern: string;
   counterWindow: boolean;
   element?: CardElement;
+  actionPhase?: EnemyActionPhase;
+  actionId?: string | null;
+  actionName?: string | null;
+  counterWindowRemaining?: number;
+  defense?: EnemyDefenseMode;
+  movement?: EnemyMovementMode;
 }
 export interface BattleSnapshot {
   mode: BattleMode;
@@ -239,6 +259,8 @@ export interface BattleSnapshot {
   bestWave: number;
   paused: boolean;
   customRemaining: number;
+  playerStunnedRemaining?: number;
+  playerBlindRemaining?: number;
   /** PR9 battle metadata; optional to keep older renderers compatible. */
   dreamAuraRemaining?: number;
   overdriveStep?: number;

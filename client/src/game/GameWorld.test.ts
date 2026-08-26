@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { GameWorld } from "./GameWorld";
 import { CARD_CATALOG } from "./deck";
 import { createChainCard, findChainTechnique } from "./data/chainTechniques";
-import type { BattleSnapshot, Card } from "./types";
+import type { BattleSnapshot, Card, GridPosition } from "./types";
 
 function installWindowStub(): void {
   const storage = new Map<string, string>();
@@ -518,4 +518,62 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.projectiles).toHaveLength(12);
     expect(latest?.usedChainTechniques).toEqual(["rapid-barrage"]);
   });
+  it("exposes per-enemy action phases and individual counter windows", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    world.controller.confirmCustom();
+    advanceAtFixedRate(world, 2);
+    world.controller.move(0, 0);
+
+    const bulwark = latest?.enemies.find(enemy => enemy.id === "bulwark");
+    expect(bulwark?.actionId).toBe("bulwark-lane-cannon");
+    expect(bulwark?.actionPhase).toBe("counter-window");
+    expect(bulwark?.counterWindowRemaining).toBeGreaterThan(0);
+  });
+
+  it("alternates an enemy action after its active and recovery phases", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    world.controller.confirmCustom();
+    advanceAtFixedRate(world, 4.4);
+    world.controller.move(0, 0);
+
+    expect(latest?.enemies.find(enemy => enemy.id === "bulwark")?.actionId).toBe(
+      "bulwark-shield-bash"
+    );
+  });
+
+  it("keeps the front guard distinct from a break attack", () => {
+    const snapshots: BattleSnapshot[] = [];
+    const world = new GameWorld(snapshot => snapshots.push(snapshot), () => undefined);
+    const internal = world as unknown as {
+      enemies: Array<{
+        id: string;
+        hp: number;
+        actionPhase: string;
+        grid: GridPosition;
+        state: string;
+      }>;
+      strikeEnemy: (
+        enemy: unknown,
+        damage: number,
+        card: Card | undefined,
+        charged: boolean
+      ) => void;
+    };
+    const bulwark = internal.enemies.find(enemy => enemy.id === "bulwark");
+    const basic = CARD_CATALOG.find(card => card.id === "seeker");
+    const breaker = CARD_CATALOG.find(card => card.id === "breakpillar");
+    if (!bulwark || !basic || !breaker) throw new Error("基準データがありません");
+    const before = bulwark.hp;
+    internal.strikeEnemy(bulwark, 20, basic, false);
+    expect(bulwark.hp).toBe(before);
+    internal.strikeEnemy(bulwark, 20, breaker, false);
+    expect(bulwark.hp).toBeLessThan(before);
+  });
+
 });
