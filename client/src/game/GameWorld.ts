@@ -826,8 +826,11 @@ export class GameWorld {
     targets: GridPosition[]
   ): void {
     if (!action) return;
-    const origin = { ...enemy.grid };
-    if (action.id === "bulwark-lane-cannon") {
+
+    if (
+      action.id === "bulwark-lane-cannon" ||
+      action.id === "bastion-lane-cannon"
+    ) {
       this.spawnEnemyProjectile(enemy, action, {
         motion: "straight",
         direction: { col: -1, row: 0 },
@@ -835,11 +838,32 @@ export class GameWorld {
       });
       return;
     }
-    if (action.id === "bulwark-shield-bash" || action.id === "razor-dash-cut") {
+    if (
+      action.id === "bulwark-shield-bash" ||
+      action.id === "bastion-shield-bash" ||
+      action.id === "razor-dash-cut" ||
+      action.id === "arbiter-close-cut"
+    ) {
       this.resolveEnemyMelee(enemy, action, "adjacent");
       return;
     }
-    if (action.id === "razor-cross-slash") {
+    if (
+      action.id === "razor-cross-slash" ||
+      action.id === "prism-cross-cut"
+    ) {
+      this.resolveEnemyMelee(enemy, action, "cross");
+      return;
+    }
+    if (action.id === "prism-teleport-cut") {
+      this.teleportEnemyNearPlayer(enemy);
+      this.resolveEnemyMelee(enemy, action, "adjacent");
+      return;
+    }
+    if (action.id === "prism-front-cut") {
+      this.resolveEnemyMelee(enemy, action, "adjacent");
+      return;
+    }
+    if (action.id === "prism-triple-cut") {
       this.resolveEnemyMelee(enemy, action, "cross");
       return;
     }
@@ -891,8 +915,8 @@ export class GameWorld {
       this.placeFieldObject(
         "mine",
         panel,
-        35,
-        5000,
+        action.objectHp ?? 35,
+        action.objectLifetimeMs ?? 5000,
         "enemy-contact",
         {
           owner: "enemy",
@@ -927,9 +951,441 @@ export class GameWorld {
         target: { ...this.playerGrid },
         speedCellsPerSecond: 9,
       });
+      return;
+    }
+
+    if (
+      action.id === "wave-runner-water-wave" ||
+      action.id === "wave-runner-frost-surge"
+    ) {
+      this.applyEnemyActionTerrain(action, targets);
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: "wave",
+        direction: { col: -1, row: 0 },
+        target: { col: 0, row: this.playerGrid.row },
+        rowSpan: true,
+        stopOnObject: false,
+      });
+      return;
+    }
+    if (
+      action.id === "boomer-arc-outbound" ||
+      action.id === "boomer-arc-return" ||
+      action.id === "arbiter-orbit-mine"
+    ) {
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: "orbit",
+        position: { col: 5, row: 0 },
+        direction: { col: -1, row: 0 },
+        target: null,
+        continuesAfterHit: true,
+        stopOnObject: false,
+        expiresAt: now + 4200,
+        speedCellsPerSecond: 8,
+      });
+      return;
+    }
+    if (action.id === "hopper-jump-land") {
+      const landing = this.findHopperLanding();
+      enemy.grid = landing;
+      this.syncBoardOccupancy();
+      this.applyEnemyAreaDamage(enemy, landing, action.damage, 1, true);
+      return;
+    }
+    if (action.id === "hopper-bomb-drop") {
+      const panel = this.findEnemyObjectPlacement(enemy);
+      this.placeFieldObject(
+        "bomb",
+        panel,
+        action.objectHp ?? 50,
+        action.objectLifetimeMs ?? 2000,
+        "timer",
+        {
+          owner: "enemy",
+          effectId: "enemy-bomb",
+          damage: action.damage,
+          sourceId: enemy.id,
+          collision: "passable",
+          pushable: false,
+        }
+      );
+      this.message = enemy.name + " — 爆弾を投下";
+      return;
+    }
+    if (action.id === "gaia-hammer-strike") {
+      this.resolveEnemyMelee(enemy, action, "adjacent");
+      return;
+    }
+    if (action.id === "gaia-earthquake") {
+      const center = targets[0] ?? this.playerGrid;
+      this.applyEnemyActionTerrain(action, this.areaAround(center));
+      this.applyEnemyAreaDamage(enemy, center, action.damage, 1, false);
+      return;
+    }
+
+    if (
+      action.pattern === "weather-core" ||
+      action.pattern === "climate-engine"
+    ) {
+      this.applyEnemyActionTerrain(action, targets);
+      const count = Math.max(1, action.projectileCount ?? 1);
+      for (let index = 0; index < count; index += 1) {
+        const delay = index * (action.projectileIntervalMs ?? 0);
+        if (action.motion === "wave") {
+          this.spawnEnemyProjectile(
+            enemy,
+            action,
+            {
+              motion: "wave",
+              direction: { col: -1, row: 0 },
+              target: { col: 0, row: this.playerGrid.row },
+              rowSpan: true,
+              stopOnObject: false,
+            },
+            delay
+          );
+        } else if (action.motion === "thrown") {
+          this.spawnEnemyProjectile(
+            enemy,
+            action,
+            {
+              motion: "thrown",
+              target: { col: this.playerGrid.col, row: this.playerGrid.row },
+              rowSpan: true,
+              flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+            },
+            delay
+          );
+        } else if (action.motion === "homing") {
+          this.spawnEnemyProjectile(
+            enemy,
+            action,
+            {
+              motion: "homing",
+              target: { ...this.playerGrid },
+              speedCellsPerSecond: 8,
+            },
+            delay
+          );
+        } else {
+          this.spawnEnemyProjectile(
+            enemy,
+            action,
+            {
+              motion: "straight",
+              direction: { col: -1, row: 0 },
+              target: { col: 0, row: this.playerGrid.row },
+            },
+            delay
+          );
+        }
+      }
+      return;
+    }
+
+    if (action.id === "support-relay-heal" || action.id === "support-relay-barrier") {
+      this.applyEnemySupport(enemy, action);
+      return;
+    }
+    if (action.id === "support-relay-shot") {
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: "straight",
+        direction: { col: -1, row: 0 },
+        target: { col: 0, row: this.playerGrid.row },
+      });
+      return;
+    }
+    if (action.id === "mirror-reflect-stance") {
+      enemy.defense = "reflect";
+      this.message = enemy.name + " — 反射姿勢";
+      return;
+    }
+    if (action.id === "mirror-mimic-shot") {
+      const mimicDamage = this.lastAttackCard
+        ? Math.max(action.damage, Math.round(this.lastAttackCard.power / 2))
+        : action.damage;
+      this.spawnEnemyProjectile(enemy, action, {
+        damage: mimicDamage,
+        motion: "straight",
+        direction: { col: -1, row: 0 },
+        target: { col: 0, row: this.playerGrid.row },
+      });
+      return;
+    }
+
+    if (action.id === "bastion-obstacle-deploy") {
+      this.placeFieldObject(
+        action.objectKind ?? "cube",
+        this.findEnemyObjectPlacement(enemy),
+        action.objectHp ?? 100,
+        action.objectLifetimeMs ?? null,
+        "damage",
+        {
+          owner: "enemy",
+          sourceId: enemy.id,
+          collision: "solid",
+          pushable: false,
+        }
+      );
+      this.message = enemy.name + " — 障害物を展開";
+      return;
+    }
+    if (action.id === "bastion-territory-siege") {
+      this.stealPlayerFront();
+      return;
+    }
+    if (action.id === "bastion-open-barrage") {
+      for (let index = 0; index < (action.projectileCount ?? 3); index += 1) {
+        this.spawnEnemyProjectile(
+          enemy,
+          action,
+          {
+            motion: "straight",
+            direction: { col: -1, row: 0 },
+            target: { col: 0, row: this.playerGrid.row },
+          },
+          index * (action.projectileIntervalMs ?? 150)
+        );
+      }
+      return;
+    }
+
+    if (action.id === "arbiter-tracking-shot") {
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: "homing",
+        target: { ...this.playerGrid },
+        speedCellsPerSecond: 8,
+      });
+      return;
+    }
+    if (action.id === "arbiter-stake-field") {
+      this.placeFieldObject(
+        action.objectKind ?? "mine",
+        this.findEnemyObjectPlacement(enemy),
+        action.objectHp ?? 40,
+        action.objectLifetimeMs ?? 4500,
+        "enemy-contact",
+        {
+          owner: "enemy",
+          effectId: "enemy-mine",
+          damage: action.damage,
+          sourceId: enemy.id,
+          collision: "passable",
+          pushable: false,
+        }
+      );
+      this.message = enemy.name + " — 拘束フィールドを設置";
+      return;
+    }
+    if (action.id === "arbiter-territory-take") {
+      this.stealPlayerFront();
+      return;
+    }
+
+    if (action.kind === "projectile") {
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: action.motion ?? "straight",
+        target: { ...this.playerGrid },
+      });
     }
   }
 
+  private findEnemyObjectPlacement(enemy: Enemy): GridPosition {
+    const candidates = [
+      { col: Math.max(3, enemy.grid.col - 1), row: enemy.grid.row },
+      { col: enemy.grid.col, row: Math.max(0, enemy.grid.row - 1) },
+      { col: enemy.grid.col, row: Math.min(2, enemy.grid.row + 1) },
+      { col: 3, row: this.playerGrid.row },
+      ...this.panelSystem.snapshot().map(panel => ({
+        col: panel.col,
+        row: panel.row,
+      })),
+    ];
+    return (
+      candidates.find(position => {
+        const panel = this.panelSystem.get(position);
+        return (
+          panel?.owner === "enemy" &&
+          panel.occupantId === null &&
+          panel.objectId === null &&
+          panel.terrain !== "hole"
+        );
+      }) ?? { col: 3, row: this.playerGrid.row }
+    );
+  }
+
+  private findHopperLanding(): GridPosition {
+    const candidates = [
+      { col: Math.min(5, Math.max(3, this.playerGrid.col + 1)), row: this.playerGrid.row },
+      { col: 3, row: this.playerGrid.row },
+      { col: 4, row: Math.max(0, this.playerGrid.row - 1) },
+      { col: 4, row: Math.min(2, this.playerGrid.row + 1) },
+      { col: 5, row: this.playerGrid.row },
+    ];
+    return (
+      candidates.find(position => {
+        const panel = this.panelSystem.get(position);
+        return (
+          panel?.owner === "enemy" &&
+          panel.occupantId === null &&
+          panel.objectId === null &&
+          panel.terrain !== "hole"
+        );
+      }) ?? { col: 3, row: this.playerGrid.row }
+    );
+  }
+
+  private applyEnemyActionTerrain(
+    action: EnemyActionDefinition,
+    targets: GridPosition[]
+  ): void {
+    if (!action.panelTerrain) return;
+    const terrainTargets =
+      action.target === "all-rows"
+        ? [0, 1, 2, 3, 4, 5].flatMap(col =>
+            [0, 1, 2].map(row => ({ col, row }))
+          )
+        : targets;
+    terrainTargets.forEach(position => {
+      if (!this.panelSystem.isInside(position)) return;
+      if (action.panelTerrain === "cracked")
+        this.panelSystem.crack(position);
+      else
+        this.panelSystem.setTerrain(
+          position,
+          action.panelTerrain,
+          this.gameTimeMs,
+          3200
+        );
+    });
+  }
+
+  private applyEnemyAreaDamage(
+    enemy: Enemy,
+    center: GridPosition,
+    damage: number,
+    radius: number,
+    crack: boolean
+  ): void {
+    const area = this.areaAround(center, radius);
+    if (crack) area.forEach(position => this.panelSystem.crack(position));
+    if (area.some(position => sameTile(position, this.playerGrid)))
+      this.applyPlayerHit(damage, enemy.id);
+    this.onEvent({
+      type: "impact",
+      at: { ...center },
+      side: "enemy",
+      enemyId: enemy.id,
+      damage,
+    });
+  }
+
+  private applyEnemySupport(
+    enemy: Enemy,
+    action: EnemyActionDefinition
+  ): void {
+    const target =
+      this.enemies
+        .filter(candidate => candidate.state !== "deleted" && candidate.id !== enemy.id)
+        .sort((a, b) =>
+          Number(b.isBoss) - Number(a.isBoss) ||
+          (Math.abs(a.grid.col - enemy.grid.col) + Math.abs(a.grid.row - enemy.grid.row)) -
+          (Math.abs(b.grid.col - enemy.grid.col) + Math.abs(b.grid.row - enemy.grid.row))
+        )[0] ?? enemy;
+    const amount = action.supportAmount ?? 0;
+    if (action.supportEffect === "heal")
+      target.hp = Math.min(target.maxHp, target.hp + amount);
+    if (action.supportEffect === "barrier")
+      target.barrier = Math.min(220, target.barrier + amount);
+    this.onEvent({
+      type: "impact",
+      at: { ...target.grid },
+      side: "enemy",
+      enemyId: target.id,
+      damage: 0,
+    });
+    this.message = enemy.name + " — " + action.name;
+  }
+
+  private stealPlayerFront(): void {
+    [0, 1, 2].forEach(row =>
+      this.panelSystem.setOwner(
+        { col: 2, row },
+        "enemy",
+        this.gameTimeMs,
+        TERRITORY_EXPANSION_DURATION_MS
+      )
+    );
+    this.ensurePlayerEscapeRoute();
+    this.returnPlayerToSafeTerritory();
+    this.message = "敵の区画奪取 — 退避経路を確保";
+  }
+
+  private ensurePlayerEscapeRoute(): void {
+    const candidates = [
+      { col: this.playerGrid.col - 1, row: this.playerGrid.row },
+      { col: this.playerGrid.col + 1, row: this.playerGrid.row },
+      { col: this.playerGrid.col, row: this.playerGrid.row - 1 },
+      { col: this.playerGrid.col, row: this.playerGrid.row + 1 },
+    ];
+    const safe = candidates.some(position => {
+      const panel = this.panelSystem.get(position);
+      return (
+        panel?.owner === "player" &&
+        panel.terrain !== "hole" &&
+        panel.objectId === null &&
+        !this.enemies.some(
+          enemy => enemy.state !== "deleted" && sameTile(enemy.grid, position)
+        )
+      );
+    });
+    if (safe) return;
+    const fallback = { col: 1, row: this.playerGrid.row };
+    this.removeFieldObjectAt(fallback);
+    this.panelSystem.setOwner(
+      fallback,
+      "player",
+      this.gameTimeMs,
+      null
+    );
+    this.panelSystem.setTerrain(fallback, "normal", this.gameTimeMs);
+  }
+
+  private teleportEnemyNearPlayer(enemy: Enemy): void {
+    const candidates = [
+      { col: 3, row: this.playerGrid.row },
+      { col: 4, row: this.playerGrid.row },
+      { col: 3, row: Math.max(0, this.playerGrid.row - 1) },
+      { col: 3, row: Math.min(2, this.playerGrid.row + 1) },
+    ];
+    const target = candidates.find(
+      position =>
+        !sameTile(position, enemy.grid) && this.canEnemyOccupy(enemy, position)
+    );
+    if (target) {
+      enemy.grid = target;
+      this.syncBoardOccupancy();
+    }
+  }
+
+  private reflectPlayerProjectile(
+    enemy: Enemy,
+    projectile: ProjectileState
+  ): void {
+    this.spawnProjectile({
+      owner: "enemy",
+      motion: "straight",
+      position: { ...enemy.grid },
+      direction: { col: -1, row: 0 },
+      target: { col: 0, row: projectile.position.row },
+      damage: Math.max(1, Math.ceil(projectile.damage / 2)),
+      sourceId: enemy.id,
+      sourceActionId: "mirror-reflect-stance",
+      speedCellsPerSecond: COMBAT_BALANCE.projectile.defaultSpeedCellsPerSecond,
+    });
+    enemy.lastMirrorCardId = projectile.sourceCardId;
+    this.message = enemy.name + " — 射撃を反射";
+  }
   private spawnEnemyProjectile(
     enemy: Enemy,
     action: EnemyActionDefinition,
