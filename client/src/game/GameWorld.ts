@@ -14,6 +14,7 @@ import {
   activeFolder as getActiveFolder,
   BattleDeck,
   loadSaveData,
+  saveSaveData,
   type SavedFolder,
 } from "./folder";
 import { ObjectSystem } from "./systems/ObjectSystem";
@@ -27,6 +28,14 @@ import {
 import { CustomSystem } from "./systems/CustomSystem";
 import { EmotionSystem } from "./systems/EmotionSystem";
 import { ProjectileSystem } from "./systems/ProjectileSystem";
+import {
+  calculateScoreTotal,
+  createScoreBreakdown,
+  enemyDefeatScore,
+  rankForScore,
+  scoreWaveCompletion,
+} from "./systems/ScoreSystem";
+import { getPracticeStage, PRACTICE_STAGES } from "./data/practice";
 import {
   BOSS_ENEMY_IDS,
   ENEMY_DEFINITIONS,
@@ -48,6 +57,9 @@ import type {
   BattleSnapshot,
   Card,
   CardElement,
+  RunOutcome,
+  ScoreBreakdown,
+  WaveScoreSummary,
   CardStatus,
   EnemySnapshot,
   EnemyState,
@@ -191,13 +203,42 @@ const columnAtPreview = (column: number): GridPosition[] =>
 function loadRecords(): StoredRecords {
   if (typeof window === "undefined") return { highScore: 0, bestWave: 0 };
   try {
-    const r = JSON.parse(window.localStorage.getItem(STORAGE_KEY) ?? "{}");
+    const saved = loadSaveData().records;
+    const legacy = JSON.parse(
+      window.localStorage.getItem(STORAGE_KEY) ?? "{}"
+    ) as { highScore?: unknown; bestWave?: unknown };
+    const legacyHighScore =
+      typeof legacy.highScore === "number" && Number.isFinite(legacy.highScore)
+        ? legacy.highScore
+        : 0;
+    const legacyBestWave =
+      typeof legacy.bestWave === "number" && Number.isFinite(legacy.bestWave)
+        ? legacy.bestWave
+        : 0;
     return {
-      highScore: Number(r.highScore) || 0,
-      bestWave: Number(r.bestWave) || 0,
+      highScore: Math.max(saved.highScore, legacyHighScore, 0),
+      bestWave: Math.max(saved.bestWave, legacyBestWave, 0),
     };
   } catch {
     return { highScore: 0, bestWave: 0 };
+  }
+}
+
+function saveRecords(records: StoredRecords): void {
+  if (typeof window === "undefined") return;
+  try {
+    const saveData = loadSaveData();
+    saveSaveData({
+      ...saveData,
+      records: {
+        highScore: Math.max(0, Math.round(records.highScore)),
+        bestWave: Math.max(0, Math.round(records.bestWave)),
+      },
+    });
+    // Keep the old key as a migration path for already-played local runs.
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  } catch {
+    /* Private browser modes can disallow storage. */
   }
 }
 
@@ -289,6 +330,20 @@ export class GameWorld {
   private queue: Card[] = [];
   private wave = 1;
   private score = 0;
+  private scoreBreakdown: ScoreBreakdown = createScoreBreakdown();
+  private waveResults: WaveScoreSummary[] = [];
+  private lastWaveScore: WaveScoreSummary | null = null;
+  private lastWaveRecovery = 0;
+  private waveStartedElapsed = 0;
+  private waveDamageTaken = 0;
+  private totalDamageTaken = 0;
+  private simultaneousDefeats = 0;
+  private cardsUsed = 0;
+  private overloadCardsUsed = 0;
+  private lastDefeatAt: number | null = null;
+  private outcome: RunOutcome | null = null;
+  private personalBestDelta = 0;
+  private practiceStage = 1;
   private records = loadRecords();
   private bossHistory: EnemyId[] = loadBossHistory();
   private lastAttackCard: Card | null = null;
@@ -337,7 +392,39 @@ export class GameWorld {
     nextWave: () => this.nextWave(),
     restart: () => this.restart(),
     togglePause: () => this.togglePause(),
+    startPractice: () => this.startPractice(),
+    nextPracticeStage: () => this.nextPracticeStage(),
+    exitPractice: () => this.exitPractice(),
   };
+
+  private startPractice(): void {
+    if (this.mode !== "custom") return;
+    this.clock.discardPendingTime();
+    this.cancelCharge();
+    this.paused = false;
+    this.practiceStage = 1;
+    this.message = "練習モード — " + getPracticeStage(this.practiceStage).title;
+    this.notify();
+  }
+
+  private nextPracticeStage(): void {
+    if (this.mode !== "practice") return;
+    if (this.practiceStage < PRACTICE_STAGES.length) {
+      this.practiceStage += 1;
+      this.message =
+        "練習モード — " + getPracticeStage(this.practiceStage).title;
+    } else {
+      this.message = "練習を完了しました — 通常モードへ戻れます";
+    }
+    this.notify();
+  }
+
+  private exitPractice(): void {
+    if (this.mode !== "practice") return;
+    this.restart();
+    this.message = "練習モードを終了 — カードを選択してください";
+    this.notify();
+  }
 
   public update(realDeltaSeconds: number): void {
     if (this.mode !== "battle" || this.paused) {
@@ -407,12 +494,14 @@ export class GameWorld {
     this.updateForcedRepairDrain(now);
     this.emotionSystem.update(now, this.playerHp, this.playerMaxHp, this.sync);
     this.syncBoardOccupancy();
+    const allEnemiesDefeated =
+      this.enemies.length > 0 &&
+      this.enemies.every(enemy => enemy.state === "deleted");
     if (this.playerHp <= 0) {
-      this.finishRun(false);
+      this.finishRun(allEnemiesDefeated ? "draw" : "defeat");
       return;
     }
-    if (this.enemies.every(enemy => enemy.state === "deleted"))
-      this.finishWave();
+    if (allEnemiesDefeated) this.finishWave();
     this.notifyTimer += delta;
     if (this.notifyTimer > 0.08) {
       this.notifyTimer = 0;
@@ -1680,6 +1769,8 @@ export class GameWorld {
       return;
     const card = this.queue.shift();
     if (!card) return;
+    this.cardsUsed += card.chainCardIds?.length ?? 1;
+    if (card.isOverload) this.overloadCardsUsed += 1;
     if (card.power > 0) this.lastAttackCard = { ...card };
     const usedSync = this.sync;
     const rageReady = this.emotionSystem.snapshot(this.gameTimeMs).rageReady;
@@ -2703,6 +2794,7 @@ export class GameWorld {
       this.barrier === 0;
 
     if (remaining > 0) {
+      this.recordPlayerDamage(remaining);
       this.playerHp = Math.max(0, this.playerHp - remaining);
       if (!terrainDamage) {
         this.playerControlLockedUntil =
@@ -3185,7 +3277,10 @@ export class GameWorld {
       this.playerMaxHp - result.appliedMaxHpReduction
     );
     this.playerHp = Math.min(this.playerHp, this.playerMaxHp);
-    this.score = Math.max(0, this.score - COMBAT_BALANCE.overload.scorePenalty);
+    this.addScore(
+      "overloadPenalty",
+      COMBAT_BALANCE.score.overloadPenalty
+    );
     if (card.id === "overload-limit-cannon") {
       this.normalShotDamageMultiplier = 0.5;
       this.message = "限界砲 — このWaveは通常射撃が半減";
@@ -3600,7 +3695,7 @@ export class GameWorld {
       enemy.stunnedUntil = this.gameTimeMs + COMBAT_BALANCE.counter.stunMs;
       this.sync = this.emotionSystem.counterSuccess();
       this.counters += 1;
-      this.score += 150;
+      this.addScore("counterPoints", COMBAT_BALANCE.score.counterPoints);
       if (enemy.definitionId === "core-arbiter")
         enemy.actionIndex += 1;
       this.message = this.sync
@@ -3649,7 +3744,7 @@ export class GameWorld {
       this.clearWarnings(enemy);
       enemy.state = "deleted";
       enemy.actionPhase = "deleted";
-      this.score += enemy.isBoss ? 600 + this.wave * 50 : 100 + this.wave * 25;
+      this.recordEnemyDefeat(enemy);
       this.onEvent({ type: "deleted", id: enemy.id, at: { ...enemy.grid } });
       this.message = enemy.name + " を停止";
     }
@@ -3678,6 +3773,60 @@ export class GameWorld {
       enemy.slowUntil = Math.max(enemy.slowUntil, now + duration);
       enemy.nextAttackAt += 350;
     }
+  }
+
+
+  private addScore(
+    component: Exclude<keyof ScoreBreakdown, "total">,
+    amount: number
+  ): void {
+    this.scoreBreakdown[component] = Math.max(
+      0,
+      this.scoreBreakdown[component] + Math.max(0, amount)
+    );
+    this.scoreBreakdown.total = calculateScoreTotal(this.scoreBreakdown);
+    this.score = this.scoreBreakdown.total;
+  }
+
+  private recordPlayerDamage(amount: number): void {
+    const damage = Math.max(0, Math.round(amount));
+    if (damage === 0) return;
+    this.waveDamageTaken += damage;
+    this.totalDamageTaken += damage;
+    this.addScore(
+      "damagePenalty",
+      damage * COMBAT_BALANCE.score.damagePenaltyPerHp
+    );
+  }
+
+  private recordEnemyDefeat(enemy: Enemy): void {
+    this.addScore("enemyDefeatPoints", enemyDefeatScore(enemy.definitionId));
+    if (
+      this.lastDefeatAt !== null &&
+      this.gameTimeMs - this.lastDefeatAt <=
+        COMBAT_BALANCE.score.simultaneousDefeatWindowMs
+    ) {
+      this.simultaneousDefeats += 1;
+      this.addScore(
+        "simultaneousPoints",
+        COMBAT_BALANCE.score.simultaneousDefeatPoints
+      );
+    }
+    this.lastDefeatAt = this.gameTimeMs;
+  }
+
+  private completeWaveScore(): WaveScoreSummary {
+    const summary = scoreWaveCompletion({
+      wave: this.wave,
+      elapsedSeconds: Math.max(0, this.elapsed - this.waveStartedElapsed),
+      damageTaken: this.waveDamageTaken,
+    });
+    this.waveResults.push(summary);
+    this.lastWaveScore = summary;
+    this.addScore("waveClearPoints", summary.waveClearPoints);
+    this.addScore("timePoints", summary.timePoints);
+    this.addScore("noDamagePoints", summary.noDamagePoints);
+    return summary;
   }
 
   private resetBoard(): void {
@@ -3728,6 +3877,14 @@ export class GameWorld {
   }
 
   private reloadFolder(): void {
+    if (
+      this.mode === "result" ||
+      this.mode === "intermission" ||
+      this.mode === "practice"
+    ) {
+      this.restart();
+      return;
+    }
     const saveData = loadSaveData();
     this.activeFolder = getActiveFolder(saveData);
     this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed());
@@ -3861,7 +4018,7 @@ export class GameWorld {
   }
   private finishWave(): void {
     if (this.mode !== "battle") return;
-    this.score += 250 + Math.max(0, this.playerHp);
+    const summary = this.completeWaveScore();
     this.projectileSystem.reset();
     this.pendingMelee = [];
     this.hitstopRemainingMs = 0;
@@ -3877,15 +4034,29 @@ export class GameWorld {
       this.pendingChainEffects = [];
       this.dreamAuraUntil = 0;
       this.overdrivePrompt = null;
-      const recovery = Math.ceil(this.playerMaxHp * 0.15);
-      this.healPlayer(recovery);
-      this.message = `WAVE 0${this.wave} 完了 — 耐久を15%回復`;
-    } else this.finishRun(true);
+      const beforeRecovery = this.playerHp;
+      this.healPlayer(Math.ceil(this.playerMaxHp * 0.15));
+      this.lastWaveRecovery = Math.max(0, this.playerHp - beforeRecovery);
+      this.message =
+        "WAVE 0" +
+        this.wave +
+        " 完了 — 耐久を" +
+        this.lastWaveRecovery +
+        "回復、次のWaveへ";
+      if (summary.total > 0)
+        this.message += "（獲得+" + summary.total + "）";
+    } else {
+      this.finishRun("victory");
+    }
     this.notify();
   }
   private nextWave(): void {
     if (this.mode !== "intermission") return;
     this.wave += 1;
+    this.waveStartedElapsed = this.elapsed;
+    this.waveDamageTaken = 0;
+    this.lastDefeatAt = null;
+    this.lastWaveRecovery = 0;
     this.clock.discardPendingTime();
     this.playerGrid = { col: 1, row: 1 };
     this.customSystem.reset();
@@ -3963,6 +4134,20 @@ export class GameWorld {
     this.handSizeReduction = 0;
     this.wave = 1;
     this.score = 0;
+    this.scoreBreakdown = createScoreBreakdown();
+    this.waveResults = [];
+    this.lastWaveScore = null;
+    this.lastWaveRecovery = 0;
+    this.waveStartedElapsed = 0;
+    this.waveDamageTaken = 0;
+    this.totalDamageTaken = 0;
+    this.simultaneousDefeats = 0;
+    this.cardsUsed = 0;
+    this.overloadCardsUsed = 0;
+    this.lastDefeatAt = null;
+    this.outcome = null;
+    this.personalBestDelta = 0;
+    this.practiceStage = 1;
     this.selected = [];
     this.focusedCard = null;
     this.selectionError = null;
@@ -3993,7 +4178,7 @@ export class GameWorld {
     this.message = this.paused ? "戦闘を停止 — 設定を調整" : "戦闘を再開";
     this.notify();
   }
-  private finishRun(victory: boolean): void {
+  private finishRun(outcome: RunOutcome): void {
     this.projectileSystem.reset();
     this.pendingMelee = [];
     this.pendingChainEffects = [];
@@ -4009,26 +4194,24 @@ export class GameWorld {
     this.panelSystem.reset();
     this.syncBoardOccupancy();
     this.mode = "result";
-    if (victory) {
-      this.score = Math.max(
-        0,
-        this.score + this.counters * 80 + Math.ceil(this.playerHp / 10)
-      );
-      this.rank = this.score >= 1500 ? "S" : this.score >= 1000 ? "A" : "B";
+    this.outcome = outcome;
+    if (outcome === "victory") {
+      this.rank = rankForScore(this.score);
       this.message = "ネットワーク制圧完了";
+    } else if (outcome === "draw") {
+      this.rank = "R";
+      this.message = "相打ち — 敗北扱い";
     } else {
       this.rank = "R";
       this.message = "信号が途絶しました";
     }
+    const previousBest = this.records.highScore;
+    this.personalBestDelta = this.score - previousBest;
     this.records = {
       highScore: Math.max(this.records.highScore, this.score),
       bestWave: Math.max(this.records.bestWave, this.wave),
     };
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(this.records));
-    } catch {
-      /* Private browser modes can disallow storage. */
-    }
+    saveRecords(this.records);
   }
   private makeEnemies(wave: number): Enemy[] {
     const now = this.gameTimeMs;
@@ -4130,6 +4313,7 @@ export class GameWorld {
   private notify(): void {
     const now = this.gameTimeMs;
     const emotion = this.emotionSystem.snapshot(now);
+    const practice = getPracticeStage(this.practiceStage);
     this.onSnapshot({
       mode: this.mode,
       playerHp: this.playerHp,
@@ -4236,6 +4420,27 @@ export class GameWorld {
         ? Math.max(0, (this.overdrivePrompt.expiresAt - now) / 1000)
         : 0,
       usedChainTechniques: [...this.usedChainTechniques],
+      outcome: this.outcome ?? undefined,
+      scoreBreakdown: { ...this.scoreBreakdown },
+      waveResults: this.waveResults.map(summary => ({ ...summary })),
+      lastWaveScore: this.lastWaveScore
+        ? { ...this.lastWaveScore }
+        : null,
+      lastWaveRecovery: this.lastWaveRecovery,
+      totalDamageTaken: this.totalDamageTaken,
+      waveDamageTaken: this.waveDamageTaken,
+      simultaneousDefeats: this.simultaneousDefeats,
+      cardsUsed: this.cardsUsed,
+      overloadCardsUsed: this.overloadCardsUsed,
+      reachedWave: this.wave,
+      personalBestDelta: this.personalBestDelta,
+      practiceStage: this.mode === "practice" ? practice.stage : undefined,
+      practiceStageTitle:
+        this.mode === "practice" ? practice.title : undefined,
+      practiceStageLesson:
+        this.mode === "practice" ? practice.lesson : undefined,
+      practiceStageObjective:
+        this.mode === "practice" ? practice.objective : undefined,
     });
   }
 }
