@@ -7,6 +7,8 @@ import { cardPreviewTiles } from "@/game/data/cardCombatData";
 import { createGameScene } from "@/game/scene";
 import type { BattleSnapshot, GameHandle } from "@/game/types";
 import FolderEditor from "@/components/game/FolderEditor";
+import ResultScreen from "@/components/game/ResultScreen";
+import Tutorial from "@/components/game/Tutorial";
 
 const initialSnapshot: BattleSnapshot = {
   mode: "custom",
@@ -525,6 +527,12 @@ export default function GameCanvas() {
               </button>
               <button
                 type="button"
+                onClick={() => controller?.startPractice()}
+              >
+                練習モード
+              </button>
+              <button
+                type="button"
                 className="engage-button"
                 onClick={() => controller?.confirmCustom()}
               >
@@ -677,23 +685,23 @@ export default function GameCanvas() {
 
       {snapshot.mode === "intermission" && (
         <section className="result-console wave-clear" aria-live="polite">
-          <p className="eyebrow">WAVE 0{snapshot.wave} / DATA SECURED</p>
+          <p className="eyebrow">Wave 0{snapshot.wave} / クリア</p>
           <h2>
-            ROUTE
+            次のWaveへ
             <br />
-            THE NEXT WAVE
+            進みます
           </h2>
           <div className="wave-reward">
-            <span>INTEGRITY RESTORED</span>
-            <strong>+32</strong>
-            <small>WAVE 0{snapshot.wave + 1} INBOUND</small>
+            <span>耐久回復</span>
+            <strong>+{snapshot.lastWaveRecovery ?? 0}</strong>
+            <small>Wave 0{snapshot.wave + 1} 準備完了</small>
           </div>
           <div className="result-details">
             <span>
-              RUN SCORE <b>{snapshot.score}</b>
+              Wave獲得 <b>+{snapshot.lastWaveScore?.total ?? 0}</b>
             </span>
             <span>
-              COUNTERS <b>{String(snapshot.counters).padStart(2, "0")}</b>
+              合計スコア <b>{snapshot.score}</b>
             </span>
           </div>
           <button
@@ -701,40 +709,26 @@ export default function GameCanvas() {
             className="engage-button"
             onClick={() => controller?.nextWave()}
           >
-            NEXT WAVE <span>↗</span>
+            次のWaveへ <span>↗</span>
           </button>
         </section>
       )}
 
       {snapshot.mode === "result" && (
-        <section className="result-console" aria-live="polite">
-          <p className="eyebrow">
-            RESULT / {snapshot.rank === "R" ? "RETRY CHANNEL" : "DATA SECURED"}
-          </p>
-          <h2>{snapshot.rank === "R" ? "SIGNAL LOST" : "NETWORK CLEARED"}</h2>
-          <div className="rank-dial">
-            <span>RANK</span>
-            <strong>{snapshot.rank}</strong>
-          </div>
-          <div className="result-details">
-            <span>
-              SCORE <b>{snapshot.score}</b>
-            </span>
-            <span>
-              BEST <b>{snapshot.highScore}</b>
-            </span>
-            <span>
-              WAVE <b>{String(snapshot.bestWave).padStart(2, "0")}</b>
-            </span>
-          </div>
-          <button
-            type="button"
-            className="engage-button"
-            onClick={() => controller?.restart()}
-          >
-            RELINK <span>↗</span>
-          </button>
-        </section>
+        <ResultScreen
+          snapshot={snapshot}
+          onRestart={() => controller?.restart()}
+          onFolderEdit={() => setFolderEditorOpen(true)}
+          onHome={() => controller?.restart()}
+        />
+      )}
+
+      {snapshot.mode === "practice" && (
+        <Tutorial
+          stage={snapshot.practiceStage ?? 1}
+          onNext={() => controller?.nextPracticeStage()}
+          onExit={() => controller?.exitPractice()}
+        />
       )}
 
       {folderEditorOpen && (
