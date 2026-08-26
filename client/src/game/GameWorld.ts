@@ -1341,13 +1341,10 @@ export class GameWorld {
     });
     if (safe) return;
     const fallback = { col: 1, row: this.playerGrid.row };
-    this.removeFieldObjectAt(fallback);
-    this.panelSystem.setOwner(
-      fallback,
-      "player",
-      this.gameTimeMs,
-      null
-    );
+    const object = this.objectSystem.getAt(fallback);
+    if (object) this.removeFieldObject(object.id);
+    this.panelSystem.detachObject(fallback);
+    this.panelSystem.setOwner(fallback, "player", this.gameTimeMs, null);
     this.panelSystem.setTerrain(fallback, "normal", this.gameTimeMs);
   }
 
@@ -1400,6 +1397,7 @@ export class GameWorld {
       damage: action.damage,
       sourceId: enemy.id,
       sourceActionId: action.id,
+      continuesAfterHit: action.continuesAfterHit,
       activeAt: this.gameTimeMs + delayMs,
       ...options,
     });
@@ -1417,7 +1415,10 @@ export class GameWorld {
       mode === "cross"
         ? columnDistance <= 1 && rowDistance <= 1
         : columnDistance <= 1 && rowDistance === 0;
-    if (hits) this.applyPlayerHit(action.damage, enemy.id);
+    if (!hits) return;
+    const hitCount = Math.max(1, action.hitCount ?? 1);
+    for (let index = 0; index < hitCount; index += 1)
+      this.applyPlayerHit(action.damage, enemy.id, "direct", index > 0);
   }
 
   private findEnemyMinePlacement(): GridPosition {
