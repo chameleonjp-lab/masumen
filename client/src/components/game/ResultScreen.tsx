@@ -1,4 +1,5 @@
 import { CHAIN_TECHNIQUES } from "@/game/data/chainTechniques";
+import { scoreRate } from "@/game/systems/ScoreSystem";
 import type { BattleSnapshot } from "@/game/types";
 
 interface ResultScreenProps {
@@ -39,6 +40,7 @@ export default function ResultScreen({
   const delta = snapshot.personalBestDelta ?? 0;
   const deltaLabel =
     delta > 0 ? "+" + delta : delta < 0 ? String(delta) : "±0";
+  const scorePercent = Math.round(scoreRate(snapshot.score) * 100);
 
   return (
     <section className="result-console result-console-rich" aria-live="polite">
@@ -67,6 +69,9 @@ export default function ResultScreen({
         </span>
         <span>
           自己ベスト差 <b>{deltaLabel}</b>
+        </span>
+        <span>
+          得点率 <b>{scorePercent}%</b>
         </span>
       </div>
 
