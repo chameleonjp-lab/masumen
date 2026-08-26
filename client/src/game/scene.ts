@@ -349,7 +349,7 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
         objectMeshes.set(object.id, visual);
       }
       visual.root.position = gridToWorld(object.panel);
-      visual.root.setEnabled(true);
+      visual.root.setEnabled(!object.hidden);
       visual.root.scaling.setAll(0.9 + Math.min(0.35, object.hp / 280));
     }
   };

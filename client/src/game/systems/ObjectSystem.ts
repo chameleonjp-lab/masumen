@@ -16,6 +16,11 @@ export interface ObjectPlacement {
   expiresAt?: number | null;
   collision?: "solid" | "passable";
   trigger?: ObjectTrigger;
+  effectId?: FieldObject["effectId"];
+  damage?: number;
+  sourceCardId?: string;
+  hidden?: boolean;
+  pushable?: boolean;
 }
 
 function key(position: GridPosition): string {
@@ -70,6 +75,11 @@ export class ObjectSystem {
       expiresAt: placement.expiresAt ?? null,
       collision: placement.collision ?? "solid",
       trigger: placement.trigger ?? "none",
+      effectId: placement.effectId,
+      damage: placement.damage,
+      sourceCardId: placement.sourceCardId,
+      hidden: placement.hidden ?? false,
+      pushable: placement.pushable ?? false,
     };
     const owned = Array.from(this.objects.values()).filter(
       candidate => candidate.owner === object.owner
@@ -81,6 +91,18 @@ export class ObjectSystem {
     }
     this.objects.set(object.id, object);
     return { object: cloneObject(object), removed };
+  }
+
+
+  public move(id: string, panel: GridPosition): boolean {
+    const object = this.objects.get(id);
+    if (!object) return false;
+    const occupied = Array.from(this.objects.values()).some(
+      candidate => candidate.id !== id && key(candidate.panel) === key(panel)
+    );
+    if (occupied) return false;
+    object.panel = { ...panel };
+    return true;
   }
 
   public remove(id: string): FieldObject | null {

@@ -21,6 +21,13 @@ export const PR7_CARD_IDS = [
   "slash", "sweep", "dashslash", "gridcut", "moonblade",
 ] as const;
 
+export const PR8_CARD_IDS = [
+  "timer", "watchmine", "turret", "stake", "breakpillar", "block", "toxic",
+  "sanctum", "crack", "rush", "sector", "gravity", "gustwall", "hole",
+  "prism", "phase", "return", "substitute", "magguard", "premonition",
+  "rectify", "repair", "fastsync", "stamp", "reroute",
+] as const;
+
 export const CARD_COMBAT_PROFILES: Readonly<Record<string, CardCombatProfile>> = {
   rapid: { element: "none", properties: ["射撃"], actionId: "rapid", powerPerHit: 12, hitCount: 3, rangePreviewId: "rapid-line" },
   lance: { element: "none", properties: ["射撃"], actionId: "lance", powerPerHit: 60, hitCount: 1, rangePreviewId: "piercing-line" },
@@ -43,6 +50,31 @@ export const CARD_COMBAT_PROFILES: Readonly<Record<string, CardCombatProfile>> =
   dashslash: { element: "none", properties: ["剣"], actionId: "dashslash", powerPerHit: 100, hitCount: 1, rangePreviewId: "dash-target" },
   gridcut: { element: "none", properties: ["剣"], actionId: "gridcut", powerPerHit: 50, hitCount: 2, rangePreviewId: "grid-cross" },
   moonblade: { element: "none", properties: ["剣"], actionId: "moonblade", powerPerHit: 140, hitCount: 1, rangePreviewId: "long-line" },
+  timer: { element: "none", properties: ["罠"], actionId: "timer", powerPerHit: 90, hitCount: 1, rangePreviewId: "timed-mine-point" },
+  watchmine: { element: "none", properties: ["罠"], actionId: "watchmine", powerPerHit: 100, hitCount: 1, rangePreviewId: "hidden-mine-field" },
+  turret: { element: "none", properties: ["射撃", "罠"], actionId: "turret", powerPerHit: 12, hitCount: 10, rangePreviewId: "turret-front" },
+  stake: { element: "none", properties: ["罠"], actionId: "stake", powerPerHit: 10, hitCount: 5, rangePreviewId: "stake-point" },
+  breakpillar: { element: "none", properties: ["破砕", "地形"], actionId: "breakpillar", powerPerHit: 90, hitCount: 1, rangePreviewId: "break-point" },
+  block: { element: "none", properties: ["地形"], actionId: "block", powerPerHit: 0, hitCount: 1, rangePreviewId: "front-point" },
+  toxic: { element: "none", properties: ["罠", "地形"], actionId: "toxic", powerPerHit: 8, hitCount: 5, rangePreviewId: "poison-area" },
+  sanctum: { element: "none", properties: ["地形", "回復"], actionId: "sanctum", powerPerHit: 0, hitCount: 1, rangePreviewId: "self-cross" },
+  crack: { element: "none", properties: ["破砕", "地形"], actionId: "crack", powerPerHit: 20, hitCount: 2, rangePreviewId: "front-two" },
+  rush: { element: "none", properties: ["補助"], actionId: "rush", powerPerHit: 0, hitCount: 1, rangePreviewId: "transfer-point" },
+  sector: { element: "none", properties: ["地形"], actionId: "sector", powerPerHit: 0, hitCount: 1, rangePreviewId: "territory-column" },
+  gravity: { element: "none", properties: ["地形", "補助"], actionId: "gravity", powerPerHit: 0, hitCount: 1, rangePreviewId: "gravity-area" },
+  gustwall: { element: "none", properties: ["風"], actionId: "gustwall", powerPerHit: 0, hitCount: 1, rangePreviewId: "wind-all" },
+  hole: { element: "none", properties: ["破砕", "地形"], actionId: "hole", powerPerHit: 30, hitCount: 3, rangePreviewId: "enemy-hole" },
+  prism: { element: "none", properties: ["補助"], actionId: "prism", powerPerHit: 0, hitCount: 1, rangePreviewId: "self" },
+  phase: { element: "none", properties: ["補助"], actionId: "phase", powerPerHit: 0, hitCount: 1, rangePreviewId: "self" },
+  return: { element: "none", properties: ["補助"], actionId: "return", powerPerHit: 80, hitCount: 1, rangePreviewId: "self" },
+  substitute: { element: "none", properties: ["補助"], actionId: "substitute", powerPerHit: 0, hitCount: 1, rangePreviewId: "self" },
+  magguard: { element: "electric", properties: ["補助"], actionId: "magguard", powerPerHit: 40, hitCount: 1, rangePreviewId: "self" },
+  premonition: { element: "none", properties: ["補助"], actionId: "premonition", powerPerHit: 120, hitCount: 1, rangePreviewId: "self" },
+  rectify: { element: "none", properties: ["回復"], actionId: "rectify", powerPerHit: 0, hitCount: 1, rangePreviewId: "self" },
+  repair: { element: "none", properties: ["回復"], actionId: "repair", powerPerHit: 0, hitCount: 1, rangePreviewId: "self" },
+  fastsync: { element: "none", properties: ["補助"], actionId: "fastsync", powerPerHit: 0, hitCount: 1, rangePreviewId: "self" },
+  stamp: { element: "none", properties: ["補助"], actionId: "stamp", powerPerHit: 30, hitCount: 4, rangePreviewId: "linked-attack" },
+  reroute: { element: "none", properties: ["補助"], actionId: "reroute", powerPerHit: 0, hitCount: 1, rangePreviewId: "self" },
 };
 
 function inside(position: GridPosition): boolean {
@@ -74,6 +106,12 @@ function enemyField(origin: GridPosition): GridPosition[] {
   return Array.from({ length: Math.max(0, 5 - origin.col) }, (_, index) =>
     [0, 1, 2].map(row => ({ col: origin.col + index + 1, row }))
   ).flat();
+}
+
+function enemyTerritory(): GridPosition[] {
+  return [3, 4, 5].flatMap(col =>
+    [0, 1, 2].map(row => ({ col, row }))
+  );
 }
 
 function columnAt(column: number): GridPosition[] {
@@ -125,6 +163,29 @@ function twoByTwo(point: GridPosition): GridPosition[] {
 function targetColumn(origin: GridPosition, enemies: readonly GridPosition[]): number {
   return nearestEnemy(origin, enemies)?.col ?? Math.min(5, origin.col + 2);
 }
+function areaAround(point: GridPosition, radius = 1): GridPosition[] {
+  const tiles: GridPosition[] = [];
+  for (let col = point.col - radius; col <= point.col + radius; col += 1)
+    for (let row = point.row - radius; row <= point.row + radius; row += 1)
+      if (inside({ col, row })) tiles.push({ col, row });
+  return tiles;
+}
+
+function selfCross(origin: GridPosition): GridPosition[] {
+  return unique([
+    origin,
+    { col: origin.col - 1, row: origin.row },
+    { col: origin.col + 1, row: origin.row },
+    { col: origin.col, row: origin.row - 1 },
+    { col: origin.col, row: origin.row + 1 },
+  ].filter(tile => inside(tile) && tile.col <= 2));
+}
+
+function allBoard(): GridPosition[] {
+  return Array.from({ length: 6 }, (_, col) =>
+    [0, 1, 2].map(row => ({ col, row }))
+  ).flat();
+}
 
 export function getCardCombatProfile(id: string): CardCombatProfile {
   return CARD_COMBAT_PROFILES[id] ?? {
@@ -153,6 +214,20 @@ export function enrichCard(card: Card): Card {
 export function cardPreviewTiles(card: Card | undefined, origin: GridPosition, enemies: readonly GridPosition[] = []): GridPosition[] {
   if (!card) return [];
   const action = getCardCombatProfile(card.id).actionId;
+  if (action === "timer" || action === "stake" || action === "breakpillar" || action === "rush")
+    return [pointTarget(origin, enemies)];
+  if (action === "watchmine") return enemyTerritory();
+  if (action === "turret") return columnAt(2);
+  if (action === "block") return [{ col: origin.col + 1, row: origin.row }].filter(inside);
+  if (action === "toxic") return areaAround(pointTarget(origin, enemies));
+  if (action === "sanctum") return selfCross(origin);
+  if (action === "crack") return pathToFront(origin).slice(0, 2);
+  if (action === "sector") return columnAt(3);
+  if (action === "gravity") return areaAround(pointTarget(origin, enemies));
+  if (action === "gustwall") return allBoard();
+  if (action === "hole") return enemyTerritory().slice(0, 3);
+  if (["prism", "phase", "return", "substitute", "magguard", "premonition", "rectify", "repair", "fastsync", "stamp", "reroute"].includes(action))
+    return [{ ...origin }];
   if (["rapid", "lance", "seeker", "triplet", "ember", "root"].includes(action)) return pathToFront(origin);
   if (action === "wide" || action === "frost") return enemyField(origin);
   if (action === "column" || action === "thunderline") return columnAt(targetColumn(origin, enemies));
@@ -161,7 +236,6 @@ export function cardPreviewTiles(card: Card | undefined, origin: GridPosition, e
   if (action === "fan") return fanLines(origin);
   if (action === "icewall") return [pointTarget(origin, enemies)];
   if (action === "volt") return unique([...pathToFront(origin), ...(nearestEnemy(origin, enemies) ? [nearestEnemy(origin, enemies) as GridPosition] : [])]);
-  if (action === "root") return pathToFront(origin);
   if (action === "web") return twoByTwo(pointTarget(origin, enemies));
   if (action === "slash") return [{ col: origin.col + 1, row: origin.row }].filter(inside);
   if (action === "sweep") return columnAt(origin.col + 1).filter(tile => tile.col > origin.col);

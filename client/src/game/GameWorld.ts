@@ -30,6 +30,7 @@ import type {
   CardStatus,
   EnemySnapshot,
   EnemyState,
+  FieldObject,
   FieldObjectKind,
   GameController,
   GridPosition,
@@ -62,6 +63,7 @@ interface Enemy extends EnemySnapshot {
   counterEndAt: number | null;
   counterWindowMs: number;
   counterWindowState: CounterWindow | null;
+  nextTerrainDamageAt: number;
 }
 interface PendingMeleeStage {
   activeAt: number;
@@ -76,6 +78,20 @@ interface PendingMelee {
   returnTo: GridPosition | null;
   recoveryAt: number;
   dashApplied: boolean;
+}
+interface PendingRepair {
+  readyAt: number;
+  amount: number;
+}
+interface FieldObjectOptions {
+  effectId?: FieldObject["effectId"];
+  damage?: number;
+  sourceCardId?: string;
+  hidden?: boolean;
+  pushable?: boolean;
+  collision?: "solid" | "passable";
+  firstTriggerDelayMs?: number;
+  fallback?: boolean;
 }
 interface StoredRecords {
   highScore: number;
@@ -129,6 +145,7 @@ export class GameWorld {
   private readonly projectileSystem = new ProjectileSystem();
   private readonly objectNextTriggerAt = new Map<string, number>();
   private readonly objectTriggerCount = new Map<string, number>();
+  private objectSequence = 0;
   private pendingMelee: PendingMelee[] = [];
   private gameTimeMs = 0;
   private hitstopRemainingMs = 0;
@@ -149,12 +166,18 @@ export class GameWorld {
   private invincibleUntil = 0;
   private playerControlLockedUntil = 0;
   private playerDamageInvulnerableUntil = 0;
-  private retaliateDamage = 0;
-  private nextCardBoost = 1;
+  private phaseUntil = 0;
+  private pendingDefense: "return" | "substitute" | "premonition" | null = null;
+  private pendingDefenseUntil = 0;
+  private electromagneticBarrierActive = false;
+  private pendingRepair: PendingRepair | null = null;
+  private nextSwordMultiplier = 1;
+  private outputMarkRemaining = 0;
   private normalShotDamageMultiplier = 1;
   private contaminationActive = false;
   private forcedRepairDrainActive = false;
   private nextForcedRepairDrainAt = 0;
+  private nextPlayerTerrainDamageAt = 0;
   private handSizeReduction = 0;
   private overloadRandom = new Random(0x51a7c0de);
   private activeFolder: SavedFolder = getActiveFolder(loadSaveData());
@@ -270,6 +293,8 @@ export class GameWorld {
         )
       );
     this.updateFieldObjects(now);
+    this.updateTerrainEffects(now);
+    this.updatePendingRepair(now);
     this.updateMeleeAttacks(now);
     for (const enemy of this.enemies) {
       this.updateStatus(enemy, now);
@@ -493,6 +518,7 @@ export class GameWorld {
       this.panelSystem.setTerrain(previous, "poison", this.gameTimeMs);
     this.playerGrid = next;
     this.panelSystem.occupy(this.playerGrid, "player");
+    this.applyPlayerEntryTerrain(this.playerGrid);
     this.message = this.isCharging ? "チャージを維持して移動" : "位置を更新";
     this.notify();
   }
@@ -580,6 +606,47 @@ export class GameWorld {
     this.customRemaining = this.customSystem.remainingSeconds();
   }
 
+  private updateTerrainEffects(now: number): void {
+    const playerPanel = this.panelSystem.get(this.playerGrid);
+    if (
+      playerPanel &&
+      (playerPanel.terrain === "lava" || playerPanel.terrain === "poison") &&
+      now >= this.nextPlayerTerrainDamageAt
+    ) {
+      this.nextPlayerTerrainDamageAt = now + 1000;
+      this.applyPlayerHit(5, undefined, "terrain");
+    }
+    for (const enemy of this.enemies) {
+      if (enemy.state === "deleted") continue;
+      const panel = this.panelSystem.get(enemy.grid);
+      if (
+        panel &&
+        (panel.terrain === "lava" || panel.terrain === "poison") &&
+        now >= enemy.nextTerrainDamageAt
+      ) {
+        enemy.nextTerrainDamageAt = now + 1000;
+        this.strikeEnemy(enemy, 5, undefined, false);
+      }
+    }
+  }
+
+  private applyPlayerEntryTerrain(position: GridPosition): void {
+    const panel = this.panelSystem.get(position);
+    if (!panel) return;
+    if (panel.terrain === "lava") this.applyPlayerHit(10, undefined, "terrain");
+    if (panel.terrain === "poison") this.applyPlayerHit(5, undefined, "terrain");
+    if (panel.terrain === "lava" || panel.terrain === "poison")
+      this.nextPlayerTerrainDamageAt = this.gameTimeMs + 1000;
+  }
+
+  private updatePendingRepair(now: number): void {
+    if (!this.pendingRepair || now < this.pendingRepair.readyAt) return;
+    const amount = this.pendingRepair.amount;
+    this.pendingRepair = null;
+    this.healPlayer(amount);
+    this.emotionSystem.recover();
+    this.message = `応急修復が完了 — HP${amount}回復`;
+  }
   private updateForcedRepairDrain(now: number): void {
     if (!this.forcedRepairDrainActive || now < this.nextForcedRepairDrainAt)
       return;
@@ -602,12 +669,15 @@ export class GameWorld {
     if (!card) return;
     const usedSync = this.sync;
     const rageReady = this.emotionSystem.snapshot(this.gameTimeMs).rageReady;
+    const swordBonus = card.properties?.includes("剣")
+      ? this.nextSwordMultiplier
+      : 1;
     const power = Math.round(
-      card.power * (usedSync || rageReady ? 2 : 1) * this.nextCardBoost
+      card.power * (usedSync || rageReady ? 2 : 1) * swordBonus
     );
-    this.nextCardBoost = 1;
+    if (card.properties?.includes("剣")) this.nextSwordMultiplier = 1;
     const resolution = this.cardTargets(card);
-    this.applyPlayerCardEffect(card);
+    this.applyPlayerCardEffect(card, power);
     const attackTiles = this.dispatchCardAttack(card, power);
     const displayTiles =
       attackTiles.length > 0 ? attackTiles : resolution.tiles;
@@ -996,26 +1066,130 @@ export class GameWorld {
     if (targetIds.includes("player"))
       this.applyPlayerHit(projectile.damage, projectile.sourceId ?? undefined);
   }
-  private applyPlayerHit(damage: number, enemyId?: string): void {
-    const now = this.gameTimeMs;
-    if (now < this.invincibleUntil) {
-      this.message = "位相回避";
-      this.onEvent({
-        type: "player-reaction",
-        at: { ...this.playerGrid },
-        kind: "phase",
-        enemyId,
-      });
+  private activateSubstitute(): void {
+    const previous = { ...this.playerGrid };
+    this.panelSystem.vacate(previous, this.gameTimeMs);
+    const candidates = [
+      { col: previous.col + 1, row: previous.row },
+      { col: previous.col - 1, row: previous.row },
+      { col: previous.col, row: previous.row + 1 },
+      { col: previous.col, row: previous.row - 1 },
+    ];
+    const destination = candidates.find(position => {
+      const panel = this.panelSystem.get(position);
+      return panel?.owner === "player" && panel.terrain !== "hole" && panel.occupantId === null && panel.objectId === null;
+    });
+    if (!destination) {
+      this.panelSystem.occupy(previous, "player");
       return;
     }
-    if (now < this.playerDamageInvulnerableUntil) return;
-    let remaining = Math.max(0, damage);
+    this.playerGrid = destination;
+    this.panelSystem.occupy(this.playerGrid, "player");
+    this.placeFieldObject(
+      "field-device",
+      previous,
+      1,
+      2000,
+      "none",
+      { effectId: "decoy", collision: "passable", fallback: false }
+    );
+    this.message = "身代わり膜 — 囮を残して退避";
+    this.onEvent({
+      type: "player-reaction",
+      at: { ...this.playerGrid },
+      kind: "dodge",
+    });
+  }
+
+  private triggerElectromagneticBurst(enemyId?: string): void {
+    const targets = this.enemies.filter(
+      enemy =>
+        enemy.state !== "deleted" &&
+        Math.abs(enemy.grid.col - this.playerGrid.col) <= 1 &&
+        Math.abs(enemy.grid.row - this.playerGrid.row) <= 1
+    );
+    targets.forEach(enemy => {
+      this.strikeEnemy(enemy, 40, undefined, false, 0, "electric");
+      if (enemy.state !== "deleted") this.applyStatus(enemy, "stun", 500);
+    });
+    this.message = "電磁防壁 — 周囲へ放電";
+    this.onEvent({
+      type: "impact",
+      at: { ...this.playerGrid },
+      side: "player",
+      enemyId,
+      damage: 40,
+    });
+  }
+  private applyPlayerHit(
+    damage: number,
+    enemyId?: string,
+    source: "direct" | "terrain" = "direct"
+  ): void {
+    const now = this.gameTimeMs;
+    const terrainDamage = source === "terrain";
+    if (!terrainDamage) {
+      if (this.pendingRepair) {
+        this.pendingRepair = null;
+        this.message = "応急修復失敗 — 準備中に被弾";
+      }
+      if (this.pendingDefense === "premonition" && now >= this.pendingDefenseUntil) {
+        this.pendingDefense = null;
+        this.pendingDefenseUntil = 0;
+      }
+      if (this.pendingDefense === "substitute") {
+        this.pendingDefense = null;
+        this.pendingDefenseUntil = 0;
+        this.activateSubstitute();
+        return;
+      }
+      if (
+        this.pendingDefense === "return" ||
+        (this.pendingDefense === "premonition" && now < this.pendingDefenseUntil)
+      ) {
+        const defense = this.pendingDefense;
+        const counterDamage = defense === "return" ? 80 : 120;
+        this.pendingDefense = null;
+        this.pendingDefenseUntil = 0;
+        const sourceEnemy = enemyId
+          ? this.enemies.find(enemy => enemy.id === enemyId)
+          : undefined;
+        if (sourceEnemy && sourceEnemy.state !== "deleted")
+          this.strikeEnemy(sourceEnemy, counterDamage, undefined, false);
+        this.message = defense === "return" ? "返し手裏剣 — 攻撃を反射" : "予知反撃 — 攻撃を反射";
+        this.onEvent({
+          type: "player-reaction",
+          at: { ...this.playerGrid },
+          kind: "counter",
+          enemyId,
+          damage: counterDamage,
+        });
+        return;
+      }
+      if (now < this.phaseUntil || now < this.invincibleUntil) {
+        this.message = "位相回避";
+        this.onEvent({
+          type: "player-reaction",
+          at: { ...this.playerGrid },
+          kind: "phase",
+          enemyId,
+        });
+        return;
+      }
+      if (now < this.playerDamageInvulnerableUntil) return;
+    }
+
+    let incoming = Math.max(0, damage);
+    const panel = this.panelSystem.get(this.playerGrid);
+    if (panel?.terrain === "holy") incoming = Math.ceil(incoming / 2);
+    let remaining = incoming;
+    const barrierBefore = this.barrier;
     if (this.barrier > 0) {
       const absorbed = Math.min(this.barrier, remaining);
       this.barrier -= absorbed;
       remaining -= absorbed;
       this.message = remaining > 0 ? "障壁損傷" : "障壁防御";
-      if (remaining === 0)
+      if (absorbed > 0)
         this.onEvent({
           type: "player-reaction",
           at: { ...this.playerGrid },
@@ -1024,12 +1198,28 @@ export class GameWorld {
           damage: absorbed,
         });
     }
+    const sourceEnemy = enemyId
+      ? this.enemies.find(enemy => enemy.id === enemyId)
+      : undefined;
+    const electromagneticContact =
+      !terrainDamage &&
+      this.electromagneticBarrierActive &&
+      barrierBefore > 0 &&
+      Boolean(sourceEnemy && sameTile(sourceEnemy.grid, this.playerGrid));
+    const electromagneticBroken =
+      !terrainDamage &&
+      this.electromagneticBarrierActive &&
+      barrierBefore > 0 &&
+      this.barrier === 0;
+
     if (remaining > 0) {
       this.playerHp = Math.max(0, this.playerHp - remaining);
-      this.playerControlLockedUntil =
-        now + COMBAT_BALANCE.playerHit.controlLockMs;
-      this.playerDamageInvulnerableUntil =
-        now + COMBAT_BALANCE.playerHit.invulnerableMs;
+      if (!terrainDamage) {
+        this.playerControlLockedUntil =
+          now + COMBAT_BALANCE.playerHit.controlLockMs;
+        this.playerDamageInvulnerableUntil =
+          now + COMBAT_BALANCE.playerHit.invulnerableMs;
+      }
       this.sync = false;
       this.emotionSystem.recordDamage(
         now,
@@ -1037,9 +1227,9 @@ export class GameWorld {
         this.playerHp,
         this.playerMaxHp
       );
-      if (this.emotionSystem.isRageStaggerImmune(now))
+      if (!terrainDamage && this.emotionSystem.isRageStaggerImmune(now))
         this.playerControlLockedUntil = now;
-      this.message = "被弾 — 退避してください";
+      this.message = terrainDamage ? "危険地形 — 耐久を消耗" : "被弾 — 退避してください";
       this.onEvent({
         type: "impact",
         at: { ...this.playerGrid },
@@ -1047,26 +1237,18 @@ export class GameWorld {
         enemyId,
         damage: remaining,
       });
-      this.onEvent({
-        type: "player-reaction",
-        at: { ...this.playerGrid },
-        kind: "damage",
-        enemyId,
-        damage: remaining,
-      });
+      if (!terrainDamage)
+        this.onEvent({
+          type: "player-reaction",
+          at: { ...this.playerGrid },
+          kind: "damage",
+          enemyId,
+          damage: remaining,
+        });
     }
-    if (this.retaliateDamage > 0 && enemyId) {
-      const source = this.enemies.find(enemy => enemy.id === enemyId);
-      if (source && source.state !== "deleted")
-        this.strikeEnemy(source, this.retaliateDamage, undefined, false);
-      this.retaliateDamage = 0;
-      this.message = "反撃信号を送信";
-      this.onEvent({
-        type: "player-reaction",
-        at: { ...this.playerGrid },
-        kind: "counter",
-        enemyId,
-      });
+    if (electromagneticBroken || electromagneticContact) {
+      this.electromagneticBarrierActive = false;
+      this.triggerElectromagneticBurst(enemyId);
     }
   }
   private healPlayer(amount: number): void {
@@ -1076,44 +1258,57 @@ export class GameWorld {
     this.playerHp = Math.min(this.playerMaxHp, this.playerHp + adjusted);
   }
   private updateFieldObjects(now: number): void {
-    const beforeExpiry = this.objectSystem
+    const expiring = this.objectSystem
       .snapshot()
       .filter(object => object.expiresAt !== null && now >= object.expiresAt);
-    beforeExpiry
-      .filter(object => object.kind === "bomb" && object.trigger === "timer")
-      .forEach(object => this.triggerObjectExplosion(object.panel, 90));
+    expiring
+      .filter(object => object.effectId === "timed-bomb")
+      .forEach(object =>
+        this.triggerObjectExplosion(
+          object.panel,
+          object.damage ?? 90,
+          object.sourceCardId
+        )
+      );
+
     for (const object of this.objectSystem.snapshot()) {
+      if (object.expiresAt !== null && now >= object.expiresAt) continue;
       const nextTriggerAt = this.objectNextTriggerAt.get(object.id) ?? now;
       if (now < nextTriggerAt) continue;
-      if (
-        object.kind === "mine" &&
-        object.trigger === "enemy-contact" &&
-        this.enemies.some(
+      const sourceCard = this.cardForSource(object.sourceCardId);
+      if (object.effectId === "watch-mine") {
+        const target = this.enemies.find(
           enemy =>
             enemy.state !== "deleted" && sameTile(enemy.grid, object.panel)
-        )
-      ) {
-        this.triggerObjectExplosion(object.panel, 100);
-        this.removeFieldObject(object.id);
+        );
+        if (target) {
+          this.triggerObjectExplosion(object.panel, object.damage ?? 100, object.sourceCardId);
+          if (target.state !== "deleted") this.applyStatus(target, "stun", 500);
+          this.removeFieldObject(object.id);
+        }
         continue;
       }
-      if (object.kind === "stake" && object.trigger === "enemy-contact") {
-        const target = this.enemies.find(
+      if (object.effectId === "stake") {
+        const targets = this.enemies.filter(
           enemy =>
             enemy.state !== "deleted" &&
             Math.abs(enemy.grid.col - object.panel.col) <= 1 &&
             Math.abs(enemy.grid.row - object.panel.row) <= 1
         );
-        if (target) {
-          this.strikeEnemy(target, 10, undefined, false);
-          target.rootUntil = Math.max(target.rootUntil, now + 650);
+        if (targets.length > 0) {
+          targets.forEach(enemy => {
+            this.strikeEnemy(enemy, object.damage ?? 10, sourceCard, false);
+            if (enemy.state !== "deleted")
+              enemy.rootUntil = Math.max(enemy.rootUntil, now + 800);
+          });
           const count = (this.objectTriggerCount.get(object.id) ?? 0) + 1;
           this.objectTriggerCount.set(object.id, count);
           if (count >= 5) this.removeFieldObject(object.id);
-          else this.objectNextTriggerAt.set(object.id, now + 600);
+          else this.objectNextTriggerAt.set(object.id, now + 800);
         }
+        continue;
       }
-      if (object.kind === "turret" && object.trigger === "timer") {
+      if (object.effectId === "turret") {
         const target = this.closestEnemy();
         if (target) {
           this.spawnProjectile({
@@ -1125,12 +1320,31 @@ export class GameWorld {
               col: Math.sign(target.grid.col - object.panel.col),
               row: Math.sign(target.grid.row - object.panel.row),
             },
-            damage: 12,
-            sourceId: object.id,
+            damage: object.damage ?? 12,
+            sourceCardId: object.sourceCardId ?? null,
             speedCellsPerSecond: COMBAT_BALANCE.normalShot.speedCellsPerSecond,
           });
           this.objectNextTriggerAt.set(object.id, now + 400);
         }
+        continue;
+      }
+      if (object.effectId === "poison-mist") {
+        this.enemies
+          .filter(enemy =>
+            enemy.state !== "deleted" &&
+            Math.abs(enemy.grid.col - object.panel.col) <= 1 &&
+            Math.abs(enemy.grid.row - object.panel.row) <= 1
+          )
+          .forEach(enemy =>
+            this.strikeEnemy(enemy, object.damage ?? 8, sourceCard, false)
+          );
+        this.objectNextTriggerAt.set(object.id, now + 1000);
+        continue;
+      }
+      if (object.effectId === "gravity-field") {
+        this.pullEnemiesTo(object.panel);
+        this.objectNextTriggerAt.set(object.id, now + 800);
+        continue;
       }
       if (object.kind === "field-device" && object.trigger === "contact") {
         this.enemies
@@ -1140,7 +1354,7 @@ export class GameWorld {
               Math.abs(enemy.grid.col - object.panel.col) <= 1 &&
               Math.abs(enemy.grid.row - object.panel.row) <= 1
           )
-          .forEach(enemy => this.strikeEnemy(enemy, 8, undefined, false));
+          .forEach(enemy => this.strikeEnemy(enemy, 8, sourceCard, false));
         this.objectNextTriggerAt.set(object.id, now + 1000);
       }
     }
@@ -1149,8 +1363,14 @@ export class GameWorld {
       this.objectNextTriggerAt.delete(object.id);
       this.objectTriggerCount.delete(object.id);
     });
+    this.syncBoardOccupancy();
   }
-  private triggerObjectExplosion(panel: GridPosition, damage: number): void {
+  private triggerObjectExplosion(
+    panel: GridPosition,
+    damage: number,
+    sourceCardId?: string
+  ): void {
+    const sourceCard = this.cardForSource(sourceCardId);
     this.enemies
       .filter(
         enemy =>
@@ -1158,8 +1378,14 @@ export class GameWorld {
           Math.abs(enemy.grid.col - panel.col) <= 1 &&
           Math.abs(enemy.grid.row - panel.row) <= 1
       )
-      .forEach(enemy => this.strikeEnemy(enemy, damage, undefined, false));
-    this.onEvent({ type: "impact", at: { ...panel }, side: "player", damage });
+      .forEach(enemy => this.strikeEnemy(enemy, damage, sourceCard, false));
+    this.onEvent({
+      type: "impact",
+      at: { ...panel },
+      side: "player",
+      cardId: sourceCardId,
+      damage,
+    });
   }
   private removeFieldObject(id: string): void {
     const object = this.objectSystem.remove(id);
@@ -1167,6 +1393,12 @@ export class GameWorld {
     this.panelSystem.detachObject(object.panel, object.id);
     this.objectNextTriggerAt.delete(id);
     this.objectTriggerCount.delete(id);
+  }
+  private cardForSource(sourceCardId?: string): Card | undefined {
+    if (!sourceCardId) return undefined;
+    return [...CARD_CATALOG, ...OVERLOAD_CARDS].find(
+      card => card.id === sourceCardId
+    );
   }
   private cardPointTarget(): GridPosition {
     return this.closestEnemy()?.grid ?? this.closestEmptyEnemyPanel();
@@ -1196,36 +1428,56 @@ export class GameWorld {
     });
   }
 
-  private resolveCardDamage(enemy: Enemy, damage: number, card: Card | undefined): number {
-    if (!card?.element) return Math.max(0, damage);
+  private resolveCardDamage(
+    enemy: Enemy,
+    damage: number,
+    card: Card | undefined,
+    elementOverride?: CardElement
+  ): number {
     const panel = this.panelSystem.get(enemy.grid);
-    const multiplier = getElementalMultiplier(card.element, enemy.element ?? "none", panel?.terrain ?? "normal");
-    return Math.max(0, Math.round(damage * multiplier));
+    const element = elementOverride ?? card?.element ?? "none";
+    const multiplier = getElementalMultiplier(
+      element,
+      enemy.element ?? "none",
+      panel?.terrain ?? "normal"
+    );
+    const elementalDamage = Math.max(0, Math.round(damage * multiplier));
+    return panel?.terrain === "holy"
+      ? Math.ceil(elementalDamage / 2)
+      : elementalDamage;
   }
-
-  private applyPlayerCardEffect(card: Card): void {
+  private applyPlayerCardEffect(card: Card, power = card.power): void {
     if (card.isOverload) this.applyOverloadEffect(card);
     const value = card.effectValue ?? 0;
-    if (card.status === "barrier")
+
+    if (card.id === "prism")
       this.barrier = Math.min(220, this.barrier + value);
-    if (card.id === "dream" || card.status === "invincible")
+    if (card.status === "barrier" && card.id !== "prism")
+      this.barrier = Math.min(220, this.barrier + value);
+    if (card.id === "dream")
       this.invincibleUntil = Math.max(
         this.invincibleUntil,
         this.gameTimeMs + COMBAT_BALANCE.phase.invincibilityMs
       );
-    if (card.status === "recover") {
+    if (card.id === "rectify") {
       this.healPlayer(value);
       this.emotionSystem.recover();
-      if (card.id === "sanctum" || card.id === "sanctuary")
-        this.barrier = Math.min(220, this.barrier + 42);
+    }
+    if (
+      card.status === "recover" &&
+      card.id !== "repair" &&
+      card.id !== "rectify"
+    ) {
+      this.healPlayer(value);
+      this.emotionSystem.recover();
     }
     if (
       card.status === "gauge" &&
       card.id !== "fastsync" &&
-      card.id !== "reroute" &&
-      card.id !== "sector"
+      card.id !== "reroute"
     )
       this.customSystem.add(value);
+
     if (card.id === "fastsync")
       this.customSystem.setTemporaryMultiplier(
         COMBAT_BALANCE.custom.fastSyncMultiplier,
@@ -1233,57 +1485,75 @@ export class GameWorld {
         this.gameTimeMs
       );
     if (card.id === "reroute") this.customSystem.fill();
-    if (card.status === "boost") this.nextCardBoost = value / 100;
-    if (card.status === "counter") this.retaliateDamage = value;
-    if (card.id === "magguard") this.barrier = Math.min(220, this.barrier + 24);
+    if (card.id === "stamp")
+      this.outputMarkRemaining = Math.min(
+        120,
+        Math.max(this.outputMarkRemaining, value || 120)
+      );
+
+    if (card.id === "repair") {
+      this.pendingRepair = {
+        readyAt: this.gameTimeMs + (card.durationMs ?? 600),
+        amount: value || 100,
+      };
+      this.message = "応急修復を準備中 — 被弾すると失敗";
+    }
+    if (card.id === "phase")
+      this.phaseUntil = Math.max(
+        this.phaseUntil,
+        this.gameTimeMs + (card.durationMs ?? 3000)
+      );
+    if (card.id === "return") {
+      this.pendingDefense = "return";
+      this.pendingDefenseUntil = 0;
+    }
+    if (card.id === "substitute") {
+      this.pendingDefense = "substitute";
+      this.pendingDefenseUntil = 0;
+    }
+    if (card.id === "premonition") {
+      this.pendingDefense = "premonition";
+      this.pendingDefenseUntil = this.gameTimeMs + (card.durationMs ?? 1200);
+    }
+    if (card.id === "magguard")
+      this.electromagneticBarrierActive = true;
+
+    if (card.id === "sanctum")
+      this.paintSanctuary(card.durationMs ?? 8000);
+    if (card.id === "sanctuary")
+      this.paintSanctuary(card.durationMs ?? 10000);
     if (card.id === "sector")
       this.panelSystem.expandEnemyFront(
         this.gameTimeMs,
-        TERRITORY_EXPANSION_DURATION_MS
+        card.durationMs ?? TERRITORY_EXPANSION_DURATION_MS
       );
-    if (card.id === "sanctum" || card.id === "sanctuary")
-      this.paintSanctuary(card.id === "sanctuary" ? 10000 : 8000);
-    if (card.id === "crack")
-      [1, 2].forEach(offset =>
-        this.panelSystem.crack({
-          col: this.playerGrid.col + offset,
-          row: this.playerGrid.row,
-        })
-      );
-    if (card.id === "hole")
-      this.panelSystem
-        .snapshot()
-        .filter(
-          panel =>
-            panel.owner === "enemy" &&
-            panel.occupantId === null &&
-            panel.objectId === null
-        )
-        .slice(0, 3)
-        .forEach(panel =>
-          this.panelSystem.setTerrain(panel, "hole", this.gameTimeMs, 8000)
-        );
-    if (card.id === "frost") this.freezeEmptyEnemyPanels();
-    if (card.id === "icewall") {
-      const point = this.cardPointTarget();
-      this.panelSystem.setTerrain(point, "ice", this.gameTimeMs, 8000);
-      this.placeFieldObject("cube", point, 70, null, "damage");
+    if (card.id === "rush") this.transferPlayerToCardTarget();
+
+    if (card.id === "crack") {
+      [1, 2].map(offset => ({
+        col: this.playerGrid.col + offset,
+        row: this.playerGrid.row,
+      })).forEach(target => {
+        this.panelSystem.crack(target);
+        this.spawnPointAttack(card, target, power || 20);
+      });
     }
-    if (card.id === "toxic")
-      this.placeFieldObject(
-        "field-device",
-        this.closestEmptyEnemyPanel(),
-        70,
-        5000,
-        "contact"
-      );
+    if (card.id === "hole") this.applyReversePhaseHole(card, power || 30);
+
     if (card.id === "timer")
       this.placeFieldObject(
         "bomb",
         this.closestEmptyEnemyPanel(),
         50,
         2000,
-        "timer"
+        "timer",
+        {
+          effectId: "timed-bomb",
+          damage: power || 90,
+          sourceCardId: card.id,
+          collision: "passable",
+          pushable: true,
+        }
       );
     if (card.id === "watchmine")
       this.placeFieldObject(
@@ -1291,7 +1561,15 @@ export class GameWorld {
         this.closestEmptyEnemyPanel(),
         50,
         null,
-        "enemy-contact"
+        "enemy-contact",
+        {
+          effectId: "watch-mine",
+          damage: power || 100,
+          sourceCardId: card.id,
+          collision: "passable",
+          hidden: true,
+          pushable: true,
+        }
       );
     if (card.id === "turret")
       this.placeFieldObject(
@@ -1299,7 +1577,14 @@ export class GameWorld {
         { col: 2, row: this.playerGrid.row },
         60,
         4000,
-        "timer"
+        "timer",
+        {
+          effectId: "turret",
+          damage: power || 12,
+          sourceCardId: card.id,
+          collision: "solid",
+          firstTriggerDelayMs: 0,
+        }
       );
     if (card.id === "stake")
       this.placeFieldObject(
@@ -1307,19 +1592,64 @@ export class GameWorld {
         this.closestEmptyEnemyPanel(),
         40,
         5000,
-        "enemy-contact"
+        "enemy-contact",
+        {
+          effectId: "stake",
+          damage: power || 10,
+          sourceCardId: card.id,
+          collision: "solid",
+        }
       );
+    if (card.id === "breakpillar") {
+      const target = this.cardPointTarget();
+      this.panelSystem.crack(target);
+      this.spawnPointAttack(card, target, power || 90);
+    }
     if (card.id === "block")
       this.placeFieldObject(
         "cube",
         { col: this.playerGrid.col + 1, row: this.playerGrid.row },
         100,
         null,
-        "damage"
+        "damage",
+        { collision: "solid", fallback: false }
       );
-    this.syncCustomRemaining();
-  }
+    if (card.id === "toxic") {
+      const target = this.closestEmptyEnemyPanel();
+      this.paintToxicMist(target, card.durationMs ?? 5000);
+      this.placeFieldObject(
+        "field-device",
+        target,
+        70,
+        card.durationMs ?? 5000,
+        "none",
+        {
+          effectId: "poison-mist",
+          damage: power || 8,
+          sourceCardId: card.id,
+          collision: "passable",
+          firstTriggerDelayMs: 0,
+        }
+      );
+    }
+    if (card.id === "gravity")
+      this.placeFieldObject(
+        "field-device",
+        this.closestEmptyEnemyPanel(),
+        40,
+        card.durationMs ?? 4000,
+        "none",
+        {
+          effectId: "gravity-field",
+          collision: "passable",
+          firstTriggerDelayMs: 0,
+        }
+      );
+    if (card.id === "gustwall") this.applyGustWall();
 
+    this.syncCustomRemaining();
+    this.syncBoardOccupancy();
+  }
   private applyOverloadEffect(card: Card): void {
     const result = this.emotionSystem.registerOverload();
     this.playerMaxHp = Math.max(
@@ -1379,9 +1709,11 @@ export class GameWorld {
       { col: this.playerGrid.col, row: this.playerGrid.row - 1 },
       { col: this.playerGrid.col, row: this.playerGrid.row + 1 },
     ];
-    positions.forEach(position =>
-      this.panelSystem.setTerrain(position, "holy", this.gameTimeMs, durationMs)
-    );
+    positions
+      .filter(position => this.panelSystem.get(position)?.owner === "player")
+      .forEach(position =>
+        this.panelSystem.setTerrain(position, "holy", this.gameTimeMs, durationMs)
+      );
   }
 
   private closestEmptyEnemyPanel(): GridPosition {
@@ -1410,15 +1742,19 @@ export class GameWorld {
     preferred: GridPosition,
     hp: number,
     lifetimeMs: number | null,
-    trigger: Parameters<ObjectSystem["place"]>[0]["trigger"]
-  ): void {
-    const candidates = [
-      preferred,
-      ...this.panelSystem
-        .snapshot()
-        .map(panel => ({ col: panel.col, row: panel.row })),
-    ];
-    const panel = candidates.find(position => {
+    trigger: Parameters<ObjectSystem["place"]>[0]["trigger"],
+    options: FieldObjectOptions = {}
+  ): FieldObject | null {
+    const allPanels = this.panelSystem.snapshot().map(panel => ({
+      col: panel.col,
+      row: panel.row,
+    }));
+    const candidates = options.fallback === false
+      ? [preferred]
+      : [preferred, ...allPanels];
+    const panel = candidates.find((position, index, list) => {
+      if (list.findIndex(candidate => sameTile(candidate, position)) !== index)
+        return false;
       const state = this.panelSystem.get(position);
       return (
         state?.occupantId === null &&
@@ -1426,31 +1762,166 @@ export class GameWorld {
         state.terrain !== "hole"
       );
     });
-    if (!panel) return;
+    if (!panel) return null;
+    const id = `${kind}-${this.gameTimeMs}-${this.objectSequence}`;
+    this.objectSequence += 1;
     const result = this.objectSystem.place({
-      id: `${kind}-${this.gameTimeMs}-${this.objectSystem.snapshot().length}`,
+      id,
       owner: "player",
       kind,
       panel,
       hp,
       expiresAt: lifetimeMs === null ? null : this.gameTimeMs + lifetimeMs,
       trigger,
+      effectId: options.effectId,
+      damage: options.damage,
+      sourceCardId: options.sourceCardId,
+      hidden: options.hidden ?? false,
+      pushable:
+        options.pushable ??
+        (kind === "bomb" || kind === "mine" || kind === "stake" || kind === "field-device"),
+      collision: options.collision ?? (kind === "mine" || kind === "bomb" ? "passable" : "solid"),
     });
     if (result.removed) {
       this.panelSystem.detachObject(result.removed.panel, result.removed.id);
       this.objectNextTriggerAt.delete(result.removed.id);
       this.objectTriggerCount.delete(result.removed.id);
     }
-    if (result.object) {
-      this.panelSystem.attachObject(result.object.panel, result.object.id);
-      const firstTriggerDelay =
-        kind === "turret" ? 400 : kind === "field-device" ? 1000 : 0;
-      this.objectNextTriggerAt.set(
-        result.object.id,
-        this.gameTimeMs + firstTriggerDelay
+    if (!result.object) return null;
+    this.panelSystem.attachObject(result.object.panel, result.object.id);
+    const firstTriggerDelay =
+      options.firstTriggerDelayMs ??
+      (kind === "turret" ? 400 : kind === "field-device" ? 1000 : 0);
+    this.objectNextTriggerAt.set(
+      result.object.id,
+      this.gameTimeMs + firstTriggerDelay
+    );
+    this.objectTriggerCount.set(result.object.id, 0);
+    return result.object;
+  }
+
+  private spawnPointAttack(card: Card, target: GridPosition, damage: number): void {
+    this.spawnProjectile({
+      owner: "player",
+      motion: "thrown",
+      position: { ...this.playerGrid },
+      target: { ...target },
+      damage,
+      sourceCardId: card.id,
+      flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+      speedCellsPerSecond: COMBAT_BALANCE.projectile.defaultSpeedCellsPerSecond,
+    });
+  }
+
+  private areaAround(center: GridPosition, radius = 1): GridPosition[] {
+    const tiles: GridPosition[] = [];
+    for (let col = center.col - radius; col <= center.col + radius; col += 1)
+      for (let row = center.row - radius; row <= center.row + radius; row += 1)
+        if (this.panelSystem.isInside({ col, row })) tiles.push({ col, row });
+    return tiles;
+  }
+
+  private paintToxicMist(center: GridPosition, durationMs: number): void {
+    this.areaAround(center).forEach(position =>
+      this.panelSystem.setTerrain(position, "poison", this.gameTimeMs, durationMs)
+    );
+  }
+
+  private applyReversePhaseHole(card: Card, damage: number): void {
+    let created = 0;
+    for (const panel of this.panelSystem.snapshot().filter(candidate => candidate.owner === "enemy")) {
+      if (panel.occupantId === null && panel.objectId === null && created < 3) {
+        this.panelSystem.setTerrain(panel, "hole", this.gameTimeMs, 8000);
+        created += 1;
+        continue;
+      }
+      const enemy = this.enemies.find(candidate =>
+        candidate.state !== "deleted" && sameTile(candidate.grid, panel)
       );
-      this.objectTriggerCount.set(result.object.id, 0);
+      if (enemy) {
+        this.panelSystem.crack(panel);
+        this.strikeEnemy(enemy, damage, card, false);
+      }
     }
+  }
+
+  private transferPlayerToCardTarget(): void {
+    const target = this.cardPointTarget();
+    const candidates = [
+      target,
+      ...this.areaAround(target),
+      ...this.panelSystem.snapshot().map(panel => ({ col: panel.col, row: panel.row })),
+    ];
+    const destination = candidates.find(position => {
+      const panel = this.panelSystem.get(position);
+      return panel?.terrain !== "hole" && panel?.occupantId === null && panel.objectId === null;
+    });
+    if (!destination) return;
+    const previous = { ...this.playerGrid };
+    this.panelSystem.vacate(previous, this.gameTimeMs);
+    this.playerGrid = { ...destination };
+    this.panelSystem.occupy(this.playerGrid, "player");
+    this.phaseUntil = Math.max(this.phaseUntil, this.gameTimeMs + 350);
+    this.nextSwordMultiplier = 1.3;
+    this.applyPlayerEntryTerrain(this.playerGrid);
+    this.message = "強襲転送 — 次の剣攻撃を強化";
+  }
+
+  private applyGustWall(): void {
+    for (const enemy of [...this.enemies].filter(enemy => enemy.state !== "deleted").sort((a, b) => b.grid.col - a.grid.col)) {
+      const destination = { col: enemy.grid.col + 1, row: enemy.grid.row };
+      const panel = this.panelSystem.get(destination);
+      if (
+        panel &&
+        panel.terrain !== "hole" &&
+        panel.occupantId === null &&
+        panel.objectId === null
+      ) enemy.grid = destination;
+    }
+    this.syncBoardOccupancy();
+    for (const object of this.objectSystem.snapshot().filter(object => object.pushable).sort((a, b) => b.panel.col - a.panel.col)) {
+      const destination = { col: object.panel.col + 1, row: object.panel.row };
+      this.moveFieldObject(object, destination);
+    }
+    this.syncBoardOccupancy();
+  }
+
+  private moveFieldObject(object: FieldObject, destination: GridPosition): boolean {
+    const panel = this.panelSystem.get(destination);
+    if (!panel || panel.terrain === "hole" || panel.occupantId !== null || panel.objectId !== null)
+      return false;
+    this.panelSystem.detachObject(object.panel, object.id);
+    if (!this.objectSystem.move(object.id, destination)) {
+      this.panelSystem.attachObject(object.panel, object.id);
+      return false;
+    }
+    this.panelSystem.attachObject(destination, object.id);
+    return true;
+  }
+
+  private pullEnemiesTo(center: GridPosition): void {
+    for (const enemy of this.enemies.filter(enemy => enemy.state !== "deleted")) {
+      if (enemy.state === "windup" || enemy.state === "stunned") continue;
+      if (Math.abs(enemy.grid.col - center.col) + Math.abs(enemy.grid.row - center.row) > 3) continue;
+      const horizontal = Math.abs(center.col - enemy.grid.col) >= Math.abs(center.row - enemy.grid.row);
+      const directions = horizontal
+        ? [{ col: Math.sign(center.col - enemy.grid.col), row: 0 }, { col: 0, row: Math.sign(center.row - enemy.grid.row) }]
+        : [{ col: 0, row: Math.sign(center.row - enemy.grid.row) }, { col: Math.sign(center.col - enemy.grid.col), row: 0 }];
+      for (const direction of directions) {
+        if (Math.abs(direction.col) + Math.abs(direction.row) !== 1) continue;
+        const destination = this.panelSystem.resolveMovement(
+          enemy.grid,
+          direction,
+          "enemy",
+          position => this.objectSystem.isSolidAt(position)
+        );
+        if (destination) {
+          enemy.grid = destination;
+          break;
+        }
+      }
+    }
+    this.syncBoardOccupancy();
   }
   private closestEnemy(): Enemy | undefined {
     return [...this.enemies]
@@ -1487,15 +1958,24 @@ export class GameWorld {
     );
     return { tiles, enemies };
   }
+  private consumeOutputMark(damage: number, card: Card | undefined): number {
+    if (!card || card.power <= 0 || this.outputMarkRemaining <= 0) return damage;
+    const bonus = Math.min(30, this.outputMarkRemaining);
+    this.outputMarkRemaining -= bonus;
+    return damage + bonus;
+  }
+
   private strikeEnemy(
     enemy: Enemy,
     damage: number,
     card: Card | undefined,
     charged: boolean,
-    chainDepth = 0
+    chainDepth = 0,
+    elementOverride?: CardElement
   ): void {
     if (enemy.state === "deleted") return;
-    const resolvedDamage = this.resolveCardDamage(enemy, damage, card);
+    const markedDamage = this.consumeOutputMark(damage, card);
+    const resolvedDamage = this.resolveCardDamage(enemy, markedDamage, card, elementOverride);
     enemy.hp = Math.max(0, enemy.hp - resolvedDamage);
     const counter = Boolean(
       card &&
@@ -1526,8 +2006,9 @@ export class GameWorld {
       charged,
       counter,
     });
-    if (card?.status) this.applyStatus(enemy, card.status, card.durationMs ?? 0);
-    if (card?.id === "volt" && chainDepth === 0) {
+    if (card?.status && enemy.hp > 0)
+      this.applyStatus(enemy, card.status, card.durationMs ?? 0);
+    if (card?.id === "volt" && chainDepth === 0 && enemy.hp > 0) {
       const chained = this.enemies
         .filter(candidate =>
           candidate.id !== enemy.id &&
@@ -1540,7 +2021,14 @@ export class GameWorld {
           (Math.abs(b.grid.col - enemy.grid.col) + Math.abs(b.grid.row - enemy.grid.row))
         )[0];
       if (chained)
-        this.strikeEnemy(chained, Math.max(1, Math.round(resolvedDamage / 2)), card, charged, 1);
+        this.strikeEnemy(
+          chained,
+          Math.max(1, Math.round(resolvedDamage / 2)),
+          card,
+          charged,
+          1,
+          elementOverride
+        );
     }
     if (enemy.hp <= 0) {
       this.clearWarnings(enemy);
@@ -1578,6 +2066,7 @@ export class GameWorld {
   private resetBoard(): void {
     this.panelSystem.reset();
     this.objectSystem.reset();
+    this.objectSequence = 0;
     this.projectileSystem.reset();
     this.pendingMelee = [];
     this.objectNextTriggerAt.clear();
@@ -1772,12 +2261,18 @@ export class GameWorld {
     this.invincibleUntil = 0;
     this.playerControlLockedUntil = 0;
     this.playerDamageInvulnerableUntil = 0;
-    this.retaliateDamage = 0;
-    this.nextCardBoost = 1;
+    this.phaseUntil = 0;
+    this.pendingDefense = null;
+    this.pendingDefenseUntil = 0;
+    this.electromagneticBarrierActive = false;
+    this.pendingRepair = null;
+    this.nextSwordMultiplier = 1;
+    this.outputMarkRemaining = 0;
     this.normalShotDamageMultiplier = 1;
     this.contaminationActive = false;
     this.forcedRepairDrainActive = false;
     this.nextForcedRepairDrainAt = 0;
+    this.nextPlayerTerrainDamageAt = 0;
     this.handSizeReduction = 0;
     this.hitstopRemainingMs = 0;
     this.projectileSystem.reset();
@@ -1811,12 +2306,18 @@ export class GameWorld {
     this.invincibleUntil = 0;
     this.playerControlLockedUntil = 0;
     this.playerDamageInvulnerableUntil = 0;
-    this.retaliateDamage = 0;
-    this.nextCardBoost = 1;
+    this.phaseUntil = 0;
+    this.pendingDefense = null;
+    this.pendingDefenseUntil = 0;
+    this.electromagneticBarrierActive = false;
+    this.pendingRepair = null;
+    this.nextSwordMultiplier = 1;
+    this.outputMarkRemaining = 0;
     this.normalShotDamageMultiplier = 1;
     this.contaminationActive = false;
     this.forcedRepairDrainActive = false;
     this.nextForcedRepairDrainAt = 0;
+    this.nextPlayerTerrainDamageAt = 0;
     this.handSizeReduction = 0;
     this.wave = 1;
     this.score = 0;
@@ -1920,6 +2421,7 @@ export class GameWorld {
         COMBAT_BALANCE.counter.patternWindowMs[pattern] ??
         COMBAT_BALANCE.counter.windowMs,
       counterWindowState: null,
+      nextTerrainDamageAt: 0,
     });
     const layouts: (() => Enemy[])[] = [
       () => [
@@ -2068,8 +2570,11 @@ export class GameWorld {
       corruption: emotion.corruption,
       charging: this.charging,
       barrier: this.barrier,
-      invincible: now < this.invincibleUntil,
-      invincibleRemaining: Math.max(0, (this.invincibleUntil - now) / 1000),
+      invincible: now < this.invincibleUntil || now < this.phaseUntil,
+      invincibleRemaining: Math.max(
+        0,
+        (Math.max(this.invincibleUntil, this.phaseUntil) - now) / 1000
+      ),
       customHand: this.customHand,
       selected: this.selected,
       focusedCard: this.focusedCard,
@@ -2095,6 +2600,7 @@ export class GameWorld {
           counterEndAt: _ce,
           counterWindowMs: _cwm,
           counterWindowState: _cws,
+          nextTerrainDamageAt: _nt,
           ...enemy
         }) => ({
           ...enemy,
