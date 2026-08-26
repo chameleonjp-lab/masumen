@@ -108,7 +108,7 @@ function previewVector(card: BattleSnapshot["customHand"][number] | undefined) {
   return "→";
 }
 
-export default function GameCanvas()export default function GameCanvas() {
+export default function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const startedRef = useRef(false);
   const controllerRef = useRef<GameHandle["controller"] | null>(null);
