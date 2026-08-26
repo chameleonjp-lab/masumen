@@ -2938,7 +2938,7 @@ export class GameWorld {
     const element = elementOverride ?? card?.element ?? "none";
     const multiplier = getElementalMultiplier(
       element,
-      enemy.element ?? "none",
+      enemy.weaknessElement ?? enemy.element ?? "none",
       panel?.terrain ?? "normal"
     );
     const elementalDamage = Math.max(0, Math.round(damage * multiplier));
@@ -3485,8 +3485,9 @@ export class GameWorld {
   private enemyBlocksDamage(enemy: Enemy, card: Card | undefined): boolean {
     if (enemy.state === "deleted") return true;
     if (card?.properties?.includes("破砕")) return false;
+
     if (enemy.defense === "guard") {
-      // Keep the low-power basic shot useful while the guard blocks card attacks.
+      // Keep the low-power basic shot useful while a guard blocks card attacks.
       if (!card) return false;
       return ![
         "counter-window",
@@ -3496,6 +3497,23 @@ export class GameWorld {
         "deleted",
       ].includes(enemy.actionPhase);
     }
+
+    if (enemy.defense === "armor") {
+      const hammerOpen =
+        enemy.actionId === "gaia-hammer-strike" &&
+        ["counter-window", "active", "recovery"].includes(enemy.actionPhase);
+      return !hammerOpen;
+    }
+
+    if (
+      enemy.definitionId === "hopper-bomb" &&
+      enemy.actionId === "hopper-jump-land" &&
+      ["startup", "counter-window", "active"].includes(enemy.actionPhase) &&
+      !card?.properties?.includes("看破")
+    ) {
+      return !card || Boolean(card.properties?.includes("射撃"));
+    }
+
     return false;
   }
 
@@ -3509,7 +3527,10 @@ export class GameWorld {
   ): void {
     if (enemy.state === "deleted") return;
     if (this.enemyBlocksDamage(enemy, card)) {
-      this.message = enemy.name + " — 正面ガード";
+      this.message =
+        enemy.defense === "armor"
+          ? enemy.name + " — 装甲が攻撃を弾く"
+          : enemy.name + " — 正面ガード";
       this.onEvent({
         type: "impact",
         at: { ...enemy.grid },
@@ -3521,9 +3542,23 @@ export class GameWorld {
       });
       return;
     }
+
     const markedDamage = this.consumeOutputMark(damage, card);
-    const resolvedDamage = this.resolveCardDamage(enemy, markedDamage, card, elementOverride);
-    enemy.hp = Math.max(0, enemy.hp - resolvedDamage);
+    const resolvedDamage = this.resolveCardDamage(
+      enemy,
+      markedDamage,
+      card,
+      elementOverride
+    );
+    const barrierBefore = enemy.barrier;
+    const absorbed = Math.min(barrierBefore, resolvedDamage);
+    enemy.barrier = Math.max(0, barrierBefore - absorbed);
+    const actualDamage = Math.max(0, resolvedDamage - absorbed);
+    enemy.hp = Math.max(0, enemy.hp - actualDamage);
+    if (absorbed > 0 && actualDamage === 0)
+      this.message = enemy.name + " — 障壁防御";
+
+    this.refreshEnemyPhase(enemy);
     const counter = Boolean(
       card &&
         card.power > 0 &&
@@ -3540,7 +3575,11 @@ export class GameWorld {
       this.sync = this.emotionSystem.counterSuccess();
       this.counters += 1;
       this.score += 150;
-      this.message = this.sync ? "カードカウンター — フルシンクロ" : "カードカウンター — 激昂を維持";
+      if (enemy.definitionId === "core-arbiter")
+        enemy.actionIndex += 1;
+      this.message = this.sync
+        ? "カードカウンター — フルシンクロ"
+        : "カードカウンター — 激昂を維持";
       this.onEvent({ type: "counter", at: { ...enemy.grid } });
     }
     this.onEvent({
@@ -3549,7 +3588,7 @@ export class GameWorld {
       side: "player",
       enemyId: enemy.id,
       cardId: card?.id,
-      damage: resolvedDamage,
+      damage: actualDamage,
       status: card?.status,
       charged,
       counter,
@@ -3565,13 +3604,15 @@ export class GameWorld {
           Math.abs(candidate.grid.row - enemy.grid.row) <= 1
         )
         .sort((a, b) =>
-          Math.abs(a.grid.col - enemy.grid.col) + Math.abs(a.grid.row - enemy.grid.row) -
-          (Math.abs(b.grid.col - enemy.grid.col) + Math.abs(b.grid.row - enemy.grid.row))
+          Math.abs(a.grid.col - enemy.grid.col) +
+            Math.abs(a.grid.row - enemy.grid.row) -
+          (Math.abs(b.grid.col - enemy.grid.col) +
+            Math.abs(b.grid.row - enemy.grid.row))
         )[0];
       if (chained)
         this.strikeEnemy(
           chained,
-          Math.max(1, Math.round(resolvedDamage / 2)),
+          Math.max(1, Math.round(actualDamage / 2)),
           card,
           charged,
           1,
@@ -3582,9 +3623,9 @@ export class GameWorld {
       this.clearWarnings(enemy);
       enemy.state = "deleted";
       enemy.actionPhase = "deleted";
-      this.score += 100 + this.wave * 25;
+      this.score += enemy.isBoss ? 600 + this.wave * 50 : 100 + this.wave * 25;
       this.onEvent({ type: "deleted", id: enemy.id, at: { ...enemy.grid } });
-      this.message = `${enemy.name} を停止`;
+      this.message = enemy.name + " を停止";
     }
   }
 
