@@ -27,7 +27,8 @@ const missingActions = expectedEnemies
 const windowCount = (enemyData.match(/counterWindowMs:/g) ?? []).length;
 const layoutCount = (world.match(/\(\) => \[/g) ?? []).length;
 const hasPhaseFlow =
-  world.includes('actionPhase = "counter-window"') &&
+  world.includes("actionPhase = isCounterWindowOpen") &&
+  world.includes('"counter-window"') &&
   world.includes("executeEnemyAction") &&
   world.includes("activeUntil");
 const hasDistinctDefense =
