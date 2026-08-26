@@ -4182,9 +4182,22 @@ export class GameWorld {
           activeUntil: _activeUntil,
           warningAt: _warningAt,
           warningShown: _warningShown,
+          isBoss: _isBoss,
+          bossPhase: _bossPhase,
+          bossPhaseLabel: _bossPhaseLabel,
+          weaknessElement: _weaknessElement,
+          barrier: _enemyBarrier,
+          baseDefense: _baseDefense,
+          baseMovement: _baseMovement,
+          lastMirrorCardId: _lastMirrorCardId,
           ...enemy
         }) => ({
           ...enemy,
+          boss: _isBoss,
+          bossPhase: _bossPhase,
+          bossPhaseLabel: _bossPhaseLabel,
+          weakness: _weaknessElement,
+          barrier: _enemyBarrier,
           grid: { ...enemy.grid },
           counterWindow:
             this.sync &&
