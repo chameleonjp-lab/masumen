@@ -10,6 +10,7 @@ export interface ProjectileSpawn {
   damage: number;
   sourceId?: string | null;
   sourceActionId?: string | null;
+  continuesAfterHit?: boolean;
   sourceCardId?: string | null;
   charged?: boolean;
   activeAt?: number;
@@ -94,13 +95,6 @@ function move(position: GridPosition, direction: GridPosition): GridPosition {
   };
 }
 
-function turnClockwise(direction: GridPosition): GridPosition {
-  if (direction.col === 1) return { col: 0, row: 1 };
-  if (direction.row === 1) return { col: -1, row: 0 };
-  if (direction.col === -1) return { col: 0, row: -1 };
-  return { col: 1, row: 0 };
-}
-
 function collisionPositions(projectile: ProjectileState): GridPosition[] {
   const positions: GridPosition[] = projectile.rowSpan
     ? Array.from({ length: BOARD_ROWS }, (_, row) => ({ col: projectile.position.col, row }))
@@ -168,6 +162,7 @@ export class ProjectileSystem {
       damage: Math.max(0, spawn.damage),
       sourceId: spawn.sourceId ?? null,
       sourceActionId: spawn.sourceActionId ?? null,
+      continuesAfterHit: spawn.continuesAfterHit ?? false,
       sourceCardId: spawn.sourceCardId ?? null,
       charged: spawn.charged ?? false,
       activeAt: spawn.activeAt ?? nowMs,
@@ -238,21 +233,26 @@ export class ProjectileSystem {
             projectile.direction = directionTo(projectile.position, target);
         }
         let next = move(projectile.position, projectile.direction);
-        if (!inside(next)) {
-          if (
-            projectile.motion === "reflect" &&
-            projectile.bouncesRemaining > 0
-          ) {
-            projectile.bouncesRemaining -= 1;
-            projectile.direction = normaliseDirection({
-              col: -projectile.direction.col,
-              row: -projectile.direction.row,
-            });
-            next = move(projectile.position, projectile.direction);
-          } else if (projectile.motion === "orbit") {
-            projectile.direction = turnClockwise(projectile.direction);
-            next = move(projectile.position, projectile.direction);
-          }
+        if (
+          !inside(next) &&
+          projectile.motion === "reflect" &&
+          projectile.bouncesRemaining > 0
+        ) {
+          projectile.bouncesRemaining -= 1;
+          projectile.direction = normaliseDirection({
+            col: -projectile.direction.col,
+            row: -projectile.direction.row,
+          });
+          next = move(projectile.position, projectile.direction);
+        } else if (!inside(next) && projectile.motion === "orbit") {
+          if (projectile.direction.col < 0)
+            projectile.direction = { col: 0, row: 1 };
+          else if (projectile.direction.row > 0)
+            projectile.direction = { col: 1, row: 0 };
+          else if (projectile.direction.col > 0)
+            projectile.direction = { col: 0, row: -1 };
+          else projectile.direction = { col: -1, row: 0 };
+          next = move(projectile.position, projectile.direction);
         }
         if (!inside(next)) {
           this.projectiles.delete(projectile.id);
@@ -287,7 +287,8 @@ export class ProjectileSystem {
           const stopsAtEnemy =
             targetIds.length > 0 &&
             projectile.motion !== "piercing" &&
-            projectile.motion !== "wave";
+            projectile.motion !== "wave" &&
+            !projectile.continuesAfterHit;
           resolutions.push({
             projectile: cloneProjectile(projectile),
             position: clonePosition(projectile.position),

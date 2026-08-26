@@ -28,12 +28,21 @@ import { CustomSystem } from "./systems/CustomSystem";
 import { EmotionSystem } from "./systems/EmotionSystem";
 import { ProjectileSystem } from "./systems/ProjectileSystem";
 import {
+  BOSS_ENEMY_IDS,
   ENEMY_DEFINITIONS,
   getEnemyDefinition,
+  isBossEnemy,
   type EnemyActionDefinition,
   type EnemyId,
   type EnemyPattern,
+  type EnemyPhaseDefinition,
 } from "./data/enemies";
+import {
+  BOSS_SUPPORT_SPAWN,
+  encounterHasSafeStart,
+  getEncounterTemplates,
+  type EncounterSpawn,
+} from "./data/encounters";
 import type {
   BattleEvent,
   BattleSnapshot,
@@ -81,6 +90,14 @@ interface Enemy extends EnemySnapshot {
   warningShown: boolean;
   defense: import("./types").EnemyDefenseMode;
   movement: import("./types").EnemyMovementMode;
+  isBoss: boolean;
+  bossPhase: number;
+  bossPhaseLabel: string | null;
+  weaknessElement: CardElement;
+  barrier: number;
+  baseDefense: import("./types").EnemyDefenseMode;
+  baseMovement: import("./types").EnemyMovementMode;
+  lastMirrorCardId: string | null;
 }
 interface PendingMeleeStage {
   activeAt: number;
@@ -144,6 +161,17 @@ const PATTERN_LABEL: Record<Pattern, string> = {
   "pursuit-dash": "PURSUIT DASH",
   "mortar-spread": "MORTAR SPREAD",
   "pulse-grid": "PULSE GRID",
+  "wave-runner": "WAVE RUNNER",
+  "boomer-arc": "BOOMER ARC",
+  "hopper-bomb": "HOPPER BOMB",
+  "gaia-hammer": "GAIA HAMMER",
+  "weather-core": "WEATHER CORE",
+  "support-relay": "SUPPORT RELAY",
+  "mirror-node": "MIRROR NODE",
+  "bastion-prime": "BASTION PRIME",
+  "prism-hunter": "PRISM HUNTER",
+  "climate-engine": "CLIMATE ENGINE",
+  "core-arbiter": "CORE ARBITER",
 };
 const playerTiles = () =>
   Array.from({ length: 3 }, (_, col) =>
@@ -170,6 +198,37 @@ function loadRecords(): StoredRecords {
     };
   } catch {
     return { highScore: 0, bestWave: 0 };
+  }
+}
+
+const BOSS_HISTORY_STORAGE_KEY = "grid-signal-arena-boss-history-v1";
+
+function loadBossHistory(): EnemyId[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed: unknown = JSON.parse(
+      window.localStorage.getItem(BOSS_HISTORY_STORAGE_KEY) ?? "[]"
+    );
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((value): value is EnemyId =>
+        typeof value === "string" && isBossEnemy(value)
+      )
+      .slice(-2);
+  } catch {
+    return [];
+  }
+}
+
+function saveBossHistory(history: readonly EnemyId[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      BOSS_HISTORY_STORAGE_KEY,
+      JSON.stringify(history.slice(-2))
+    );
+  } catch {
+    /* Private browser modes can disallow storage. */
   }
 }
 
@@ -231,6 +290,8 @@ export class GameWorld {
   private wave = 1;
   private score = 0;
   private records = loadRecords();
+  private bossHistory: EnemyId[] = loadBossHistory();
+  private lastAttackCard: Card | null = null;
   private enemies: Enemy[] = [];
   private message = "カードを選択してください";
   private elapsed = 0;
@@ -372,6 +433,104 @@ export class GameWorld {
     );
   }
 
+  private phaseForEnemy(enemy: Enemy): EnemyPhaseDefinition | undefined {
+    const phases = getEnemyDefinition(enemy.definitionId)?.phases;
+    if (!phases || phases.length === 0) return undefined;
+    const ratio = enemy.maxHp > 0 ? enemy.hp / enemy.maxHp : 0;
+    return [...phases]
+      .sort((a, b) => a.maxHpRatio - b.maxHpRatio)
+      .find(phase => ratio <= phase.maxHpRatio) ?? phases[0];
+  }
+
+  private refreshEnemyPhase(enemy: Enemy): EnemyPhaseDefinition | undefined {
+    const definition = getEnemyDefinition(enemy.definitionId);
+    const phase = this.phaseForEnemy(enemy);
+    if (!definition || !phase) {
+      enemy.bossPhase = 0;
+      enemy.bossPhaseLabel = null;
+      enemy.defense = enemy.baseDefense;
+      enemy.movement = enemy.baseMovement;
+      enemy.weaknessElement =
+        definition?.weakness ?? definition?.element ?? "none";
+      return undefined;
+    }
+
+    const changed = enemy.bossPhase !== phase.phase;
+    enemy.bossPhase = phase.phase;
+    enemy.bossPhaseLabel = phase.label;
+    enemy.defense = phase.defense ?? enemy.baseDefense;
+    enemy.movement = phase.movement ?? enemy.baseMovement;
+    enemy.weaknessElement =
+      phase.weaknessElement ?? definition.weakness ?? definition.element;
+    if (changed) {
+      enemy.actionIndex = 0;
+      this.message = enemy.name + " — " + phase.label;
+      this.onEvent({
+        type: "player-reaction",
+        at: { ...enemy.grid },
+        kind: "phase",
+        enemyId: enemy.id,
+      });
+    }
+    return phase;
+  }
+
+  private availableEnemyActions(enemy: Enemy): EnemyActionDefinition[] {
+    const definition = getEnemyDefinition(enemy.definitionId);
+    if (!definition) return [];
+    const phase = this.phaseForEnemy(enemy);
+    if (!phase) return [...definition.actions];
+    const actions = phase.actionIds
+      .map(actionId =>
+        definition.actions.find(action => action.id === actionId)
+      )
+      .filter((action): action is EnemyActionDefinition => Boolean(action));
+    return actions.length > 0 ? actions : [...definition.actions];
+  }
+
+  private chooseEnemyAction(
+    enemy: Enemy,
+    actions: readonly EnemyActionDefinition[]
+  ): EnemyActionDefinition | undefined {
+    if (actions.length === 0) return undefined;
+    const phase = this.phaseForEnemy(enemy);
+    let action =
+      actions[enemy.actionIndex % actions.length] ?? actions[0];
+    const panel = this.panelSystem.get(this.playerGrid);
+    const preferredElement =
+      panel?.terrain === "grass"
+        ? "fire"
+        : panel?.terrain === "ice"
+          ? "electric"
+          : null;
+
+    if (
+      (enemy.definitionId === "weather-core" ||
+        enemy.definitionId === "climate-engine") &&
+      preferredElement
+    ) {
+      action =
+        actions.find(candidate => candidate.element === preferredElement) ??
+        action;
+    }
+    if (
+      enemy.definitionId === "climate-engine" &&
+      phase?.phase === 2 &&
+      (enemy.cycle + 1) % 3 === 0
+    ) {
+      action =
+        actions.find(candidate => candidate.id === "climate-dual-storm") ??
+        action;
+    }
+    if (actions.length > 1 && action.id === enemy.actionId) {
+      const nextIndex = (actions.indexOf(action) + 1) % actions.length;
+      action = actions[nextIndex] ?? action;
+    }
+    const selectedIndex = Math.max(0, actions.indexOf(action));
+    enemy.actionIndex = (selectedIndex + 1) % actions.length;
+    return action;
+  }
+
   private updateEnemy(enemy: Enemy, now: number): void {
     if (enemy.state === "deleted") {
       enemy.actionPhase = "deleted";
@@ -388,6 +547,7 @@ export class GameWorld {
       return;
     }
 
+    this.refreshEnemyPhase(enemy);
     const action = this.currentEnemyAction(enemy);
     if (enemy.state === "windup") {
       if (
@@ -443,13 +603,13 @@ export class GameWorld {
 
   private prepareAttack(enemy: Enemy, now: number): void {
     const definition = getEnemyDefinition(enemy.definitionId);
-    const action = definition?.actions[
-      enemy.actionIndex % (definition.actions.length || 1)
-    ];
-    if (!action) return;
+    const phase = this.refreshEnemyPhase(enemy);
+    const action = this.chooseEnemyAction(
+      enemy,
+      this.availableEnemyActions(enemy)
+    );
+    if (!definition || !action) return;
 
-    enemy.actionIndex =
-      (enemy.actionIndex + 1) % Math.max(1, definition.actions.length);
     enemy.cycle += 1;
     enemy.actionId = action.id;
     enemy.actionName = action.name;
@@ -458,6 +618,11 @@ export class GameWorld {
     enemy.windupMs = action.startupMs;
     enemy.cooldownMs = action.cooldownMs;
     enemy.counterWindowMs = action.counterWindowMs;
+    enemy.weaknessElement =
+      action.weaknessElement ??
+      phase?.weaknessElement ??
+      definition.weakness ??
+      definition.element;
     if (
       enemy.movement === "pursuit" &&
       now >= enemy.rootUntil
@@ -517,6 +682,38 @@ export class GameWorld {
         return playerTiles().filter(
           tile => (tile.col + tile.row + enemy.cycle) % 2 === 0
         );
+      case "all-rows":
+        return playerTiles().concat(
+          [3, 4, 5].flatMap(col =>
+            [0, 1, 2].map(row => ({ col, row }))
+          )
+        );
+      case "outer":
+        return [
+          { col: 0, row: 0 },
+          { col: 1, row: 0 },
+          { col: 2, row: 0 },
+          { col: 3, row: 0 },
+          { col: 4, row: 0 },
+          { col: 5, row: 0 },
+          { col: 5, row: 1 },
+          { col: 5, row: 2 },
+          { col: 4, row: 2 },
+          { col: 3, row: 2 },
+          { col: 2, row: 2 },
+          { col: 1, row: 2 },
+          { col: 0, row: 2 },
+          { col: 0, row: 1 },
+        ];
+      case "landing":
+        return [player];
+      case "support":
+      case "mirror":
+        return [{ ...enemy.grid }];
+      case "player-territory":
+        return [0, 1, 2].flatMap(col =>
+          [0, 1, 2].map(row => ({ col, row }))
+        );
       default:
         return [player];
     }
@@ -529,8 +726,42 @@ export class GameWorld {
     enemy.grid = target;
   }
 
+  private moveOuterEnemy(enemy: Enemy): void {
+    const route: GridPosition[] = [
+      { col: 3, row: 0 },
+      { col: 4, row: 0 },
+      { col: 5, row: 0 },
+      { col: 5, row: 1 },
+      { col: 5, row: 2 },
+      { col: 4, row: 2 },
+      { col: 3, row: 2 },
+    ];
+    let index = route.findIndex(tile => sameTile(tile, enemy.grid));
+    if (index < 0) index = 0;
+    for (let offset = 1; offset <= route.length; offset += 1) {
+      const destination = route[(index + offset) % route.length];
+      if (destination && this.canEnemyOccupy(enemy, destination)) {
+        enemy.actionPhase = "moving";
+        enemy.grid = destination;
+        return;
+      }
+    }
+  }
+
   private reposition(enemy: Enemy): void {
     if (enemy.movement === "stationary") return;
+    if (enemy.movement === "outer") {
+      this.moveOuterEnemy(enemy);
+      return;
+    }
+    if (enemy.movement === "row-align") {
+      const target = { col: enemy.grid.col, row: this.playerGrid.row };
+      if (this.canEnemyOccupy(enemy, target)) {
+        enemy.actionPhase = "moving";
+        enemy.grid = target;
+        return;
+      }
+    }
     if (enemy.movement === "pursuit") {
       const target = {
         col: 3,
@@ -540,20 +771,12 @@ export class GameWorld {
       return;
     }
     const flying = enemy.movement === "flying";
-    const directions =
-      enemy.movement === "flying"
-        ? [
-            { col: 0, row: 1 },
-            { col: 0, row: -1 },
-            { col: -1, row: 0 },
-            { col: 1, row: 0 },
-          ]
-        : [
-            { col: 0, row: 1 },
-            { col: 0, row: -1 },
-            { col: -1, row: 0 },
-            { col: 1, row: 0 },
-          ];
+    const directions = [
+      { col: 0, row: 1 },
+      { col: 0, row: -1 },
+      { col: -1, row: 0 },
+      { col: 1, row: 0 },
+    ];
     for (const direction of directions) {
       const destination = this.panelSystem.resolveMovement(
         enemy.grid,
@@ -575,7 +798,10 @@ export class GameWorld {
 
   private canEnemyOccupy(enemy: Enemy, position: GridPosition): boolean {
     const panel = this.panelSystem.get(position);
-    if (!panel || panel.owner !== "enemy") return false;
+    const territoryAllowed =
+      panel?.owner === "enemy" ||
+      (enemy.isBoss && panel?.owner === "player" && position.col >= 2);
+    if (!panel || !territoryAllowed) return false;
     if (!enemy.movement || enemy.movement !== "flying") {
       if (panel.terrain === "hole") return false;
     }
@@ -600,8 +826,11 @@ export class GameWorld {
     targets: GridPosition[]
   ): void {
     if (!action) return;
-    const origin = { ...enemy.grid };
-    if (action.id === "bulwark-lane-cannon") {
+
+    if (
+      action.id === "bulwark-lane-cannon" ||
+      action.id === "bastion-lane-cannon"
+    ) {
       this.spawnEnemyProjectile(enemy, action, {
         motion: "straight",
         direction: { col: -1, row: 0 },
@@ -609,11 +838,32 @@ export class GameWorld {
       });
       return;
     }
-    if (action.id === "bulwark-shield-bash" || action.id === "razor-dash-cut") {
+    if (
+      action.id === "bulwark-shield-bash" ||
+      action.id === "bastion-shield-bash" ||
+      action.id === "razor-dash-cut" ||
+      action.id === "arbiter-close-cut"
+    ) {
       this.resolveEnemyMelee(enemy, action, "adjacent");
       return;
     }
-    if (action.id === "razor-cross-slash") {
+    if (
+      action.id === "razor-cross-slash" ||
+      action.id === "prism-cross-cut"
+    ) {
+      this.resolveEnemyMelee(enemy, action, "cross");
+      return;
+    }
+    if (action.id === "prism-teleport-cut") {
+      this.teleportEnemyNearPlayer(enemy);
+      this.resolveEnemyMelee(enemy, action, "adjacent");
+      return;
+    }
+    if (action.id === "prism-front-cut") {
+      this.resolveEnemyMelee(enemy, action, "adjacent");
+      return;
+    }
+    if (action.id === "prism-triple-cut") {
       this.resolveEnemyMelee(enemy, action, "cross");
       return;
     }
@@ -665,8 +915,8 @@ export class GameWorld {
       this.placeFieldObject(
         "mine",
         panel,
-        35,
-        5000,
+        action.objectHp ?? 35,
+        action.objectLifetimeMs ?? 5000,
         "enemy-contact",
         {
           owner: "enemy",
@@ -701,9 +951,434 @@ export class GameWorld {
         target: { ...this.playerGrid },
         speedCellsPerSecond: 9,
       });
+      return;
+    }
+
+    if (
+      action.id === "wave-runner-water-wave" ||
+      action.id === "wave-runner-frost-surge"
+    ) {
+      this.applyEnemyActionTerrain(action, targets);
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: "wave",
+        direction: { col: -1, row: 0 },
+        target: { col: 0, row: this.playerGrid.row },
+        rowSpan: true,
+        stopOnObject: false,
+      });
+      return;
+    }
+    if (
+      action.id === "boomer-arc-outbound" ||
+      action.id === "boomer-arc-return" ||
+      action.id === "arbiter-orbit-mine"
+    ) {
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: "orbit",
+        position: { col: 5, row: 0 },
+        direction: { col: -1, row: 0 },
+        target: null,
+        continuesAfterHit: true,
+        stopOnObject: false,
+        expiresAt: now + 4200,
+        speedCellsPerSecond: 8,
+      });
+      return;
+    }
+    if (action.id === "hopper-jump-land") {
+      const landing = this.findHopperLanding();
+      enemy.grid = landing;
+      this.syncBoardOccupancy();
+      this.applyEnemyAreaDamage(enemy, landing, action.damage, 1, true);
+      return;
+    }
+    if (action.id === "hopper-bomb-drop") {
+      const panel = this.findEnemyObjectPlacement(enemy);
+      this.placeFieldObject(
+        "bomb",
+        panel,
+        action.objectHp ?? 50,
+        action.objectLifetimeMs ?? 2000,
+        "timer",
+        {
+          owner: "enemy",
+          effectId: "enemy-bomb",
+          damage: action.damage,
+          sourceId: enemy.id,
+          collision: "passable",
+          pushable: false,
+        }
+      );
+      this.message = enemy.name + " — 爆弾を投下";
+      return;
+    }
+    if (action.id === "gaia-hammer-strike") {
+      this.resolveEnemyMelee(enemy, action, "adjacent");
+      return;
+    }
+    if (action.id === "gaia-earthquake") {
+      const center = targets[0] ?? this.playerGrid;
+      this.applyEnemyActionTerrain(action, this.areaAround(center));
+      this.applyEnemyAreaDamage(enemy, center, action.damage, 1, false);
+      return;
+    }
+
+    if (
+      action.pattern === "weather-core" ||
+      action.pattern === "climate-engine"
+    ) {
+      this.applyEnemyActionTerrain(action, targets);
+      const count = Math.max(1, action.projectileCount ?? 1);
+      for (let index = 0; index < count; index += 1) {
+        const delay = index * (action.projectileIntervalMs ?? 0);
+        if (action.motion === "wave") {
+          this.spawnEnemyProjectile(
+            enemy,
+            action,
+            {
+              motion: "wave",
+              direction: { col: -1, row: 0 },
+              target: { col: 0, row: this.playerGrid.row },
+              rowSpan: true,
+              stopOnObject: false,
+            },
+            delay
+          );
+        } else if (action.motion === "thrown") {
+          this.spawnEnemyProjectile(
+            enemy,
+            action,
+            {
+              motion: "thrown",
+              target: { col: this.playerGrid.col, row: this.playerGrid.row },
+              rowSpan: true,
+              flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+            },
+            delay
+          );
+        } else if (action.motion === "homing") {
+          this.spawnEnemyProjectile(
+            enemy,
+            action,
+            {
+              motion: "homing",
+              target: { ...this.playerGrid },
+              speedCellsPerSecond: 8,
+            },
+            delay
+          );
+        } else {
+          this.spawnEnemyProjectile(
+            enemy,
+            action,
+            {
+              motion: "straight",
+              direction: { col: -1, row: 0 },
+              target: { col: 0, row: this.playerGrid.row },
+            },
+            delay
+          );
+        }
+      }
+      return;
+    }
+
+    if (action.id === "support-relay-heal" || action.id === "support-relay-barrier") {
+      this.applyEnemySupport(enemy, action);
+      return;
+    }
+    if (action.id === "support-relay-shot") {
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: "straight",
+        direction: { col: -1, row: 0 },
+        target: { col: 0, row: this.playerGrid.row },
+      });
+      return;
+    }
+    if (action.id === "mirror-reflect-stance") {
+      enemy.defense = "reflect";
+      this.message = enemy.name + " — 反射姿勢";
+      return;
+    }
+    if (action.id === "mirror-mimic-shot") {
+      const mimicDamage = this.lastAttackCard
+        ? Math.max(action.damage, Math.round(this.lastAttackCard.power / 2))
+        : action.damage;
+      this.spawnEnemyProjectile(enemy, action, {
+        damage: mimicDamage,
+        motion: "straight",
+        direction: { col: -1, row: 0 },
+        target: { col: 0, row: this.playerGrid.row },
+      });
+      return;
+    }
+
+    if (action.id === "bastion-obstacle-deploy") {
+      this.placeFieldObject(
+        action.objectKind ?? "cube",
+        this.findEnemyObjectPlacement(enemy),
+        action.objectHp ?? 100,
+        action.objectLifetimeMs ?? null,
+        "damage",
+        {
+          owner: "enemy",
+          sourceId: enemy.id,
+          collision: "solid",
+          pushable: false,
+        }
+      );
+      this.message = enemy.name + " — 障害物を展開";
+      return;
+    }
+    if (action.id === "bastion-territory-siege") {
+      this.stealPlayerFront();
+      return;
+    }
+    if (action.id === "bastion-open-barrage") {
+      for (let index = 0; index < (action.projectileCount ?? 3); index += 1) {
+        this.spawnEnemyProjectile(
+          enemy,
+          action,
+          {
+            motion: "straight",
+            direction: { col: -1, row: 0 },
+            target: { col: 0, row: this.playerGrid.row },
+          },
+          index * (action.projectileIntervalMs ?? 150)
+        );
+      }
+      return;
+    }
+
+    if (action.id === "arbiter-tracking-shot") {
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: "homing",
+        target: { ...this.playerGrid },
+        speedCellsPerSecond: 8,
+      });
+      return;
+    }
+    if (action.id === "arbiter-stake-field") {
+      this.placeFieldObject(
+        action.objectKind ?? "mine",
+        this.findEnemyObjectPlacement(enemy),
+        action.objectHp ?? 40,
+        action.objectLifetimeMs ?? 4500,
+        "enemy-contact",
+        {
+          owner: "enemy",
+          effectId: "enemy-mine",
+          damage: action.damage,
+          sourceId: enemy.id,
+          collision: "passable",
+          pushable: false,
+        }
+      );
+      this.message = enemy.name + " — 拘束フィールドを設置";
+      return;
+    }
+    if (action.id === "arbiter-territory-take") {
+      this.stealPlayerFront();
+      return;
+    }
+
+    if (action.kind === "projectile") {
+      this.spawnEnemyProjectile(enemy, action, {
+        motion: action.motion ?? "straight",
+        target: { ...this.playerGrid },
+      });
     }
   }
 
+  private findEnemyObjectPlacement(enemy: Enemy): GridPosition {
+    const candidates = [
+      { col: Math.max(3, enemy.grid.col - 1), row: enemy.grid.row },
+      { col: enemy.grid.col, row: Math.max(0, enemy.grid.row - 1) },
+      { col: enemy.grid.col, row: Math.min(2, enemy.grid.row + 1) },
+      { col: 3, row: this.playerGrid.row },
+      ...this.panelSystem.snapshot().map(panel => ({
+        col: panel.col,
+        row: panel.row,
+      })),
+    ];
+    return (
+      candidates.find(position => {
+        const panel = this.panelSystem.get(position);
+        return (
+          panel?.owner === "enemy" &&
+          panel.occupantId === null &&
+          panel.objectId === null &&
+          panel.terrain !== "hole"
+        );
+      }) ?? { col: 3, row: this.playerGrid.row }
+    );
+  }
+
+  private findHopperLanding(): GridPosition {
+    const candidates = [
+      { col: Math.min(5, Math.max(3, this.playerGrid.col + 1)), row: this.playerGrid.row },
+      { col: 3, row: this.playerGrid.row },
+      { col: 4, row: Math.max(0, this.playerGrid.row - 1) },
+      { col: 4, row: Math.min(2, this.playerGrid.row + 1) },
+      { col: 5, row: this.playerGrid.row },
+    ];
+    return (
+      candidates.find(position => {
+        const panel = this.panelSystem.get(position);
+        return (
+          panel?.owner === "enemy" &&
+          panel.occupantId === null &&
+          panel.objectId === null &&
+          panel.terrain !== "hole"
+        );
+      }) ?? { col: 3, row: this.playerGrid.row }
+    );
+  }
+
+  private applyEnemyActionTerrain(
+    action: EnemyActionDefinition,
+    targets: GridPosition[]
+  ): void {
+    const terrain = action.panelTerrain;
+    if (!terrain) return;
+    const terrainTargets =
+      action.target === "all-rows"
+        ? [0, 1, 2, 3, 4, 5].flatMap(col =>
+            [0, 1, 2].map(row => ({ col, row }))
+          )
+        : targets;
+    terrainTargets.forEach(position => {
+      if (!this.panelSystem.isInside(position)) return;
+      if (terrain === "cracked")
+        this.panelSystem.crack(position);
+      else
+        this.panelSystem.setTerrain(position, terrain, this.gameTimeMs, 3200);
+    });
+  }
+
+  private applyEnemyAreaDamage(
+    enemy: Enemy,
+    center: GridPosition,
+    damage: number,
+    radius: number,
+    crack: boolean
+  ): void {
+    const area = this.areaAround(center, radius);
+    if (crack) area.forEach(position => this.panelSystem.crack(position));
+    if (area.some(position => sameTile(position, this.playerGrid)))
+      this.applyPlayerHit(damage, enemy.id);
+    this.onEvent({
+      type: "impact",
+      at: { ...center },
+      side: "enemy",
+      enemyId: enemy.id,
+      damage,
+    });
+  }
+
+  private applyEnemySupport(
+    enemy: Enemy,
+    action: EnemyActionDefinition
+  ): void {
+    const target =
+      this.enemies
+        .filter(candidate => candidate.state !== "deleted" && candidate.id !== enemy.id)
+        .sort((a, b) =>
+          Number(b.isBoss) - Number(a.isBoss) ||
+          (Math.abs(a.grid.col - enemy.grid.col) + Math.abs(a.grid.row - enemy.grid.row)) -
+          (Math.abs(b.grid.col - enemy.grid.col) + Math.abs(b.grid.row - enemy.grid.row))
+        )[0] ?? enemy;
+    const amount = action.supportAmount ?? 0;
+    if (action.supportEffect === "heal")
+      target.hp = Math.min(target.maxHp, target.hp + amount);
+    if (action.supportEffect === "barrier")
+      target.barrier = Math.min(220, target.barrier + amount);
+    this.onEvent({
+      type: "impact",
+      at: { ...target.grid },
+      side: "enemy",
+      enemyId: target.id,
+      damage: 0,
+    });
+    this.message = enemy.name + " — " + action.name;
+  }
+
+  private stealPlayerFront(): void {
+    [0, 1, 2].forEach(row =>
+      this.panelSystem.setOwner(
+        { col: 2, row },
+        "enemy",
+        this.gameTimeMs,
+        TERRITORY_EXPANSION_DURATION_MS
+      )
+    );
+    this.ensurePlayerEscapeRoute();
+    this.returnPlayerToSafeTerritory();
+    this.message = "敵の区画奪取 — 退避経路を確保";
+  }
+
+  private ensurePlayerEscapeRoute(): void {
+    const candidates = [
+      { col: this.playerGrid.col - 1, row: this.playerGrid.row },
+      { col: this.playerGrid.col + 1, row: this.playerGrid.row },
+      { col: this.playerGrid.col, row: this.playerGrid.row - 1 },
+      { col: this.playerGrid.col, row: this.playerGrid.row + 1 },
+    ];
+    const safe = candidates.some(position => {
+      const panel = this.panelSystem.get(position);
+      return (
+        panel?.owner === "player" &&
+        panel.terrain !== "hole" &&
+        panel.objectId === null &&
+        !this.enemies.some(
+          enemy => enemy.state !== "deleted" && sameTile(enemy.grid, position)
+        )
+      );
+    });
+    if (safe) return;
+    const fallback = { col: 1, row: this.playerGrid.row };
+    const object = this.objectSystem.getAt(fallback);
+    if (object) this.removeFieldObject(object.id);
+    this.panelSystem.detachObject(fallback);
+    this.panelSystem.setOwner(fallback, "player", this.gameTimeMs, null);
+    this.panelSystem.setTerrain(fallback, "normal", this.gameTimeMs);
+  }
+
+  private teleportEnemyNearPlayer(enemy: Enemy): void {
+    const candidates = [
+      { col: 3, row: this.playerGrid.row },
+      { col: 4, row: this.playerGrid.row },
+      { col: 3, row: Math.max(0, this.playerGrid.row - 1) },
+      { col: 3, row: Math.min(2, this.playerGrid.row + 1) },
+    ];
+    const target = candidates.find(
+      position =>
+        !sameTile(position, enemy.grid) && this.canEnemyOccupy(enemy, position)
+    );
+    if (target) {
+      enemy.grid = target;
+      this.syncBoardOccupancy();
+    }
+  }
+
+  private reflectPlayerProjectile(
+    enemy: Enemy,
+    projectile: ProjectileState
+  ): void {
+    this.spawnProjectile({
+      owner: "enemy",
+      motion: "straight",
+      position: { ...enemy.grid },
+      direction: { col: -1, row: 0 },
+      target: { col: 0, row: projectile.position.row },
+      damage: Math.max(1, Math.ceil(projectile.damage / 2)),
+      sourceId: enemy.id,
+      sourceActionId: "mirror-reflect-stance",
+      speedCellsPerSecond: COMBAT_BALANCE.projectile.defaultSpeedCellsPerSecond,
+    });
+    enemy.lastMirrorCardId = projectile.sourceCardId;
+    this.message = enemy.name + " — 射撃を反射";
+  }
   private spawnEnemyProjectile(
     enemy: Enemy,
     action: EnemyActionDefinition,
@@ -718,6 +1393,7 @@ export class GameWorld {
       damage: action.damage,
       sourceId: enemy.id,
       sourceActionId: action.id,
+      continuesAfterHit: action.continuesAfterHit,
       activeAt: this.gameTimeMs + delayMs,
       ...options,
     });
@@ -735,7 +1411,10 @@ export class GameWorld {
       mode === "cross"
         ? columnDistance <= 1 && rowDistance <= 1
         : columnDistance <= 1 && rowDistance === 0;
-    if (hits) this.applyPlayerHit(action.damage, enemy.id);
+    if (!hits) return;
+    const hitCount = Math.max(1, action.hitCount ?? 1);
+    for (let index = 0; index < hitCount; index += 1)
+      this.applyPlayerHit(action.damage, enemy.id, "direct", index > 0);
   }
 
   private findEnemyMinePlacement(): GridPosition {
@@ -1001,6 +1680,7 @@ export class GameWorld {
       return;
     const card = this.queue.shift();
     if (!card) return;
+    if (card.power > 0) this.lastAttackCard = { ...card };
     const usedSync = this.sync;
     const rageReady = this.emotionSystem.snapshot(this.gameTimeMs).rageReady;
     const swordBonus = card.properties?.includes("剣")
@@ -1807,12 +2487,34 @@ export class GameWorld {
       targetIds
         .map(id => this.enemies.find(enemy => enemy.id === id))
         .filter((enemy): enemy is Enemy => Boolean(enemy))
-        .forEach(enemy =>
-          this.strikeEnemy(enemy, projectile.damage, card, projectile.charged)
-        );
+        .forEach(enemy => {
+          const frontalShot =
+            projectile.motion === "straight" &&
+            projectile.direction.col > 0 &&
+            projectile.direction.row === 0;
+          const shouldReflect =
+            enemy.definitionId === "mirror-node" &&
+            enemy.defense === "reflect" &&
+            frontalShot &&
+            !card?.properties?.includes("破砕") &&
+            ["idle", "startup", "counter-window"].includes(enemy.actionPhase);
+          if (shouldReflect) {
+            this.reflectPlayerProjectile(enemy, projectile);
+            return;
+          }
+          this.strikeEnemy(enemy, projectile.damage, card, projectile.charged);
+        });
       return;
     }
     if (targetIds.includes("player")) {
+      const sourceEnemy = projectile.sourceId
+        ? this.enemies.find(enemy => enemy.id === projectile.sourceId)
+        : undefined;
+      const action = sourceEnemy
+        ? getEnemyDefinition(sourceEnemy.definitionId)?.actions.find(
+            candidate => candidate.id === projectile.sourceActionId
+          )
+        : undefined;
       this.applyPlayerHit(projectile.damage, projectile.sourceId ?? undefined);
       if (projectile.sourceActionId === "scanner-signal-lock") {
         this.playerBlindUntil = Math.max(this.playerBlindUntil, this.gameTimeMs + 900);
@@ -1821,6 +2523,20 @@ export class GameWorld {
       if (projectile.sourceActionId === "sentinel-chain-bolt") {
         this.playerStunnedUntil = Math.max(this.playerStunnedUntil, this.gameTimeMs + 500);
         this.message = "連鎖電撃 — 麻痺";
+      }
+      if (action?.status === "stun") {
+        this.playerStunnedUntil = Math.max(
+          this.playerStunnedUntil,
+          this.gameTimeMs + (action.statusDurationMs ?? 0)
+        );
+        this.message = action.name + " — 麻痺";
+      }
+      if (action?.status === "root") {
+        this.playerControlLockedUntil = Math.max(
+          this.playerControlLockedUntil,
+          this.gameTimeMs + (action.statusDurationMs ?? 0)
+        );
+        this.message = action.name + " — 拘束";
       }
     }
   }
@@ -1882,7 +2598,8 @@ export class GameWorld {
   private applyPlayerHit(
     damage: number,
     enemyId?: string,
-    source: "direct" | "terrain" = "direct"
+    source: "direct" | "terrain" = "direct",
+    ignoreDamageInvulnerability = false
   ): void {
     const now = this.gameTimeMs;
     const terrainDamage = source === "terrain";
@@ -1948,7 +2665,8 @@ export class GameWorld {
         });
         return;
       }
-      if (now < this.playerDamageInvulnerableUntil) return;
+      if (!ignoreDamageInvulnerability && now < this.playerDamageInvulnerableUntil)
+        return;
     }
 
     let incoming = Math.max(0, damage);
@@ -2042,6 +2760,16 @@ export class GameWorld {
           object.sourceCardId
         )
       );
+    expiring
+      .filter(object => object.effectId === "enemy-bomb")
+      .forEach(object => {
+        this.triggerEnemyObjectExplosion(
+          object.panel,
+          object.damage ?? 26,
+          object.sourceId
+        );
+        this.removeFieldObject(object.id);
+      });
 
     for (const object of this.objectSystem.snapshot()) {
       if (object.expiresAt !== null && now >= object.expiresAt) continue;
@@ -2166,6 +2894,25 @@ export class GameWorld {
       damage,
     });
   }
+  private triggerEnemyObjectExplosion(
+    panel: GridPosition,
+    damage: number,
+    enemyId?: string
+  ): void {
+    const area = this.areaAround(panel, 1);
+    if (area.some(position => sameTile(position, this.playerGrid)))
+      this.applyPlayerHit(damage, enemyId);
+    area.forEach(position => this.panelSystem.crack(position));
+    this.onEvent({
+      type: "impact",
+      at: { ...panel },
+      side: "enemy",
+      enemyId,
+      damage,
+    });
+    this.message = "敵の爆弾が起爆";
+  }
+
   private removeFieldObject(id: string): void {
     const object = this.objectSystem.remove(id);
     if (!object) return;
@@ -2217,7 +2964,7 @@ export class GameWorld {
     const element = elementOverride ?? card?.element ?? "none";
     const multiplier = getElementalMultiplier(
       element,
-      enemy.element ?? "none",
+      enemy.weaknessElement ?? enemy.element ?? "none",
       panel?.terrain ?? "normal"
     );
     const elementalDamage = Math.max(0, Math.round(damage * multiplier));
@@ -2764,8 +3511,9 @@ export class GameWorld {
   private enemyBlocksDamage(enemy: Enemy, card: Card | undefined): boolean {
     if (enemy.state === "deleted") return true;
     if (card?.properties?.includes("破砕")) return false;
+
     if (enemy.defense === "guard") {
-      // Keep the low-power basic shot useful while the guard blocks card attacks.
+      // Keep the low-power basic shot useful while a guard blocks card attacks.
       if (!card) return false;
       return ![
         "counter-window",
@@ -2775,6 +3523,23 @@ export class GameWorld {
         "deleted",
       ].includes(enemy.actionPhase);
     }
+
+    if (enemy.defense === "armor") {
+      const hammerOpen =
+        enemy.actionId === "gaia-hammer-strike" &&
+        ["counter-window", "active", "recovery"].includes(enemy.actionPhase);
+      return !hammerOpen;
+    }
+
+    if (
+      enemy.definitionId === "hopper-bomb" &&
+      enemy.actionId === "hopper-jump-land" &&
+      ["startup", "counter-window", "active"].includes(enemy.actionPhase) &&
+      !card?.properties?.includes("看破")
+    ) {
+      return !card || Boolean(card.properties?.includes("射撃"));
+    }
+
     return false;
   }
 
@@ -2788,7 +3553,10 @@ export class GameWorld {
   ): void {
     if (enemy.state === "deleted") return;
     if (this.enemyBlocksDamage(enemy, card)) {
-      this.message = enemy.name + " — 正面ガード";
+      this.message =
+        enemy.defense === "armor"
+          ? enemy.name + " — 装甲が攻撃を弾く"
+          : enemy.name + " — 正面ガード";
       this.onEvent({
         type: "impact",
         at: { ...enemy.grid },
@@ -2800,9 +3568,23 @@ export class GameWorld {
       });
       return;
     }
+
     const markedDamage = this.consumeOutputMark(damage, card);
-    const resolvedDamage = this.resolveCardDamage(enemy, markedDamage, card, elementOverride);
-    enemy.hp = Math.max(0, enemy.hp - resolvedDamage);
+    const resolvedDamage = this.resolveCardDamage(
+      enemy,
+      markedDamage,
+      card,
+      elementOverride
+    );
+    const barrierBefore = enemy.barrier;
+    const absorbed = Math.min(barrierBefore, resolvedDamage);
+    enemy.barrier = Math.max(0, barrierBefore - absorbed);
+    const actualDamage = Math.max(0, resolvedDamage - absorbed);
+    enemy.hp = Math.max(0, enemy.hp - actualDamage);
+    if (absorbed > 0 && actualDamage === 0)
+      this.message = enemy.name + " — 障壁防御";
+
+    this.refreshEnemyPhase(enemy);
     const counter = Boolean(
       card &&
         card.power > 0 &&
@@ -2819,7 +3601,11 @@ export class GameWorld {
       this.sync = this.emotionSystem.counterSuccess();
       this.counters += 1;
       this.score += 150;
-      this.message = this.sync ? "カードカウンター — フルシンクロ" : "カードカウンター — 激昂を維持";
+      if (enemy.definitionId === "core-arbiter")
+        enemy.actionIndex += 1;
+      this.message = this.sync
+        ? "カードカウンター — フルシンクロ"
+        : "カードカウンター — 激昂を維持";
       this.onEvent({ type: "counter", at: { ...enemy.grid } });
     }
     this.onEvent({
@@ -2828,7 +3614,7 @@ export class GameWorld {
       side: "player",
       enemyId: enemy.id,
       cardId: card?.id,
-      damage: resolvedDamage,
+      damage: actualDamage,
       status: card?.status,
       charged,
       counter,
@@ -2844,13 +3630,15 @@ export class GameWorld {
           Math.abs(candidate.grid.row - enemy.grid.row) <= 1
         )
         .sort((a, b) =>
-          Math.abs(a.grid.col - enemy.grid.col) + Math.abs(a.grid.row - enemy.grid.row) -
-          (Math.abs(b.grid.col - enemy.grid.col) + Math.abs(b.grid.row - enemy.grid.row))
+          Math.abs(a.grid.col - enemy.grid.col) +
+            Math.abs(a.grid.row - enemy.grid.row) -
+          (Math.abs(b.grid.col - enemy.grid.col) +
+            Math.abs(b.grid.row - enemy.grid.row))
         )[0];
       if (chained)
         this.strikeEnemy(
           chained,
-          Math.max(1, Math.round(resolvedDamage / 2)),
+          Math.max(1, Math.round(actualDamage / 2)),
           card,
           charged,
           1,
@@ -2861,9 +3649,9 @@ export class GameWorld {
       this.clearWarnings(enemy);
       enemy.state = "deleted";
       enemy.actionPhase = "deleted";
-      this.score += 100 + this.wave * 25;
+      this.score += enemy.isBoss ? 600 + this.wave * 50 : 100 + this.wave * 25;
       this.onEvent({ type: "deleted", id: enemy.id, at: { ...enemy.grid } });
-      this.message = `${enemy.name} を停止`;
+      this.message = enemy.name + " を停止";
     }
   }
 
@@ -2899,6 +3687,7 @@ export class GameWorld {
     this.projectileSystem.reset();
     this.pendingMelee = [];
     this.pendingChainEffects = [];
+    this.lastAttackCard = null;
     this.dreamAuraUntil = 0;
     this.overdrivePrompt = null;
     this.playerStunnedUntil = 0;
@@ -3127,6 +3916,7 @@ export class GameWorld {
     this.hitstopRemainingMs = 0;
     this.projectileSystem.reset();
     this.pendingMelee = [];
+    this.lastAttackCard = null;
     this.queue = [];
     this.selected = [];
     this.focusedCard = null;
@@ -3242,18 +4032,20 @@ export class GameWorld {
   }
   private makeEnemies(wave: number): Enemy[] {
     const now = this.gameTimeMs;
-    const scale = 1 + (wave - 1) * 0.18;
-    const factory = (id: EnemyId, grid: GridPosition): Enemy => {
-      const definition = ENEMY_DEFINITIONS[id];
+    const scale = wave === FINAL_WAVE ? 1 : 1 + (wave - 1) * 0.18;
+    const factory = (spawn: EncounterSpawn): Enemy => {
+      const definition = getEnemyDefinition(spawn.enemyId);
+      if (!definition) throw new Error("未知の敵編成です");
       const firstAction = definition.actions[0];
       if (!firstAction) throw new Error("敵の行動定義がありません");
+      const firstPhase = definition.phases?.[0];
       return {
         id: definition.id,
         name: definition.name,
         pattern: firstAction.pattern,
         hp: Math.round(definition.maxHp * scale),
         maxHp: Math.round(definition.maxHp * scale),
-        grid: { ...grid },
+        grid: { ...spawn.grid },
         state: "idle",
         counterWindow: false,
         element: definition.element,
@@ -3265,8 +4057,19 @@ export class GameWorld {
         activeUntil: 0,
         warningAt: 0,
         warningShown: false,
-        defense: definition.defense,
-        movement: definition.movement,
+        defense: firstPhase?.defense ?? definition.defense,
+        movement: firstPhase?.movement ?? definition.movement,
+        isBoss: definition.rank === "boss",
+        bossPhase: firstPhase?.phase ?? 0,
+        bossPhaseLabel: firstPhase?.label ?? null,
+        weaknessElement:
+          firstPhase?.weaknessElement ??
+          definition.weakness ??
+          definition.element,
+        barrier: 0,
+        baseDefense: definition.defense,
+        baseMovement: definition.movement,
+        lastMirrorCardId: null,
         windupUntil: 0,
         recoverUntil: 0,
         stunnedUntil: 0,
@@ -3288,31 +4091,41 @@ export class GameWorld {
         nextTerrainDamageAt: 0,
       };
     };
-    const layouts: (() => Array<{ id: EnemyId; grid: GridPosition }>)[] = [
-      () => [
-        { id: "bulwark", grid: { col: 4, row: 1 } },
-        { id: "scanner", grid: { col: 5, row: 0 } },
-      ],
-      () => [
-        { id: "razor", grid: { col: 4, row: 0 } },
-        { id: "mortar", grid: { col: 5, row: 1 } },
-        { id: "scanner", grid: { col: 3, row: 2 } },
-      ],
-      () => [
-        { id: "bulwark", grid: { col: 4, row: 1 } },
-        { id: "razor", grid: { col: 3, row: 0 } },
-        { id: "sentinel", grid: { col: 5, row: 2 } },
-      ],
-      () => [
-        { id: "mortar", grid: { col: 5, row: 0 } },
-        { id: "sentinel", grid: { col: 4, row: 2 } },
-        { id: "bulwark", grid: { col: 3, row: 1 } },
-        { id: "razor", grid: { col: 5, row: 2 } },
-      ],
-    ];
-    return layouts[Math.min(wave - 1, layouts.length - 1)]().map(
-      spawn => factory(spawn.id, spawn.grid)
+
+    if (wave < FINAL_WAVE) {
+      const encounterWave = Math.min(3, Math.max(1, wave)) as 1 | 2 | 3;
+      const templates = getEncounterTemplates(encounterWave);
+      const template =
+        templates[(wave - 1) % templates.length] ?? templates[0];
+      if (!template || !encounterHasSafeStart(template.spawns))
+        throw new Error("安全な敵編成がありません");
+      return template.spawns.map(factory);
+    }
+
+    const availableBosses = BOSS_ENEMY_IDS.filter(
+      id => !this.bossHistory.slice(-2).includes(id)
     );
+    const bossPool = availableBosses.length > 0 ? availableBosses : BOSS_ENEMY_IDS;
+    const selectedBoss =
+      new Random(0xb055 + this.wave * 97 + this.bossHistory.length).pick(
+        bossPool
+      ) ?? BOSS_ENEMY_IDS[0];
+    this.bossHistory = [...this.bossHistory, selectedBoss].slice(-2);
+    saveBossHistory(this.bossHistory);
+
+    const bossSpawn: EncounterSpawn = {
+      enemyId: selectedBoss,
+      grid: { col: 4, row: 1 },
+    };
+    const spawns: EncounterSpawn[] = [bossSpawn];
+    if (
+      (selectedBoss === "bastion-prime" ||
+        selectedBoss === "climate-engine") &&
+      !spawns.some(spawn => sameTile(spawn.grid, BOSS_SUPPORT_SPAWN.grid)) &&
+      encounterHasSafeStart([...spawns, BOSS_SUPPORT_SPAWN])
+    )
+      spawns.push({ ...BOSS_SUPPORT_SPAWN, grid: { ...BOSS_SUPPORT_SPAWN.grid } });
+    return spawns.map(factory);
   }
   private notify(): void {
     const now = this.gameTimeMs;
@@ -3365,9 +4178,22 @@ export class GameWorld {
           activeUntil: _activeUntil,
           warningAt: _warningAt,
           warningShown: _warningShown,
+          isBoss: _isBoss,
+          bossPhase: _bossPhase,
+          bossPhaseLabel: _bossPhaseLabel,
+          weaknessElement: _weaknessElement,
+          barrier: _enemyBarrier,
+          baseDefense: _baseDefense,
+          baseMovement: _baseMovement,
+          lastMirrorCardId: _lastMirrorCardId,
           ...enemy
         }) => ({
           ...enemy,
+          boss: _isBoss,
+          bossPhase: _bossPhase,
+          bossPhaseLabel: _bossPhaseLabel,
+          weakness: _weaknessElement,
+          barrier: _enemyBarrier,
           grid: { ...enemy.grid },
           counterWindow:
             this.sync &&

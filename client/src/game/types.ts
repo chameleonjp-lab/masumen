@@ -10,8 +10,19 @@ export type EnemyActionPhase =
   | "recovery"
   | "stunned"
   | "deleted";
-export type EnemyMovementMode = "ground" | "flying" | "stationary" | "pursuit";
-export type EnemyDefenseMode = "none" | "guard" | "airborne";
+export type EnemyMovementMode =
+  | "ground"
+  | "flying"
+  | "stationary"
+  | "pursuit"
+  | "row-align"
+  | "outer";
+export type EnemyDefenseMode =
+  | "none"
+  | "guard"
+  | "airborne"
+  | "armor"
+  | "reflect";
 export type EmotionState =
   | "normal"
   | "synchronized"
@@ -135,6 +146,7 @@ export type FieldObjectEffect =
   | "gravity-field"
   | "decoy"
   | "enemy-mine"
+  | "enemy-bomb"
   | null;
 export interface FieldObject {
   id: string;
@@ -163,6 +175,7 @@ export interface ProjectileState {
   damage: number;
   sourceId: string | null;
   sourceActionId?: string | null;
+  continuesAfterHit?: boolean;
   sourceCardId: string | null;
   charged: boolean;
   activeAt: number;
@@ -225,6 +238,11 @@ export interface EnemySnapshot {
   counterWindowRemaining?: number;
   defense?: EnemyDefenseMode;
   movement?: EnemyMovementMode;
+  boss?: boolean;
+  bossPhase?: number;
+  bossPhaseLabel?: string | null;
+  weakness?: CardElement;
+  barrier?: number;
 }
 export interface BattleSnapshot {
   mode: BattleMode;
