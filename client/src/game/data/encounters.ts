@@ -160,5 +160,7 @@ export function getEncounterTemplates(
 }
 
 export function allEncounterTemplates(): readonly EncounterTemplate[] {
-  return (Object.values(WAVE_ENCOUNTERS) as readonly EncounterTemplate[][]).flat();
+  return (
+    Object.values(WAVE_ENCOUNTERS) as readonly (readonly EncounterTemplate[])[]
+  ).flat();
 }
