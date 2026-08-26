@@ -56,14 +56,21 @@ describe("GameWorldの現行Wave基準", () => {
       snapshots.flatMap(snapshot => snapshot.enemies.map(enemy => enemy.name))
     );
     expect(names).toEqual(
-      new Set([
+      expect.arrayContaining([
         "BULWARK-3",
         "SCANNER-8",
+        "BOOMER-ARC",
+        "HOPPER-BOMB",
+        "MIRROR-NODE",
         "RAZOR-6",
-        "MORTAR-NODE",
-        "VOLT-SENTINEL",
+        "SUPPORT-RELAY",
       ])
     );
+    expect(
+      ["BASTION PRIME", "PRISM HUNTER", "CLIMATE ENGINE", "CORE ARBITER"].some(
+        name => names.has(name)
+      )
+    ).toBe(true);
   });
 
   it("starts from five folder cards with stable instance identities", () => {
@@ -574,6 +581,41 @@ describe("GameWorldの現行Wave基準", () => {
     expect(bulwark.hp).toBe(before);
     internal.strikeEnemy(bulwark, 20, breaker, false);
     expect(bulwark.hp).toBeLessThan(before);
+  });
+
+  it("Wave4は履歴制限付きでボスを1体配置し段階情報を公開する", () => {
+    let latest: BattleSnapshot | undefined;
+    new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      () => undefined,
+      4
+    );
+    const bosses = latest?.enemies.filter(enemy => enemy.boss);
+    expect(bosses).toHaveLength(1);
+    expect(bosses?.[0]?.bossPhase).toBe(1);
+    expect(bosses?.[0]?.bossPhaseLabel).toBeTruthy();
+    expect(bosses?.[0]?.barrier).toBe(0);
+  });
+
+  it("Wave4のボス抽選は直近2体を繰り返さない", () => {
+    const selected: string[] = [];
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      let latest: BattleSnapshot | undefined;
+      new GameWorld(
+        snapshot => {
+          latest = snapshot;
+        },
+        () => undefined,
+        4
+      );
+      const boss = latest?.enemies.find(enemy => enemy.boss);
+      if (!boss) throw new Error("ボスが配置されていません");
+      selected.push(boss.id);
+    }
+    expect(selected[0]).not.toBe(selected[1]);
+    expect(selected[1]).not.toBe(selected[2]);
   });
 
 });
