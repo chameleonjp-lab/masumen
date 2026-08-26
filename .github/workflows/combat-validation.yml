@@ -3,8 +3,9 @@ name: Combat validation
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
-    branches: [main]
+    branches: [main, "work/**"]
 
 permissions:
   contents: read
