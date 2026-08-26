@@ -2181,7 +2181,6 @@ export class GameWorld {
       );
   }
 
-  private closestEmptyEnemyPanel(): GridPosition {
   private paintPlayerTerritory(durationMs: number): void {
     this.panelSystem
       .snapshot()
@@ -2196,6 +2195,7 @@ export class GameWorld {
       );
   }
 
+  private closestEmptyEnemyPanel(): GridPosition {
     const enemy = this.closestEnemy();
     const candidates = [
       enemy?.grid,
