@@ -28,6 +28,10 @@ export const PR8_CARD_IDS = [
   "rectify", "repair", "fastsync", "stamp", "reroute",
 ] as const;
 
+export const PR9_CARD_IDS = [
+  "meteor", "dream", "sanctuary", "overdrive",
+] as const;
+
 export const CARD_COMBAT_PROFILES: Readonly<Record<string, CardCombatProfile>> = {
   rapid: { element: "none", properties: ["射撃"], actionId: "rapid", powerPerHit: 12, hitCount: 3, rangePreviewId: "rapid-line" },
   lance: { element: "none", properties: ["射撃"], actionId: "lance", powerPerHit: 60, hitCount: 1, rangePreviewId: "piercing-line" },
@@ -75,6 +79,10 @@ export const CARD_COMBAT_PROFILES: Readonly<Record<string, CardCombatProfile>> =
   fastsync: { element: "none", properties: ["補助"], actionId: "fastsync", powerPerHit: 0, hitCount: 1, rangePreviewId: "self" },
   stamp: { element: "none", properties: ["補助"], actionId: "stamp", powerPerHit: 30, hitCount: 4, rangePreviewId: "linked-attack" },
   reroute: { element: "none", properties: ["補助"], actionId: "reroute", powerPerHit: 0, hitCount: 1, rangePreviewId: "self" },
+  meteor: { element: "none", properties: ["射撃", "地形"], actionId: "meteor", powerPerHit: 25, hitCount: 8, rangePreviewId: "meteor-field" },
+  dream: { element: "none", properties: ["補助"], actionId: "dream", powerPerHit: 0, hitCount: 1, rangePreviewId: "self" },
+  sanctuary: { element: "none", properties: ["地形", "回復"], actionId: "sanctuary", powerPerHit: 0, hitCount: 1, rangePreviewId: "self-territory" },
+  overdrive: { element: "none", properties: ["剣", "補助"], actionId: "overdrive", powerPerHit: 70, hitCount: 3, rangePreviewId: "overdrive-target" },
 };
 
 function inside(position: GridPosition): boolean {
@@ -110,6 +118,12 @@ function enemyField(origin: GridPosition): GridPosition[] {
 
 function enemyTerritory(): GridPosition[] {
   return [3, 4, 5].flatMap(col =>
+    [0, 1, 2].map(row => ({ col, row }))
+  );
+}
+
+function playerTerritory(): GridPosition[] {
+  return [0, 1, 2].flatMap(col =>
     [0, 1, 2].map(row => ({ col, row }))
   );
 }
@@ -216,6 +230,10 @@ export function cardPreviewTiles(card: Card | undefined, origin: GridPosition, e
   const action = getCardCombatProfile(card.id).actionId;
   if (action === "timer" || action === "stake" || action === "breakpillar" || action === "rush")
     return [pointTarget(origin, enemies)];
+  if (action === "meteor") return enemyTerritory();
+  if (action === "dream") return [{ ...origin }];
+  if (action === "sanctuary") return playerTerritory();
+  if (action === "overdrive") return [pointTarget(origin, enemies)];
   if (action === "watchmine") return enemyTerritory();
   if (action === "turret") return columnAt(2);
   if (action === "block") return [{ col: origin.col + 1, row: origin.row }].filter(inside);

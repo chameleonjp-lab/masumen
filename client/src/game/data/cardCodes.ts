@@ -67,6 +67,7 @@ export function getAllowedCodes(card: Card): ConnectionCode[] {
 
 export function getFolderCardClass(card: Card): FolderCardClass {
   if (card.isOverload) return "overload";
+  if (card.folderClass) return card.folderClass;
   if (card.id === "overdrive") return "trump";
   if (card.id === "moonblade") return "upper";
   if (card.tier === "mega") return "upper";

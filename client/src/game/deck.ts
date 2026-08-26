@@ -52,10 +52,51 @@ const standardCards: Card[] = [
 ];
 
 const megaCards: Card[] = [
-  { id: "meteor", name: "流星群", code: "R", tier: "mega", family: "高出力", target: "enemy-field", power: 96, status: "burn", durationMs: 1800, description: "全敵へ多段の流星攻撃" },
-  { id: "dream", name: "夢幻障壁", code: "S", tier: "mega", family: "高出力", target: "self", power: 0, status: "barrier", effectValue: 180, description: "大障壁と5秒間の無敵" },
-  { id: "sanctuary", name: "聖域展開", code: "H", tier: "mega", family: "高出力", target: "self", power: 0, status: "recover", effectValue: 110, description: "大回復と安全地帯" },
-  { id: "overdrive", name: "超過駆動", code: "O", tier: "mega", family: "高出力", target: "cross", power: 132, status: "stun", durationMs: 850, description: "高出力＋麻痺の切り札" },
+  {
+    id: "meteor",
+    name: "流星群",
+    code: "M",
+    tier: "mega",
+    folderClass: "upper",
+    family: "高出力",
+    target: "enemy-field",
+    power: 25,
+    description: "敵陣へ25ダメージの隕石を8発落とし、着弾地点を亀裂化",
+  },
+  {
+    id: "dream",
+    name: "夢幻障壁",
+    code: "M",
+    tier: "mega",
+    folderClass: "upper",
+    family: "高出力",
+    target: "self",
+    power: 0,
+    description: "8秒間、100未満の攻撃を無効化するオーラ",
+  },
+  {
+    id: "sanctuary",
+    name: "聖域展開",
+    code: "S",
+    tier: "mega",
+    folderClass: "upper",
+    family: "高出力",
+    target: "self",
+    power: 0,
+    description: "全自陣を10秒間聖域化し、HP50回復",
+  },
+  {
+    id: "overdrive",
+    name: "超過駆動",
+    code: "X",
+    tier: "mega",
+    folderClass: "trump",
+    family: "高出力",
+    target: "cross",
+    power: 70,
+    properties: ["剣", "補助"],
+    description: "最も近い敵へ接近し、3回の入力成功で各70ダメージ",
+  },
 ];
 
 export const CARD_CATALOG = [...standardCards, ...megaCards].map(enrichCard);

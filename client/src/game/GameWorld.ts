@@ -4,6 +4,11 @@ import { FixedStepClock } from "./core/FixedStepClock";
 import { Random } from "./core/Random";
 import { COMBAT_BALANCE } from "./data/balance";
 import { OVERLOAD_CARDS } from "./data/overloadCards";
+import {
+  createChainCard,
+  findChainTechnique,
+  CHAIN_TECHNIQUES,
+} from "./data/chainTechniques";
 import { cardPreviewTiles, getCardCombatProfile, getElementalMultiplier } from "./data/cardCombatData";
 import {
   activeFolder as getActiveFolder,
@@ -70,6 +75,7 @@ interface PendingMeleeStage {
   tiles: GridPosition[];
   damage: number;
   resolved: boolean;
+  card?: Card;
 }
 interface PendingMelee {
   card: Card;
@@ -82,6 +88,21 @@ interface PendingMelee {
 interface PendingRepair {
   readyAt: number;
   amount: number;
+}
+interface PendingChainEffect {
+  at: number;
+  kind: "place-bomb" | "tree-prison";
+  panel?: GridPosition;
+  enemyIds?: string[];
+  sourceCardId: string;
+  damage: number;
+}
+interface OverdrivePrompt {
+  enemyId: string | null;
+  target: GridPosition;
+  step: number;
+  expiresAt: number;
+  damageMultiplier: number;
 }
 interface FieldObjectOptions {
   effectId?: FieldObject["effectId"];
@@ -147,6 +168,10 @@ export class GameWorld {
   private readonly objectTriggerCount = new Map<string, number>();
   private objectSequence = 0;
   private pendingMelee: PendingMelee[] = [];
+  private pendingChainEffects: PendingChainEffect[] = [];
+  private dreamAuraUntil = 0;
+  private overdrivePrompt: OverdrivePrompt | null = null;
+  private usedChainTechniques: string[] = [];
   private gameTimeMs = 0;
   private hitstopRemainingMs = 0;
   private mode: BattleSnapshot["mode"] = "custom";
@@ -295,6 +320,8 @@ export class GameWorld {
     this.updateFieldObjects(now);
     this.updateTerrainEffects(now);
     this.updatePendingRepair(now);
+    this.updatePendingChainEffects(now);
+    this.updateOverdrivePrompt(now);
     this.updateMeleeAttacks(now);
     for (const enemy of this.enemies) {
       this.updateStatus(enemy, now);
@@ -524,6 +551,13 @@ export class GameWorld {
   }
   private fire(): void {
     const now = this.gameTimeMs;
+    if (this.mode === "battle" && !this.paused && this.overdrivePrompt) {
+      if (now <= this.overdrivePrompt.expiresAt) {
+        this.resolveOverdriveInput();
+        return;
+      }
+      this.overdrivePrompt = null;
+    }
     if (
       this.mode !== "battle" ||
       this.paused ||
@@ -682,16 +716,7 @@ export class GameWorld {
     const displayTiles =
       attackTiles.length > 0 ? attackTiles : resolution.tiles;
     this.onEvent({ type: "attack", charged: card.tier === "mega" });
-    this.onEvent({
-      type: "card",
-      cardId: card.id,
-      at: { ...(displayTiles[0] ?? this.playerGrid) },
-      tiles: displayTiles,
-      family: card.family,
-      tier: card.tier,
-      target: card.target,
-      status: card.status,
-    });
+    this.emitCardEvents(card, displayTiles);
     const hitstopDuration = card.tier === "mega" ? 105 : 55;
     this.hitstopRemainingMs = Math.max(
       this.hitstopRemainingMs,
@@ -703,7 +728,7 @@ export class GameWorld {
       tier: card.tier,
     });
     let consumedEmotion: "synchronized" | "enraged" | null = null;
-    if (card.power > 0) {
+    if (card.power > 0 && card.chainTechniqueId !== "full-repair") {
       consumedEmotion = this.emotionSystem.consumePower(usedSync);
       if (usedSync) this.sync = false;
     }
@@ -716,9 +741,12 @@ export class GameWorld {
     this.message = `${card.name} を送信${multiplierLabel}`;
     this.notify();
   }
+
   private dispatchCardAttack(card: Card, power: number): GridPosition[] {
     if (card.id === "overload-forced-repair" || card.id === "overload-collapse-field")
       return [];
+    if (card.chainTechniqueId)
+      return this.dispatchChainTechnique(card, power);
     if (card.power <= 0) return [];
 
     const action = getCardCombatProfile(card.id).actionId;
@@ -764,6 +792,35 @@ export class GameWorld {
         Math.abs(a.grid.col - origin.col) + Math.abs(a.grid.row - origin.row) -
         (Math.abs(b.grid.col - origin.col) + Math.abs(b.grid.row - origin.row))
       )[0]?.grid ?? { col: Math.min(5, Math.max(3, origin.col + 2)), row: origin.row };
+
+    if (action === "meteor") {
+      const landingPanels = this.panelSystem
+        .snapshot()
+        .filter(panel => panel.owner === "enemy")
+        .map(panel => ({ col: panel.col, row: panel.row }));
+      const targets = landingPanels.length > 0
+        ? landingPanels
+        : [3, 4, 5].flatMap(col => [0, 1, 2].map(row => ({ col, row })));
+      for (let index = 0; index < COMBAT_BALANCE.upper.meteorCount; index += 1) {
+        const target = targets[index % targets.length];
+        spawn({
+          owner: "player",
+          motion: "thrown",
+          position: origin,
+          target,
+          damage: scaleDamage(COMBAT_BALANCE.upper.meteorDamage),
+          sourceCardId: card.id,
+          flightMs: COMBAT_BALANCE.upper.meteorFlightMs,
+          stopOnObject: false,
+        }, index * COMBAT_BALANCE.upper.meteorIntervalMs);
+      }
+      return preview;
+    }
+    if (action === "overdrive") {
+      this.beginOverdrive(pointTarget, power);
+      return [pointTarget];
+    }
+    if (action === "dream" || action === "sanctuary") return [];
 
     if (action === "overload-limit-cannon") {
       const lostHp = Math.max(0, this.playerMaxHp - this.playerHp);
@@ -863,6 +920,389 @@ export class GameWorld {
     }
     return [];
   }
+  private dispatchChainTechnique(
+    card: Card,
+    power: number
+  ): GridPosition[] {
+    const technique = CHAIN_TECHNIQUES.find(
+      candidate => candidate.id === card.chainTechniqueId
+    );
+    if (!technique) return [];
+    this.usedChainTechniques.push(technique.id);
+
+    const origin = { ...this.playerGrid };
+    const activeEnemies = this.enemies.filter(
+      enemy => enemy.state !== "deleted"
+    );
+    const enemyPositions = activeEnemies.map(enemy => ({ ...enemy.grid }));
+    const target = this.closestEnemy()?.grid ?? this.closestEmptyEnemyPanel();
+    const sourceCard = (id: string): Card | undefined => this.cardForSource(id);
+    const scale = (damage: number): number =>
+      Math.max(0, Math.round(damage * Math.max(1, power)));
+
+    if (technique.id === "rapid-barrage") {
+      for (let index = 0; index < COMBAT_BALANCE.chain.rapidCount; index += 1) {
+        this.spawnProjectile({
+          owner: "player",
+          motion: "straight",
+          position: origin,
+          direction: { col: 1, row: 0 },
+          damage: scale(COMBAT_BALANCE.chain.rapidDamage),
+          sourceCardId: "rapid",
+          activeAt:
+            this.gameTimeMs + index * COMBAT_BALANCE.chain.rapidIntervalMs,
+          speedCellsPerSecond: COMBAT_BALANCE.normalShot.speedCellsPerSecond,
+        });
+      }
+      return cardPreviewTiles(
+        sourceCard("rapid"),
+        origin,
+        enemyPositions
+      );
+    }
+
+    if (technique.id === "triple-moon") {
+      const firstPlan = createMeleePlan(origin, target, 0, 1, {
+        dash: true,
+        timing: {
+          startupMs: COMBAT_BALANCE.chain.tripleMoonStartupMs,
+          activeMs: COMBAT_BALANCE.chain.tripleMoonActiveMs,
+          recoveryMs: COMBAT_BALANCE.chain.tripleMoonRecoveryMs,
+        },
+        canEnter: position =>
+          this.panelSystem.canEnter(
+            position,
+            "player",
+            candidate => this.objectSystem.isSolidAt(candidate)
+          ),
+      });
+      const meleeOrigin = firstPlan.dashTo ?? origin;
+      const stageCards = ["slash", "sweep", "moonblade"];
+      const stageDamage = [80, 100, 140];
+      const stages: PendingMeleeStage[] = stageCards.map((cardId, index) => {
+        const stageCard = sourceCard(cardId);
+        const stageOrigin = { ...meleeOrigin };
+        const stageTiles =
+          cardId === "sweep"
+            ? columnAtPreview(stageOrigin.col + 1)
+            : createMeleePlan(
+                stageOrigin,
+                target,
+                0,
+                cardId === "moonblade" ? 2 : 1,
+                { dash: false }
+              ).tiles;
+        return {
+          activeAt:
+            this.gameTimeMs +
+            COMBAT_BALANCE.chain.tripleMoonStartupMs +
+            index * COMBAT_BALANCE.chain.tripleMoonStageGapMs,
+          tiles: stageTiles,
+          damage: scale(stageDamage[index] ?? 0),
+          resolved: false,
+          card: stageCard,
+        };
+      });
+      const recoveryAt =
+        Math.max(...stages.map(stage => stage.activeAt)) +
+        COMBAT_BALANCE.chain.tripleMoonActiveMs +
+        COMBAT_BALANCE.chain.tripleMoonRecoveryMs;
+      this.pendingMelee.push({
+        card: sourceCard("slash") ?? card,
+        stages,
+        dashTo: firstPlan.dashTo,
+        returnTo: firstPlan.returnTo,
+        recoveryAt,
+        dashApplied: false,
+      });
+      this.playerControlLockedUntil = Math.max(
+        this.playerControlLockedUntil,
+        recoveryAt
+      );
+      return uniqueTiles(stages.flatMap(stage => stage.tiles));
+    }
+
+    if (technique.id === "fire-requiem") {
+      const ember = sourceCard("ember");
+      const firelineTarget = {
+        col: Math.min(5, origin.col + 2),
+        row: target.row,
+      };
+      this.spawnProjectile({
+        owner: "player",
+        motion: "straight",
+        position: origin,
+        direction: { col: 1, row: 0 },
+        damage: scale(50),
+        sourceCardId: "ember",
+        activeAt: this.gameTimeMs,
+      });
+      this.spawnProjectile({
+        owner: "player",
+        motion: "thrown",
+        position: origin,
+        target: firelineTarget,
+        damage: scale(40),
+        sourceCardId: "fireline",
+        activeAt: this.gameTimeMs + COMBAT_BALANCE.chain.fireChainStepGapMs,
+        rowSpan: true,
+        flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+      });
+      this.pendingChainEffects.push({
+        at:
+          this.gameTimeMs +
+          COMBAT_BALANCE.chain.fireChainStepGapMs * 2,
+        kind: "place-bomb",
+        panel: { ...target },
+        sourceCardId: "timer",
+        damage: scale(90),
+      });
+      return uniqueTiles([
+        ...cardPreviewTiles(ember, origin, enemyPositions),
+        ...columnAtPreview(firelineTarget.col),
+        ...this.areaAround(target),
+      ]);
+    }
+
+    if (technique.id === "tree-prison") {
+      const enemyIds = activeEnemies.map(enemy => enemy.id);
+      activeEnemies.forEach(enemy =>
+        this.applyStatus(
+          enemy,
+          "root",
+          COMBAT_BALANCE.chain.treePrisonDurationMs
+        )
+      );
+      this.pendingChainEffects.push({
+        at: this.gameTimeMs + COMBAT_BALANCE.chain.treePrisonDurationMs,
+        kind: "tree-prison",
+        enemyIds,
+        sourceCardId: "web",
+        damage: scale(COMBAT_BALANCE.chain.treePrisonDamage),
+      });
+      return [3, 4, 5].flatMap(col =>
+        [0, 1, 2].map(row => ({ col, row }))
+      );
+    }
+
+    if (technique.id === "ground-collapse") {
+      const enemyPanels = this.panelSystem.snapshot().filter(
+        panel => panel.owner === "enemy"
+      );
+      enemyPanels.forEach(panel => {
+        this.panelSystem.crack(panel);
+        if (panel.occupantId === null && panel.objectId === null)
+          this.panelSystem.setTerrain(
+            panel,
+            "hole",
+            this.gameTimeMs,
+            COMBAT_BALANCE.chain.groundCollapseHoleMs
+          );
+      });
+      return enemyPanels.map(panel => ({ col: panel.col, row: panel.row }));
+    }
+
+    if (technique.id === "magnetic-encircle") {
+      activeEnemies.forEach(enemy => {
+        this.strikeEnemy(
+          enemy,
+          scale(COMBAT_BALANCE.chain.lightningMagneticDamage),
+          sourceCard("volt"),
+          false,
+          0,
+          "electric"
+        );
+        if (enemy.state !== "deleted")
+          this.applyStatus(
+            enemy,
+            "stun",
+            COMBAT_BALANCE.chain.lightningMagneticStunMs
+          );
+      });
+      this.barrier = Math.min(
+        220,
+        this.barrier + scale(COMBAT_BALANCE.chain.lightningMagneticBarrier)
+      );
+      this.electromagneticBarrierActive = true;
+      return activeEnemies.length > 0
+        ? activeEnemies.map(enemy => ({ ...enemy.grid }))
+        : [3, 4, 5].flatMap(col =>
+            [0, 1, 2].map(row => ({ col, row }))
+          );
+    }
+
+    if (technique.id === "layered-defense") {
+      this.placeFieldObject(
+        "cube",
+        { col: origin.col + 1, row: origin.row },
+        100,
+        null,
+        "damage",
+        {
+          sourceCardId: "block",
+          collision: "solid",
+          fallback: false,
+        }
+      );
+      this.barrier = Math.min(
+        220,
+        this.barrier + scale(COMBAT_BALANCE.chain.layeredDefenseBarrier)
+      );
+      this.pendingDefense = "substitute";
+      this.pendingDefenseUntil = 0;
+      return uniqueTiles([
+        { ...origin },
+        { col: origin.col + 1, row: origin.row },
+      ]);
+    }
+
+    if (technique.id === "full-repair") {
+      this.healPlayer(COMBAT_BALANCE.chain.fullRepairHeal);
+      this.pendingRepair = null;
+      this.pendingDefense = null;
+      this.pendingDefenseUntil = 0;
+      this.enemies.forEach(enemy => {
+        enemy.burnUntil = 0;
+        enemy.nextBurnAt = 0;
+        enemy.slowUntil = 0;
+        enemy.rootUntil = 0;
+      });
+      this.paintPlayerTerritory(COMBAT_BALANCE.chain.fullRepairSanctuaryMs);
+      return this.panelSystem
+        .snapshot()
+        .filter(panel => panel.owner === "player")
+        .map(panel => ({ col: panel.col, row: panel.row }));
+    }
+
+    return [];
+  }
+
+  private emitCardEvents(card: Card, tiles: GridPosition[]): void {
+    const ids = card.chainCardIds ?? [card.id];
+    const origin = { ...this.playerGrid };
+    const enemies = this.enemies
+      .filter(enemy => enemy.state !== "deleted")
+      .map(enemy => enemy.grid);
+    ids.forEach(cardId => {
+      const source = this.cardForSource(cardId);
+      if (!source) return;
+      const sourceTiles =
+        card.chainTechniqueId === undefined
+          ? tiles
+          : cardPreviewTiles(source, origin, enemies).length > 0
+            ? cardPreviewTiles(source, origin, enemies)
+            : tiles;
+      this.onEvent({
+        type: "card",
+        cardId: source.id,
+        at: { ...(sourceTiles[0] ?? origin) },
+        tiles: sourceTiles,
+        family: source.family,
+        tier: card.tier,
+        target: source.target,
+        status: source.status,
+      });
+    });
+  }
+
+  private updatePendingChainEffects(now: number): void {
+    const ready = this.pendingChainEffects.filter(effect => now >= effect.at);
+    if (ready.length === 0) return;
+    this.pendingChainEffects = this.pendingChainEffects.filter(
+      effect => now < effect.at
+    );
+    ready.forEach(effect => {
+      if (effect.kind === "place-bomb") {
+        this.placeFieldObject(
+          "bomb",
+          effect.panel ?? this.closestEmptyEnemyPanel(),
+          50,
+          2000,
+          "timer",
+          {
+            effectId: "timed-bomb",
+            damage: effect.damage,
+            sourceCardId: effect.sourceCardId,
+            collision: "passable",
+            pushable: true,
+          }
+        );
+        return;
+      }
+      effect.enemyIds?.forEach(enemyId => {
+        const enemy = this.enemies.find(
+          candidate =>
+            candidate.id === enemyId && candidate.state !== "deleted"
+        );
+        if (enemy)
+          this.strikeEnemy(
+            enemy,
+            effect.damage,
+            this.cardForSource(effect.sourceCardId),
+            false,
+            0,
+            "wood"
+          );
+      });
+    });
+  }
+
+  private beginOverdrive(target: GridPosition, power: number): void {
+    const targetEnemy = this.enemies.find(
+      enemy => enemy.state !== "deleted" && sameTile(enemy.grid, target)
+    );
+    this.transferPlayerToCardTarget();
+    this.nextSwordMultiplier = 1;
+    this.overdrivePrompt = {
+      enemyId: targetEnemy?.id ?? null,
+      target: { ...target },
+      step: 0,
+      expiresAt: this.gameTimeMs + COMBAT_BALANCE.upper.overdriveInputWindowMs,
+      damageMultiplier: power / 70 >= 2 ? 2 : 1,
+    };
+    this.message = "超過駆動 — 1/3の入力を受け付け中";
+  }
+
+  private updateOverdrivePrompt(now: number): void {
+    if (!this.overdrivePrompt || now <= this.overdrivePrompt.expiresAt) return;
+    const step = this.overdrivePrompt.step;
+    this.overdrivePrompt = null;
+    this.message = `超過駆動 — ${step}/${COMBAT_BALANCE.upper.overdriveStepCount}で終了`;
+  }
+
+  private resolveOverdriveInput(): void {
+    const prompt = this.overdrivePrompt;
+    if (!prompt || this.gameTimeMs > prompt.expiresAt) return;
+    const enemy = prompt.enemyId
+      ? this.enemies.find(candidate => candidate.id === prompt.enemyId)
+      : undefined;
+    if (enemy && enemy.state !== "deleted")
+      this.strikeEnemy(
+        enemy,
+        Math.round(
+          COMBAT_BALANCE.upper.overdriveDamagePerStep *
+            prompt.damageMultiplier
+        ),
+        this.cardForSource("overdrive"),
+        false
+      );
+    const nextStep = prompt.step + 1;
+    if (nextStep >= COMBAT_BALANCE.upper.overdriveStepCount) {
+      this.areaAround(prompt.target).forEach(tile => this.panelSystem.crack(tile));
+      this.overdrivePrompt = null;
+      this.message = "超過駆動 — 3段入力完了、周囲を亀裂化";
+    } else {
+      this.overdrivePrompt = {
+        ...prompt,
+        step: nextStep,
+        expiresAt:
+          this.gameTimeMs + COMBAT_BALANCE.upper.overdriveInputWindowMs,
+      };
+      this.message = `超過駆動 — ${nextStep + 1}/${COMBAT_BALANCE.upper.overdriveStepCount}の入力を受け付け中`;
+    }
+    this.notify();
+  }
+
   private dispatchMeleeCard(card: Card, power: number): GridPosition[] {
     const action = getCardCombatProfile(card.id).actionId;
     const target = action === "dashslash"
@@ -927,7 +1367,14 @@ export class GameWorld {
         if (stage.resolved || now < stage.activeAt) continue;
         this.enemies
           .filter(enemy => enemy.state !== "deleted" && stage.tiles.some(tile => sameTile(tile, enemy.grid)))
-          .forEach(enemy => this.strikeEnemy(enemy, stage.damage, attack.card, false));
+          .forEach(enemy =>
+            this.strikeEnemy(
+              enemy,
+              stage.damage,
+              stage.card ?? attack.card,
+              false
+            )
+          );
         stage.resolved = true;
       }
     }
@@ -1029,6 +1476,8 @@ export class GameWorld {
     targetIds: string[],
     objectId: string | null
   ): void {
+    if (projectile.sourceCardId === "meteor")
+      this.panelSystem.crack(projectile.position);
     if (objectId && projectile.affectsObjects) {
       const objectResult = this.objectSystem.damage(
         objectId,
@@ -1165,6 +1614,20 @@ export class GameWorld {
           damage: counterDamage,
         });
         return;
+      }
+      if (now < this.dreamAuraUntil) {
+        if (damage < COMBAT_BALANCE.upper.dreamAuraThreshold) {
+          this.message = "夢幻障壁 — 100未満の攻撃を無効化";
+          this.onEvent({
+            type: "player-reaction",
+            at: { ...this.playerGrid },
+            kind: "barrier",
+            enemyId,
+          });
+          return;
+        }
+        this.dreamAuraUntil = 0;
+        this.message = "夢幻障壁 — 強攻撃でオーラが消滅";
       }
       if (now < this.phaseUntil || now < this.invincibleUntil) {
         this.message = "位相回避";
@@ -1455,9 +1918,9 @@ export class GameWorld {
     if (card.status === "barrier" && card.id !== "prism")
       this.barrier = Math.min(220, this.barrier + value);
     if (card.id === "dream")
-      this.invincibleUntil = Math.max(
-        this.invincibleUntil,
-        this.gameTimeMs + COMBAT_BALANCE.phase.invincibilityMs
+      this.dreamAuraUntil = Math.max(
+        this.dreamAuraUntil,
+        this.gameTimeMs + COMBAT_BALANCE.upper.dreamAuraMs
       );
     if (card.id === "rectify") {
       this.healPlayer(value);
@@ -1520,8 +1983,10 @@ export class GameWorld {
 
     if (card.id === "sanctum")
       this.paintSanctuary(card.durationMs ?? 8000);
-    if (card.id === "sanctuary")
-      this.paintSanctuary(card.durationMs ?? 10000);
+    if (card.id === "sanctuary") {
+      this.healPlayer(COMBAT_BALANCE.upper.sanctuaryHeal);
+      this.paintPlayerTerritory(COMBAT_BALANCE.upper.sanctuaryDurationMs);
+    }
     if (card.id === "sector")
       this.panelSystem.expandEnemyFront(
         this.gameTimeMs,
@@ -1717,6 +2182,20 @@ export class GameWorld {
   }
 
   private closestEmptyEnemyPanel(): GridPosition {
+  private paintPlayerTerritory(durationMs: number): void {
+    this.panelSystem
+      .snapshot()
+      .filter(panel => panel.owner === "player")
+      .forEach(panel =>
+        this.panelSystem.setTerrain(
+          { col: panel.col, row: panel.row },
+          "holy",
+          this.gameTimeMs,
+          durationMs
+        )
+      );
+  }
+
     const enemy = this.closestEnemy();
     const candidates = [
       enemy?.grid,
@@ -2069,6 +2548,9 @@ export class GameWorld {
     this.objectSequence = 0;
     this.projectileSystem.reset();
     this.pendingMelee = [];
+    this.pendingChainEffects = [];
+    this.dreamAuraUntil = 0;
+    this.overdrivePrompt = null;
     this.objectNextTriggerAt.clear();
     this.objectTriggerCount.clear();
     this.enemies = this.makeEnemies(this.wave);
@@ -2199,7 +2681,7 @@ export class GameWorld {
     const committedByInstance = new Map(
       committed.map(card => [card.instanceId, card])
     );
-    this.queue = this.selected.flatMap(index => {
+    const orderedCards = this.selected.flatMap(index => {
       const offered = this.customHand[index];
       if (!offered) return [];
       if (offered.isOverload) return [offered];
@@ -2208,6 +2690,10 @@ export class GameWorld {
         : undefined;
       return committedCard ? [committedCard] : [];
     });
+    const chainTechnique = findChainTechnique(orderedCards);
+    this.queue = chainTechnique
+      ? [createChainCard(chainTechnique, orderedCards)]
+      : orderedCards;
     this.focusedCard = null;
     this.selectionError = null;
     this.mode = "battle";
@@ -2215,9 +2701,11 @@ export class GameWorld {
     this.customSystem.resetGauge();
     this.syncCustomRemaining();
     this.message =
-      this.queue.length > 0
-        ? `WAVE 0${this.wave} — 接続開始`
-        : `WAVE 0${this.wave} — カードなしで戦闘開始`;
+      chainTechnique
+        ? `WAVE 0${this.wave} — ${chainTechnique.name}を接続`
+        : this.queue.length > 0
+          ? `WAVE 0${this.wave} — 接続開始`
+          : `WAVE 0${this.wave} — カードなしで戦闘開始`;
     const now = this.gameTimeMs;
     this.enemies.forEach((enemy, index) => {
       if (enemy.state !== "deleted")
@@ -2240,6 +2728,9 @@ export class GameWorld {
     this.syncBoardOccupancy();
     this.mode = this.wave >= FINAL_WAVE ? "result" : "intermission";
     if (this.mode === "intermission") {
+      this.pendingChainEffects = [];
+      this.dreamAuraUntil = 0;
+      this.overdrivePrompt = null;
       const recovery = Math.ceil(this.playerMaxHp * 0.15);
       this.healPlayer(recovery);
       this.message = `WAVE 0${this.wave} 完了 — 耐久を15%回復`;
@@ -2334,6 +2825,10 @@ export class GameWorld {
     this.overloadRandom = new Random(0x51a7c0de);
     this.projectileSystem.reset();
     this.pendingMelee = [];
+    this.pendingChainEffects = [];
+    this.dreamAuraUntil = 0;
+    this.overdrivePrompt = null;
+    this.usedChainTechniques = [];
     this.nextFireAt = 0;
     this.resetBattleDeck();
     this.resetBoard();
@@ -2350,6 +2845,9 @@ export class GameWorld {
   private finishRun(victory: boolean): void {
     this.projectileSystem.reset();
     this.pendingMelee = [];
+    this.pendingChainEffects = [];
+    this.dreamAuraUntil = 0;
+    this.overdrivePrompt = null;
     this.hitstopRemainingMs = 0;
     this.cancelCharge();
     this.objectSystem.reset();
@@ -2624,6 +3122,17 @@ export class GameWorld {
       bestWave: this.records.bestWave,
       paused: this.paused,
       customRemaining: this.customRemaining,
+      dreamAuraRemaining: Math.max(
+        0,
+        (this.dreamAuraUntil - now) / 1000
+      ),
+      overdriveStep: this.overdrivePrompt
+        ? this.overdrivePrompt.step + 1
+        : 0,
+      overdriveRemaining: this.overdrivePrompt
+        ? Math.max(0, (this.overdrivePrompt.expiresAt - now) / 1000)
+        : 0,
+      usedChainTechniques: [...this.usedChainTechniques],
     });
   }
 }

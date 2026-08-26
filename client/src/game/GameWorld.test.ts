@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { GameWorld } from "./GameWorld";
 import { CARD_CATALOG } from "./deck";
+import { createChainCard, findChainTechnique } from "./data/chainTechniques";
 import type { BattleSnapshot, Card } from "./types";
 
 function installWindowStub(): void {
@@ -449,5 +450,72 @@ describe("GameWorldの現行Wave基準", () => {
 
     expect(latest?.projectiles[0]?.charged).toBe(true);
     expect(latest?.projectiles[0]?.damage).toBe(42);
+  });
+
+  it("implements the four upper cards and the trump input sequence", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      playerHp: number;
+      applyPlayerHit: (damage: number, enemyId?: string) => void;
+    };
+
+    queueCardForTest(world, "meteor");
+    world.controller.useSkill();
+    expect(latest?.projectiles).toHaveLength(8);
+
+    internal.playerHp = 180;
+    queueCardForTest(world, "dream");
+    world.controller.useSkill();
+    expect(latest?.dreamAuraRemaining).toBeGreaterThan(7.9);
+    internal.applyPlayerHit(50, "bulwark");
+    expect(latest?.playerHp).toBe(180);
+    internal.applyPlayerHit(100, "bulwark");
+    world.controller.move(0, 0);
+    expect(latest?.playerHp).toBe(80);
+
+    internal.playerHp = 100;
+    queueCardForTest(world, "sanctuary");
+    world.controller.useSkill();
+    expect(latest?.playerHp).toBe(150);
+    expect(
+      latest?.panels.filter(panel => panel.owner === "player" && panel.terrain === "holy")
+    ).toHaveLength(9);
+
+    queueCardForTest(world, "overdrive");
+    world.controller.useSkill();
+    expect(latest?.overdriveStep).toBe(1);
+    world.controller.fire();
+    expect(latest?.overdriveStep).toBe(2);
+    world.controller.fire();
+    expect(latest?.overdriveStep).toBe(3);
+    world.controller.fire();
+    expect(latest?.overdriveStep).toBe(0);
+    expect(latest?.panels.some(panel => panel.terrain === "cracked")).toBe(true);
+  });
+
+  it("dispatches a matched chain as one queue entry with all constituent projectiles", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      mode: BattleSnapshot["mode"];
+      queue: Card[];
+    };
+    const source = ["rapid", "rapid", "rapid"].map(id =>
+      CARD_CATALOG.find(card => card.id === id)
+    ).filter((card): card is Card => Boolean(card));
+    const technique = findChainTechnique(source);
+    if (!technique) throw new Error("chain not found");
+    internal.mode = "battle";
+    internal.queue = [createChainCard(technique, source)];
+    world.controller.useSkill();
+
+    expect(latest?.queue).toHaveLength(0);
+    expect(latest?.projectiles).toHaveLength(12);
+    expect(latest?.usedChainTechniques).toEqual(["rapid-barrage"]);
   });
 });
