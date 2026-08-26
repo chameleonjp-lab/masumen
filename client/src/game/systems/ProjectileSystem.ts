@@ -9,6 +9,7 @@ export interface ProjectileSpawn {
   target?: GridPosition | null;
   damage: number;
   sourceId?: string | null;
+  sourceActionId?: string | null;
   sourceCardId?: string | null;
   charged?: boolean;
   activeAt?: number;
@@ -166,6 +167,7 @@ export class ProjectileSystem {
       target,
       damage: Math.max(0, spawn.damage),
       sourceId: spawn.sourceId ?? null,
+      sourceActionId: spawn.sourceActionId ?? null,
       sourceCardId: spawn.sourceCardId ?? null,
       charged: spawn.charged ?? false,
       activeAt: spawn.activeAt ?? nowMs,

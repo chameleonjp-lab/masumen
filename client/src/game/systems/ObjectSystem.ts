@@ -19,6 +19,7 @@ export interface ObjectPlacement {
   effectId?: FieldObject["effectId"];
   damage?: number;
   sourceCardId?: string;
+  sourceId?: string;
   hidden?: boolean;
   pushable?: boolean;
 }
@@ -78,6 +79,7 @@ export class ObjectSystem {
       effectId: placement.effectId,
       damage: placement.damage,
       sourceCardId: placement.sourceCardId,
+      sourceId: placement.sourceId,
       hidden: placement.hidden ?? false,
       pushable: placement.pushable ?? false,
     };

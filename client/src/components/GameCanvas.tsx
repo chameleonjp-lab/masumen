@@ -72,6 +72,19 @@ function cardClassLabel(card: BattleSnapshot["queue"][number]): string {
   return card.family;
 }
 
+function enemyReadoutLabel(
+  enemy: BattleSnapshot["enemies"][number]
+): string {
+  if (enemy.counterWindow) return "完全同期カウンター受付";
+  if (enemy.actionPhase === "counter-window") return "カウンター受付中";
+  if (enemy.actionPhase === "startup") return enemy.actionName ?? "攻撃準備";
+  if (enemy.actionPhase === "active") return enemy.actionName ?? "攻撃中";
+  if (enemy.actionPhase === "recovery") return "攻撃後の隙";
+  if (enemy.actionPhase === "stunned") return "麻痺";
+  if (enemy.state === "deleted") return "停止";
+  return enemy.actionName ?? enemy.pattern.replace("-", " ").toUpperCase();
+}
+
 function previewTargets(
   card: BattleSnapshot["customHand"][number] | undefined,
   playerGrid: BattleSnapshot["playerGrid"],
@@ -279,17 +292,7 @@ export default function GameCanvas() {
                 <span className={`enemy-state state-${enemy.state}`} />{" "}
                 <b>{enemy.name}</b>
               </div>
-              <small>
-                {enemy.counterWindow
-                  ? "完全同期カウンター受付"
-                  : enemy.state === "windup"
-                    ? "VECTOR LOCK"
-                    : enemy.state === "stunned"
-                      ? "STUNNED"
-                      : enemy.state === "deleted"
-                        ? "OFFLINE"
-                        : enemy.pattern.replace("-", " ").toUpperCase()}
-              </small>
+              <small>{enemyReadoutLabel(enemy)}</small>
               <div className="meter enemy-meter">
                 <span style={meterStyle((enemy.hp / enemy.maxHp) * 100)} />
               </div>
