@@ -618,4 +618,80 @@ describe("GameWorldの現行Wave基準", () => {
     expect(selected[1]).not.toBe(selected[2]);
   });
 
+  it("keeps the seven-stage practice route outside normal run records", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+
+    world.controller.startPractice();
+    expect(latest?.mode).toBe("practice");
+    expect(latest?.practiceStage).toBe(1);
+    expect(latest?.score).toBe(0);
+    expect(latest?.highScore).toBe(0);
+
+    for (let stage = 0; stage < 6; stage += 1)
+      world.controller.nextPracticeStage();
+
+    expect(latest?.practiceStage).toBe(7);
+    expect(latest?.practiceStageTitle).toContain("精神状態");
+    world.controller.nextPracticeStage();
+    expect(latest?.mode).toBe("practice");
+    world.controller.exitPractice();
+
+    expect(latest?.mode).toBe("custom");
+    expect(latest?.wave).toBe(1);
+    expect(latest?.elapsed).toBe(0);
+    expect(latest?.highScore).toBe(0);
+  });
+
+  it("awards dynamic wave recovery and records a wave score summary", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      mode: BattleSnapshot["mode"];
+      playerHp: number;
+      enemies: Array<{ state: string }>;
+    };
+
+    internal.mode = "battle";
+    internal.playerHp = 100;
+    internal.enemies.forEach(enemy => {
+      enemy.state = "deleted";
+    });
+    world.update(1 / 60);
+
+    expect(latest?.mode).toBe("intermission");
+    expect(latest?.lastWaveRecovery).toBe(33);
+    expect(latest?.playerHp).toBe(133);
+    expect(latest?.lastWaveScore?.wave).toBe(1);
+    expect(latest?.lastWaveScore?.noDamagePoints).toBe(500);
+    expect(latest?.scoreBreakdown?.waveClearPoints).toBe(300);
+  });
+
+  it("treats a player and the last enemy reaching zero together as a defeat", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      mode: BattleSnapshot["mode"];
+      playerHp: number;
+      enemies: Array<{ state: string }>;
+    };
+
+    internal.mode = "battle";
+    internal.playerHp = 0;
+    internal.enemies.forEach(enemy => {
+      enemy.state = "deleted";
+    });
+    world.update(1 / 60);
+
+    expect(latest?.mode).toBe("result");
+    expect(latest?.outcome).toBe("draw");
+    expect(latest?.rank).toBe("R");
+  });
+
 });
