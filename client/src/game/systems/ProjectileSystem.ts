@@ -10,6 +10,7 @@ export interface ProjectileSpawn {
   damage: number;
   sourceId?: string | null;
   sourceActionId?: string | null;
+  continuesAfterHit?: boolean;
   sourceCardId?: string | null;
   charged?: boolean;
   activeAt?: number;
@@ -168,6 +169,7 @@ export class ProjectileSystem {
       damage: Math.max(0, spawn.damage),
       sourceId: spawn.sourceId ?? null,
       sourceActionId: spawn.sourceActionId ?? null,
+      continuesAfterHit: spawn.continuesAfterHit ?? false,
       sourceCardId: spawn.sourceCardId ?? null,
       charged: spawn.charged ?? false,
       activeAt: spawn.activeAt ?? nowMs,
@@ -287,7 +289,8 @@ export class ProjectileSystem {
           const stopsAtEnemy =
             targetIds.length > 0 &&
             projectile.motion !== "piercing" &&
-            projectile.motion !== "wave";
+            projectile.motion !== "wave" &&
+            !projectile.continuesAfterHit;
           resolutions.push({
             projectile: cloneProjectile(projectile),
             position: clonePosition(projectile.position),
