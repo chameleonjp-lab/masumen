@@ -115,6 +115,15 @@ export type ObjectTrigger =
   | "enemy-contact"
   | "damage"
   | "none";
+export type FieldObjectEffect =
+  | "timed-bomb"
+  | "watch-mine"
+  | "turret"
+  | "stake"
+  | "poison-mist"
+  | "gravity-field"
+  | "decoy"
+  | null;
 export interface FieldObject {
   id: string;
   owner: "player" | "enemy";
@@ -124,6 +133,11 @@ export interface FieldObject {
   expiresAt: number | null;
   collision: "solid" | "passable";
   trigger: ObjectTrigger;
+  effectId?: FieldObjectEffect;
+  damage?: number;
+  sourceCardId?: string;
+  hidden?: boolean;
+  pushable?: boolean;
 }
 export interface ProjectileState {
   id: string;

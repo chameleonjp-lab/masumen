@@ -48,6 +48,31 @@ describe("ObjectSystem", () => {
     expect(system.isSolidAt({ col: 0, row: 0 })).toBe(false);
   });
 
+  it("preserves effect metadata and moves objects without overlap", () => {
+    const system = new ObjectSystem();
+    const placed = system.place({
+      ...placement(0),
+      kind: "mine",
+      collision: "passable",
+      effectId: "watch-mine",
+      damage: 100,
+      sourceCardId: "watchmine",
+      hidden: true,
+      pushable: true,
+    }).object;
+
+    expect(placed).toMatchObject({
+      effectId: "watch-mine",
+      damage: 100,
+      sourceCardId: "watchmine",
+      hidden: true,
+      pushable: true,
+    });
+    expect(system.move("player-object-0", { col: 1, row: 0 })).toBe(true);
+    expect(system.get("player-object-0")?.panel).toEqual({ col: 1, row: 0 });
+    expect(system.move("player-object-0", { col: 1, row: 0 })).toBe(true);
+  });
+
   it("supports damage destruction and expiry cleanup", () => {
     const system = new ObjectSystem();
     system.place({ ...placement(0), expiresAt: 100 });

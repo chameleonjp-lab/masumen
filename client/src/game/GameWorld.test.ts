@@ -1,6 +1,7 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { GameWorld } from "./GameWorld";
-import type { BattleSnapshot } from "./types";
+import { CARD_CATALOG } from "./deck";
+import type { BattleSnapshot, Card } from "./types";
 
 function installWindowStub(): void {
   const storage = new Map<string, string>();
@@ -19,6 +20,17 @@ function installWindowStub(): void {
 function advanceAtFixedRate(world: GameWorld, seconds: number): void {
   const steps = Math.round(seconds * 60);
   for (let step = 0; step < steps; step += 1) world.update(1 / 60);
+}
+
+function queueCardForTest(world: GameWorld, id: string): void {
+  const card = CARD_CATALOG.find(candidate => candidate.id === id);
+  if (!card) throw new Error(`Missing card: ${id}`);
+  const internal = world as unknown as {
+    mode: BattleSnapshot["mode"];
+    queue: Card[];
+  };
+  internal.mode = "battle";
+  internal.queue = [card];
 }
 
 describe("GameWorldの現行Wave基準", () => {
@@ -337,6 +349,81 @@ describe("GameWorldの現行Wave基準", () => {
     expect(
       latest?.projectiles.map(projectile => projectile.sourceCardId)
     ).toEqual(["triplet", "triplet", "triplet"]);
+  });
+
+  it("keeps PR8 installation cards as visible or hidden board objects", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+
+    queueCardForTest(world, "watchmine");
+    world.controller.useSkill();
+    expect(latest?.objects).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "mine",
+        effectId: "watch-mine",
+        damage: 100,
+        hidden: true,
+      }),
+    ]));
+
+    queueCardForTest(world, "turret");
+    world.controller.useSkill();
+    expect(latest?.objects).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "turret",
+        effectId: "turret",
+        damage: 12,
+        collision: "solid",
+      }),
+    ]));
+  });
+
+  it("applies PR8 self effects and cancels repair when damaged", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      playerHp: number;
+      customSystem: { multiplier: number };
+      applyPlayerHit: (damage: number, enemyId?: string) => void;
+    };
+
+    internal.playerHp = 100;
+    queueCardForTest(world, "sanctum");
+    world.controller.useSkill();
+    expect(latest?.playerHp).toBe(120);
+    expect(latest?.panels.find(panel => panel.occupantId === "player")?.terrain).toBe("holy");
+
+    queueCardForTest(world, "prism");
+    world.controller.useSkill();
+    expect(latest?.barrier).toBe(100);
+
+    queueCardForTest(world, "phase");
+    world.controller.useSkill();
+    expect(latest?.invincible).toBe(true);
+
+    queueCardForTest(world, "fastsync");
+    world.controller.useSkill();
+    expect(internal.customSystem.multiplier).toBe(2);
+
+    let repairLatest: BattleSnapshot | undefined;
+    const repairWorld = new GameWorld(snapshot => {
+      repairLatest = snapshot;
+    }, () => undefined);
+    const repairInternal = repairWorld as unknown as {
+      playerHp: number;
+      applyPlayerHit: (damage: number, enemyId?: string) => void;
+    };
+    repairInternal.playerHp = 100;
+    queueCardForTest(repairWorld, "repair");
+    repairWorld.controller.useSkill();
+    repairInternal.applyPlayerHit(5, "bulwark");
+    advanceAtFixedRate(repairWorld, 0.7);
+    repairWorld.controller.move(0, 0);
+    expect(repairLatest?.playerHp).toBe(95);
   });
 
   it("reaches full charge at the configured 850ms and keeps the shot in flight", () => {
