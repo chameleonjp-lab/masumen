@@ -525,12 +525,14 @@ export default function GameCanvas() {
               <button type="button" onClick={() => setFolderEditorOpen(true)}>
                 フォルダ編集
               </button>
-              <button
-                type="button"
-                onClick={() => controller?.startPractice()}
-              >
-                練習モード
-              </button>
+              {snapshot.wave === 1 && snapshot.elapsed === 0 && (
+                <button
+                  type="button"
+                  onClick={() => controller?.startPractice()}
+                >
+                  練習モード
+                </button>
+              )}
               <button
                 type="button"
                 className="engage-button"
