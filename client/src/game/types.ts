@@ -1,5 +1,11 @@
 /** Signal Relay Tactical game vocabulary: state is explicit so the terminal HUD mirrors the arena without hidden rules. */
-export type BattleMode = "custom" | "battle" | "intermission" | "result";
+export type BattleMode =
+  | "custom"
+  | "battle"
+  | "intermission"
+  | "result"
+  | "practice";
+export type RunOutcome = "victory" | "defeat" | "draw";
 export type EnemyState = "idle" | "windup" | "recover" | "stunned" | "deleted";
 export type EnemyActionPhase =
   | "idle"
@@ -244,6 +250,28 @@ export interface EnemySnapshot {
   weakness?: CardElement;
   barrier?: number;
 }
+export interface WaveScoreSummary {
+  wave: number;
+  elapsedSeconds: number;
+  damageTaken: number;
+  waveClearPoints: number;
+  timePoints: number;
+  noDamagePoints: number;
+  total: number;
+}
+
+export interface ScoreBreakdown {
+  enemyDefeatPoints: number;
+  waveClearPoints: number;
+  timePoints: number;
+  counterPoints: number;
+  simultaneousPoints: number;
+  noDamagePoints: number;
+  damagePenalty: number;
+  overloadPenalty: number;
+  total: number;
+}
+
 export interface BattleSnapshot {
   mode: BattleMode;
   playerHp: number;
@@ -281,6 +309,22 @@ export interface BattleSnapshot {
   playerBlindRemaining?: number;
   /** PR9 battle metadata; optional to keep older renderers compatible. */
   dreamAuraRemaining?: number;
+  outcome?: RunOutcome;
+  scoreBreakdown?: ScoreBreakdown;
+  waveResults?: WaveScoreSummary[];
+  lastWaveScore?: WaveScoreSummary | null;
+  lastWaveRecovery?: number;
+  totalDamageTaken?: number;
+  waveDamageTaken?: number;
+  simultaneousDefeats?: number;
+  cardsUsed?: number;
+  overloadCardsUsed?: number;
+  reachedWave?: number;
+  personalBestDelta?: number;
+  practiceStage?: number;
+  practiceStageTitle?: string;
+  practiceStageLesson?: string;
+  practiceStageObjective?: string;
   overdriveStep?: number;
   overdriveRemaining?: number;
   usedChainTechniques?: string[];
@@ -341,6 +385,9 @@ export interface GameController {
   reloadFolder?: () => void;
   nextWave: () => void;
   restart: () => void;
+  startPractice: () => void;
+  nextPracticeStage: () => void;
+  exitPractice: () => void;
   togglePause: () => void;
   setSoundEnabled?: (enabled: boolean) => void;
   setSoundVolume?: (volume: number) => void;
