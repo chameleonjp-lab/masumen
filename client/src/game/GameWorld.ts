@@ -650,8 +650,8 @@ export class GameWorld {
         this.spawnEnemyProjectile(
           enemy,
           action,
-          { ...target },
           {
+            target: { ...target },
             motion: "thrown",
             flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
           },
@@ -685,8 +685,8 @@ export class GameWorld {
         this.spawnEnemyProjectile(
           enemy,
           action,
-          target,
           {
+            target,
             motion: "thrown",
             flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
           },
