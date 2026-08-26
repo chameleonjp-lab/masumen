@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { ASSET_URLS } from "@/game/assets";
 import { validateSelection } from "@/game/deck";
+import { cardPreviewTiles } from "@/game/data/cardCombatData";
 import { createGameScene } from "@/game/scene";
 import type { BattleSnapshot, GameHandle } from "@/game/types";
 import FolderEditor from "@/components/game/FolderEditor";
@@ -65,53 +66,49 @@ function timecode(seconds: number) {
 }
 
 function previewTargets(
-  card: BattleSnapshot["customHand"][number] | undefined
+  card: BattleSnapshot["customHand"][number] | undefined,
+  playerGrid: BattleSnapshot["playerGrid"],
+  enemies: BattleSnapshot["enemies"]
 ) {
-  if (!card) return new Set<string>();
-  if (card.target === "self") return new Set(["1:1"]);
-  if (card.target === "near") return new Set(["3:0", "3:1", "3:2"]);
-  if (card.target === "front" || card.target === "row")
-    return new Set(["3:1", "4:1", "5:1"]);
-  if (card.target === "column") return new Set(["4:0", "4:1", "4:2"]);
-  if (card.target === "cross")
-    return new Set(["3:1", "4:1", "5:1", "4:0", "4:2"]);
-  return new Set([
-    "3:0",
-    "3:1",
-    "3:2",
-    "4:0",
-    "4:1",
-    "4:2",
-    "5:0",
-    "5:1",
-    "5:2",
-  ]);
+  return new Set(
+    cardPreviewTiles(
+      card,
+      playerGrid,
+      enemies.map(enemy => enemy.grid)
+    ).map(tile => String(tile.col) + ":" + String(tile.row))
+  );
 }
 
 function previewDelay(
   card: BattleSnapshot["customHand"][number] | undefined,
   col: number,
-  row: number
+  row: number,
+  playerGrid: BattleSnapshot["playerGrid"]
 ) {
-  if (!card || card.target === "self") return 0;
-  if (card.target === "front" || card.target === "row") return (col - 3) * 135;
-  if (card.target === "column" || card.target === "near") return row * 135;
-  if (card.target === "cross")
-    return (Math.abs(col - 4) + Math.abs(row - 1)) * 120;
-  return (col - 3) * 140 + row * 42;
+  if (!card) return 0;
+  const action = card.actionId ?? card.id;
+  if (action === "rapid" || action === "triplet") return Math.max(0, col - playerGrid.col) * 90;
+  if (action === "fan") return Math.max(0, col - playerGrid.col) * 120 + Math.abs(row - playerGrid.row) * 40;
+  if (action === "column" || action === "thunderline" || action === "sweep") return row * 110;
+  if (action === "cross" || action === "gridcut") return (Math.abs(col - 4) + Math.abs(row - playerGrid.row)) * 100;
+  if (action === "slash" || action === "moonblade" || action === "dashslash") return 120;
+  return Math.max(0, col - playerGrid.col) * 135;
 }
 
 function previewVector(card: BattleSnapshot["customHand"][number] | undefined) {
   if (!card) return "→";
+  const action = card.actionId ?? card.id;
+  if (action === "slash" || action === "sweep" || action === "moonblade" || action === "dashslash") return "⚔";
+  if (action === "fan") return "⌁";
+  if (action === "column" || action === "thunderline" || action === "sweep") return "↕";
+  if (action === "cross" || action === "gridcut") return "✣";
+  if (action === "web" || action === "frost") return "✽";
   if (card.target === "self") return "◎";
-  if (card.target === "near") return "↦";
-  if (card.target === "column") return "↕";
-  if (card.target === "cross") return "✣";
   if (card.target === "enemy-field") return "⇢";
   return "→";
 }
 
-export default function GameCanvas() {
+export default function GameCanvas()export default function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const startedRef = useRef(false);
   const controllerRef = useRef<GameHandle["controller"] | null>(null);
@@ -478,7 +475,7 @@ export default function GameCanvas() {
                 const col = Math.floor(index / 3);
                 const row = index % 3;
                 const tileKey = `${col}:${row}`;
-                const target = previewTargets(previewCard).has(tileKey);
+                const target = previewTargets(previewCard, snapshot.playerGrid, snapshot.enemies).has(tileKey);
                 const player = tileKey === "1:1";
                 return (
                   <span
@@ -486,7 +483,7 @@ export default function GameCanvas() {
                     style={
                       target
                         ? {
-                            animationDelay: `${previewDelay(previewCard, col, row)}ms`,
+                            animationDelay: `${previewDelay(previewCard, col, row, snapshot.playerGrid)}ms`,
                           }
                         : undefined
                     }
@@ -505,7 +502,7 @@ export default function GameCanvas() {
                   ]
                 )}
               </b>{" "}
-              自陣中央の P
+              現在位置の P
               から、説明中または選択中のカードが作用する対象マスを順に走査
             </small>
           </section>

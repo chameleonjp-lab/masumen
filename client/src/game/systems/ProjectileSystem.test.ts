@@ -183,4 +183,57 @@ describe("ProjectileSystem", () => {
     expect(hitRows).toEqual([0, 1, 2]);
     expect(system.snapshot()).toHaveLength(0);
   });
+  it("restricts a splash to a cross instead of a full square", () => {
+    const system = new ProjectileSystem();
+    system.spawn({
+      owner: "player",
+      motion: "thrown",
+      position: { col: 1, row: 1 },
+      target: { col: 4, row: 1 },
+      damage: 20,
+      flightMs: 0,
+      splashRadius: 1,
+      splashShape: "cross",
+    });
+    const hitTiles: GridPosition[] = [];
+    system.advance(0, 0, {
+      collision: (_projectile, positions) => {
+        hitTiles.push(...positions);
+        return { targetIds: [], objectId: null, stop: false };
+      },
+    });
+    expect(hitTiles).toEqual(
+      expect.arrayContaining([
+        { col: 4, row: 1 },
+        { col: 3, row: 1 },
+        { col: 5, row: 1 },
+        { col: 4, row: 0 },
+        { col: 4, row: 2 },
+      ])
+    );
+    expect(hitTiles).not.toContainEqual({ col: 3, row: 0 });
+  });
+
+  it("covers exactly four cells for a two by two splash", () => {
+    const system = new ProjectileSystem();
+    system.spawn({
+      owner: "player",
+      motion: "thrown",
+      position: { col: 1, row: 1 },
+      target: { col: 4, row: 0 },
+      damage: 25,
+      flightMs: 0,
+      splashRadius: 1,
+      splashShape: "two-by-two",
+    });
+    const hitTiles: GridPosition[] = [];
+    system.advance(0, 0, {
+      collision: (_projectile, positions) => {
+        hitTiles.push(...positions);
+        return { targetIds: [], objectId: null, stop: false };
+      },
+    });
+    expect(new Set(hitTiles.map(tile => String(tile.col) + ":" + String(tile.row))).size).toBe(4);
+  });
+
 });

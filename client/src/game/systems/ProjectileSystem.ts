@@ -1,4 +1,4 @@
-import type { GridPosition, ProjectileMotion, ProjectileState } from "../types";
+import type { GridPosition, ProjectileMotion, ProjectileSplashShape, ProjectileState } from "../types";
 
 export interface ProjectileSpawn {
   id?: string;
@@ -18,6 +18,8 @@ export interface ProjectileSpawn {
   bouncesRemaining?: number;
   rowSpan?: boolean;
   splashRadius?: number;
+  splashShape?: ProjectileSplashShape;
+  affectsObjects?: boolean;
   stopOnObject?: boolean;
 }
 
@@ -100,32 +102,35 @@ function turnClockwise(direction: GridPosition): GridPosition {
 
 function collisionPositions(projectile: ProjectileState): GridPosition[] {
   const positions: GridPosition[] = projectile.rowSpan
-    ? Array.from({ length: BOARD_ROWS }, (_, row) => ({
-        col: projectile.position.col,
-        row,
-      }))
+    ? Array.from({ length: BOARD_ROWS }, (_, row) => ({ col: projectile.position.col, row }))
     : [projectile.position];
   if (projectile.splashRadius <= 0) return positions;
   const expanded = [...positions];
   positions.forEach(position => {
-    for (
-      let col = position.col - projectile.splashRadius;
-      col <= position.col + projectile.splashRadius;
-      col += 1
-    )
-      for (
-        let row = position.row - projectile.splashRadius;
-        row <= position.row + projectile.splashRadius;
-        row += 1
-      )
+    if (projectile.splashShape === "cross") {
+      for (const tile of [
+        { col: position.col - projectile.splashRadius, row: position.row },
+        { col: position.col + projectile.splashRadius, row: position.row },
+        { col: position.col, row: position.row - projectile.splashRadius },
+        { col: position.col, row: position.row + projectile.splashRadius },
+      ]) if (inside(tile)) expanded.push(tile);
+      return;
+    }
+    if (projectile.splashShape === "two-by-two") {
+      for (const tile of [
+        { col: position.col, row: position.row },
+        { col: position.col + 1, row: position.row },
+        { col: position.col, row: position.row + 1 },
+        { col: position.col + 1, row: position.row + 1 },
+      ]) if (inside(tile)) expanded.push(tile);
+      return;
+    }
+    for (let col = position.col - projectile.splashRadius; col <= position.col + projectile.splashRadius; col += 1)
+      for (let row = position.row - projectile.splashRadius; row <= position.row + projectile.splashRadius; row += 1)
         if (inside({ col, row })) expanded.push({ col, row });
   });
-  return expanded.filter(
-    (position, index, all) =>
-      all.findIndex(
-        candidate =>
-          candidate.col === position.col && candidate.row === position.row
-      ) === index
+  return expanded.filter((position, index, all) =>
+    all.findIndex(candidate => candidate.col === position.col && candidate.row === position.row) === index
   );
 }
 
@@ -175,6 +180,8 @@ export class ProjectileSystem {
       bouncesRemaining: Math.max(0, Math.trunc(spawn.bouncesRemaining ?? 0)),
       rowSpan: spawn.rowSpan ?? false,
       splashRadius: Math.max(0, Math.trunc(spawn.splashRadius ?? 0)),
+      splashShape: spawn.splashShape ?? "square",
+      affectsObjects: spawn.affectsObjects ?? true,
       stopOnObject: spawn.stopOnObject ?? true,
       hitTargets: [],
       hitObjects: [],
