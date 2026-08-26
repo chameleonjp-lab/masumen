@@ -1547,7 +1547,7 @@ export class GameWorld {
       enemy.state = "deleted";
       this.score += 100 + this.wave * 25;
       this.onEvent({ type: "deleted", id: enemy.id, at: { ...enemy.grid } });
-      this.message = \`\${enemy.name} を停止\`;
+      this.message = `${enemy.name} を停止`;
     }
   }
 
