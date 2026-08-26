@@ -28,12 +28,21 @@ import { CustomSystem } from "./systems/CustomSystem";
 import { EmotionSystem } from "./systems/EmotionSystem";
 import { ProjectileSystem } from "./systems/ProjectileSystem";
 import {
+  BOSS_ENEMY_IDS,
   ENEMY_DEFINITIONS,
   getEnemyDefinition,
+  isBossEnemy,
   type EnemyActionDefinition,
   type EnemyId,
   type EnemyPattern,
+  type EnemyPhaseDefinition,
 } from "./data/enemies";
+import {
+  BOSS_SUPPORT_SPAWN,
+  encounterHasSafeStart,
+  getEncounterTemplates,
+  type EncounterSpawn,
+} from "./data/encounters";
 import type {
   BattleEvent,
   BattleSnapshot,
@@ -81,6 +90,14 @@ interface Enemy extends EnemySnapshot {
   warningShown: boolean;
   defense: import("./types").EnemyDefenseMode;
   movement: import("./types").EnemyMovementMode;
+  isBoss: boolean;
+  bossPhase: number;
+  bossPhaseLabel: string | null;
+  weaknessElement: CardElement;
+  barrier: number;
+  baseDefense: import("./types").EnemyDefenseMode;
+  baseMovement: import("./types").EnemyMovementMode;
+  lastMirrorCardId: string | null;
 }
 interface PendingMeleeStage {
   activeAt: number;
@@ -144,6 +161,17 @@ const PATTERN_LABEL: Record<Pattern, string> = {
   "pursuit-dash": "PURSUIT DASH",
   "mortar-spread": "MORTAR SPREAD",
   "pulse-grid": "PULSE GRID",
+  "wave-runner": "WAVE RUNNER",
+  "boomer-arc": "BOOMER ARC",
+  "hopper-bomb": "HOPPER BOMB",
+  "gaia-hammer": "GAIA HAMMER",
+  "weather-core": "WEATHER CORE",
+  "support-relay": "SUPPORT RELAY",
+  "mirror-node": "MIRROR NODE",
+  "bastion-prime": "BASTION PRIME",
+  "prism-hunter": "PRISM HUNTER",
+  "climate-engine": "CLIMATE ENGINE",
+  "core-arbiter": "CORE ARBITER",
 };
 const playerTiles = () =>
   Array.from({ length: 3 }, (_, col) =>
@@ -170,6 +198,37 @@ function loadRecords(): StoredRecords {
     };
   } catch {
     return { highScore: 0, bestWave: 0 };
+  }
+}
+
+const BOSS_HISTORY_STORAGE_KEY = "grid-signal-arena-boss-history-v1";
+
+function loadBossHistory(): EnemyId[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const parsed: unknown = JSON.parse(
+      window.localStorage.getItem(BOSS_HISTORY_STORAGE_KEY) ?? "[]"
+    );
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((value): value is EnemyId =>
+        typeof value === "string" && isBossEnemy(value)
+      )
+      .slice(-2);
+  } catch {
+    return [];
+  }
+}
+
+function saveBossHistory(history: readonly EnemyId[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      BOSS_HISTORY_STORAGE_KEY,
+      JSON.stringify(history.slice(-2))
+    );
+  } catch {
+    /* Private browser modes can disallow storage. */
   }
 }
 
@@ -231,6 +290,8 @@ export class GameWorld {
   private wave = 1;
   private score = 0;
   private records = loadRecords();
+  private bossHistory: EnemyId[] = loadBossHistory();
+  private lastAttackCard: Card | null = null;
   private enemies: Enemy[] = [];
   private message = "カードを選択してください";
   private elapsed = 0;
@@ -372,6 +433,104 @@ export class GameWorld {
     );
   }
 
+  private phaseForEnemy(enemy: Enemy): EnemyPhaseDefinition | undefined {
+    const phases = getEnemyDefinition(enemy.definitionId)?.phases;
+    if (!phases || phases.length === 0) return undefined;
+    const ratio = enemy.maxHp > 0 ? enemy.hp / enemy.maxHp : 0;
+    return [...phases]
+      .sort((a, b) => a.maxHpRatio - b.maxHpRatio)
+      .find(phase => ratio <= phase.maxHpRatio) ?? phases[0];
+  }
+
+  private refreshEnemyPhase(enemy: Enemy): EnemyPhaseDefinition | undefined {
+    const definition = getEnemyDefinition(enemy.definitionId);
+    const phase = this.phaseForEnemy(enemy);
+    if (!definition || !phase) {
+      enemy.bossPhase = 0;
+      enemy.bossPhaseLabel = null;
+      enemy.defense = enemy.baseDefense;
+      enemy.movement = enemy.baseMovement;
+      enemy.weaknessElement =
+        definition?.weakness ?? definition?.element ?? "none";
+      return undefined;
+    }
+
+    const changed = enemy.bossPhase !== phase.phase;
+    enemy.bossPhase = phase.phase;
+    enemy.bossPhaseLabel = phase.label;
+    enemy.defense = phase.defense ?? enemy.baseDefense;
+    enemy.movement = phase.movement ?? enemy.baseMovement;
+    enemy.weaknessElement =
+      phase.weaknessElement ?? definition.weakness ?? definition.element;
+    if (changed) {
+      enemy.actionIndex = 0;
+      this.message = enemy.name + " — " + phase.label;
+      this.onEvent({
+        type: "player-reaction",
+        at: { ...enemy.grid },
+        kind: "phase",
+        enemyId: enemy.id,
+      });
+    }
+    return phase;
+  }
+
+  private availableEnemyActions(enemy: Enemy): EnemyActionDefinition[] {
+    const definition = getEnemyDefinition(enemy.definitionId);
+    if (!definition) return [];
+    const phase = this.phaseForEnemy(enemy);
+    if (!phase) return [...definition.actions];
+    const actions = phase.actionIds
+      .map(actionId =>
+        definition.actions.find(action => action.id === actionId)
+      )
+      .filter((action): action is EnemyActionDefinition => Boolean(action));
+    return actions.length > 0 ? actions : [...definition.actions];
+  }
+
+  private chooseEnemyAction(
+    enemy: Enemy,
+    actions: readonly EnemyActionDefinition[]
+  ): EnemyActionDefinition | undefined {
+    if (actions.length === 0) return undefined;
+    const phase = this.phaseForEnemy(enemy);
+    let action =
+      actions[enemy.actionIndex % actions.length] ?? actions[0];
+    const panel = this.panelSystem.get(this.playerGrid);
+    const preferredElement =
+      panel?.terrain === "grass"
+        ? "fire"
+        : panel?.terrain === "ice"
+          ? "electric"
+          : null;
+
+    if (
+      (enemy.definitionId === "weather-core" ||
+        enemy.definitionId === "climate-engine") &&
+      preferredElement
+    ) {
+      action =
+        actions.find(candidate => candidate.element === preferredElement) ??
+        action;
+    }
+    if (
+      enemy.definitionId === "climate-engine" &&
+      phase?.phase === 2 &&
+      (enemy.cycle + 1) % 3 === 0
+    ) {
+      action =
+        actions.find(candidate => candidate.id === "climate-dual-storm") ??
+        action;
+    }
+    if (actions.length > 1 && action.id === enemy.actionId) {
+      const nextIndex = (actions.indexOf(action) + 1) % actions.length;
+      action = actions[nextIndex] ?? action;
+    }
+    const selectedIndex = Math.max(0, actions.indexOf(action));
+    enemy.actionIndex = (selectedIndex + 1) % actions.length;
+    return action;
+  }
+
   private updateEnemy(enemy: Enemy, now: number): void {
     if (enemy.state === "deleted") {
       enemy.actionPhase = "deleted";
@@ -388,6 +547,7 @@ export class GameWorld {
       return;
     }
 
+    this.refreshEnemyPhase(enemy);
     const action = this.currentEnemyAction(enemy);
     if (enemy.state === "windup") {
       if (
@@ -443,13 +603,13 @@ export class GameWorld {
 
   private prepareAttack(enemy: Enemy, now: number): void {
     const definition = getEnemyDefinition(enemy.definitionId);
-    const action = definition?.actions[
-      enemy.actionIndex % (definition.actions.length || 1)
-    ];
-    if (!action) return;
+    const phase = this.refreshEnemyPhase(enemy);
+    const action = this.chooseEnemyAction(
+      enemy,
+      this.availableEnemyActions(enemy)
+    );
+    if (!definition || !action) return;
 
-    enemy.actionIndex =
-      (enemy.actionIndex + 1) % Math.max(1, definition.actions.length);
     enemy.cycle += 1;
     enemy.actionId = action.id;
     enemy.actionName = action.name;
@@ -458,6 +618,11 @@ export class GameWorld {
     enemy.windupMs = action.startupMs;
     enemy.cooldownMs = action.cooldownMs;
     enemy.counterWindowMs = action.counterWindowMs;
+    enemy.weaknessElement =
+      action.weaknessElement ??
+      phase?.weaknessElement ??
+      definition.weakness ??
+      definition.element;
     if (
       enemy.movement === "pursuit" &&
       now >= enemy.rootUntil
@@ -517,6 +682,38 @@ export class GameWorld {
         return playerTiles().filter(
           tile => (tile.col + tile.row + enemy.cycle) % 2 === 0
         );
+      case "all-rows":
+        return playerTiles().concat(
+          [3, 4, 5].flatMap(col =>
+            [0, 1, 2].map(row => ({ col, row }))
+          )
+        );
+      case "outer":
+        return [
+          { col: 0, row: 0 },
+          { col: 1, row: 0 },
+          { col: 2, row: 0 },
+          { col: 3, row: 0 },
+          { col: 4, row: 0 },
+          { col: 5, row: 0 },
+          { col: 5, row: 1 },
+          { col: 5, row: 2 },
+          { col: 4, row: 2 },
+          { col: 3, row: 2 },
+          { col: 2, row: 2 },
+          { col: 1, row: 2 },
+          { col: 0, row: 2 },
+          { col: 0, row: 1 },
+        ];
+      case "landing":
+        return [player];
+      case "support":
+      case "mirror":
+        return [{ ...enemy.grid }];
+      case "player-territory":
+        return [0, 1, 2].flatMap(col =>
+          [0, 1, 2].map(row => ({ col, row }))
+        );
       default:
         return [player];
     }
@@ -529,8 +726,42 @@ export class GameWorld {
     enemy.grid = target;
   }
 
+  private moveOuterEnemy(enemy: Enemy): void {
+    const route: GridPosition[] = [
+      { col: 3, row: 0 },
+      { col: 4, row: 0 },
+      { col: 5, row: 0 },
+      { col: 5, row: 1 },
+      { col: 5, row: 2 },
+      { col: 4, row: 2 },
+      { col: 3, row: 2 },
+    ];
+    let index = route.findIndex(tile => sameTile(tile, enemy.grid));
+    if (index < 0) index = 0;
+    for (let offset = 1; offset <= route.length; offset += 1) {
+      const destination = route[(index + offset) % route.length];
+      if (destination && this.canEnemyOccupy(enemy, destination)) {
+        enemy.actionPhase = "moving";
+        enemy.grid = destination;
+        return;
+      }
+    }
+  }
+
   private reposition(enemy: Enemy): void {
     if (enemy.movement === "stationary") return;
+    if (enemy.movement === "outer") {
+      this.moveOuterEnemy(enemy);
+      return;
+    }
+    if (enemy.movement === "row-align") {
+      const target = { col: enemy.grid.col, row: this.playerGrid.row };
+      if (this.canEnemyOccupy(enemy, target)) {
+        enemy.actionPhase = "moving";
+        enemy.grid = target;
+        return;
+      }
+    }
     if (enemy.movement === "pursuit") {
       const target = {
         col: 3,
@@ -540,20 +771,12 @@ export class GameWorld {
       return;
     }
     const flying = enemy.movement === "flying";
-    const directions =
-      enemy.movement === "flying"
-        ? [
-            { col: 0, row: 1 },
-            { col: 0, row: -1 },
-            { col: -1, row: 0 },
-            { col: 1, row: 0 },
-          ]
-        : [
-            { col: 0, row: 1 },
-            { col: 0, row: -1 },
-            { col: -1, row: 0 },
-            { col: 1, row: 0 },
-          ];
+    const directions = [
+      { col: 0, row: 1 },
+      { col: 0, row: -1 },
+      { col: -1, row: 0 },
+      { col: 1, row: 0 },
+    ];
     for (const direction of directions) {
       const destination = this.panelSystem.resolveMovement(
         enemy.grid,
@@ -575,7 +798,10 @@ export class GameWorld {
 
   private canEnemyOccupy(enemy: Enemy, position: GridPosition): boolean {
     const panel = this.panelSystem.get(position);
-    if (!panel || panel.owner !== "enemy") return false;
+    const territoryAllowed =
+      panel?.owner === "enemy" ||
+      (enemy.isBoss && panel?.owner === "player" && position.col >= 2);
+    if (!panel || !territoryAllowed) return false;
     if (!enemy.movement || enemy.movement !== "flying") {
       if (panel.terrain === "hole") return false;
     }
