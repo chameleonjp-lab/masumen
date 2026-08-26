@@ -402,6 +402,7 @@ export class GameWorld {
     this.clock.discardPendingTime();
     this.cancelCharge();
     this.paused = false;
+    this.mode = "practice";
     this.practiceStage = 1;
     this.message = "練習モード — " + getPracticeStage(this.practiceStage).title;
     this.notify();
@@ -4212,6 +4213,7 @@ export class GameWorld {
       bestWave: Math.max(this.records.bestWave, this.wave),
     };
     saveRecords(this.records);
+    this.notify();
   }
   private makeEnemies(wave: number): Enemy[] {
     const now = this.gameTimeMs;
