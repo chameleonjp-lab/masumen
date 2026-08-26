@@ -1239,7 +1239,8 @@ export class GameWorld {
     action: EnemyActionDefinition,
     targets: GridPosition[]
   ): void {
-    if (!action.panelTerrain) return;
+    const terrain = action.panelTerrain;
+    if (!terrain) return;
     const terrainTargets =
       action.target === "all-rows"
         ? [0, 1, 2, 3, 4, 5].flatMap(col =>
@@ -1248,15 +1249,10 @@ export class GameWorld {
         : targets;
     terrainTargets.forEach(position => {
       if (!this.panelSystem.isInside(position)) return;
-      if (action.panelTerrain === "cracked")
+      if (terrain === "cracked")
         this.panelSystem.crack(position);
       else
-        this.panelSystem.setTerrain(
-          position,
-          action.panelTerrain,
-          this.gameTimeMs,
-          3200
-        );
+        this.panelSystem.setTerrain(position, terrain, this.gameTimeMs, 3200);
     });
   }
 
