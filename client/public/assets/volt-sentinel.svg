@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Volt sentinel">
+<defs><radialGradient id="v"><stop stop-color="#fff"/><stop offset=".35" stop-color="#d6c2ff"/><stop offset="1" stop-color="#805cf2"/></radialGradient></defs>
+<path d="M60 8 72 39l31-12-13 31 23 20-32 3-5 31-19-25-28 15 10-31-28-15 32-3z" fill="#151027" stroke="#a97bff" stroke-width="4" stroke-linejoin="round"/>
+<circle cx="60" cy="57" r="25" fill="url(#v)" stroke="#f0dcff" stroke-width="3"/><path d="m63 30-16 31h15l-6 28 18-37H59z" fill="#5f43d1" stroke="#fff" stroke-width="2"/>
+<path d="M17 23 7 13m96 0-10 10M15 97l-9 10m99-10 9 10" stroke="#a97bff" stroke-width="4" stroke-linecap="round"/>
+</svg>
