@@ -43,4 +43,4 @@ pnpm exec vite build --minify=false
 
 ## アセット
 
-ゲームで使用する生成アセットは、デプロイ環境から参照できるManus Storage URLとしてソースコードに記録されています。詳細は`ASSETS.md`を参照してください。
+ゲームで使用する背景・プレイヤー・敵・ロゴは、`client/public/assets/`にSVGとして同梱しています。公開先のドメインやリポジトリ階層に依存しない相対パスで読み込みます。詳細は`ASSETS.md`を参照してください。
