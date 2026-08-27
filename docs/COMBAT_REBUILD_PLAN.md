@@ -302,3 +302,11 @@ PR16では、マージ後の公開をiPhoneから再現できるように、GitH
 - GitHub Pagesの設定とiPhone Safariでの確認手順をREADMEへ記録する。
 
 Pages設定後の実URLでの起動、音声解除、画面回転、FPS、長時間プレイはユーザーによる実機確認が必要なため未検証として残す。
+
+
+## PR17: 起動失敗時の復旧導線
+
+- `createGameScene` の失敗を未処理Promiseのまま残さず、起動エラー画面へ切り替える
+- iPhone Safariから再読み込みできるボタンを追加
+- ブラウザ契約監査へ起動失敗処理・alert・再読み込み導線を追加
+- 実機Safariの起動失敗再現、縦横表示、Pages公開後の実URLは別途確認する

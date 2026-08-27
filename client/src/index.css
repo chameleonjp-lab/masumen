@@ -652,3 +652,45 @@ select {
     font-size: 12px;
   }
 }
+
+
+/* PR17: 起動失敗時に無応答で止まらず、iPhoneから再読み込みできる復旧導線を表示する。 */
+.startup-error {
+  position: fixed;
+  z-index: 30;
+  top: 50%;
+  left: 50%;
+  width: min(520px, calc(100vw - 32px));
+  padding: clamp(24px, 6vw, 40px);
+  color: #dcebe7;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255, 123, 96, 0.72);
+  background: rgba(6, 17, 23, 0.97);
+  box-shadow: 0 24px 100px rgba(0, 0, 0, 0.72);
+  clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 20px 100%, 0 calc(100% - 20px));
+}
+.startup-error h1 {
+  margin: 0;
+  font: 700 clamp(25px, 5vw, 42px)/1.05 "Space Grotesk", "Zen Kaku Gothic New", sans-serif;
+  letter-spacing: -0.05em;
+}
+.startup-error > p:not(.eyebrow) {
+  margin: 16px auto 0;
+  color: #b4cbc5;
+  font: 12px/1.7 "Zen Kaku Gothic New", sans-serif;
+}
+.startup-error .engage-button {
+  margin-top: 22px;
+  min-height: 48px;
+}
+@media (max-width: 760px) {
+  .startup-error {
+    width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 20px);
+    max-width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 20px);
+    padding: 26px 16px;
+  }
+  .startup-error h1 {
+    font-size: clamp(24px, 8vw, 34px);
+  }
+}

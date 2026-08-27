@@ -27,6 +27,7 @@ if (visualEntries.join(",") !== audioEntries.join(","))
   throw new Error("Visual and audio recipe order/coverage must match");
 
 const scene = await read("client/src/game/scene.ts");
+const gameCanvas = await read("client/src/components/GameCanvas.tsx");
 const index = await read("client/index.html");
 const viteConfig = await read("vite.config.ts");
 for (const required of [
@@ -48,5 +49,15 @@ if (index.includes("VITE_ANALYTICS_ENDPOINT") || index.includes("/umami"))
 if (!viteConfig.includes('base: "./"')) throw new Error("Vite base must support repository subpaths");
 if (/console\.(log|debug)\s*\(/.test(scene))
   throw new Error("Scene must not ship debug console output");
+if (!gameCanvas.includes("}).catch(() => {"))
+  throw new Error("Game startup must expose a rejected-scene recovery path");
+for (const required of [
+  'className="startup-error"',
+  'role="alert"',
+  'window.location.reload()',
+]) {
+  if (!gameCanvas.includes(required))
+    throw new Error(`Startup recovery UI contract missing: ${required}`);
+}
 
 console.log(`browser contract ok: ${assetEntries.length} bundled assets, ${visualEntries.length} visual/audio recipes, scene cleanup covered`);
