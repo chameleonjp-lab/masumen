@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { GameWorld } from "./GameWorld";
 import { CARD_CATALOG } from "./deck";
 import { createChainCard, findChainTechnique } from "./data/chainTechniques";
-import type { BattleSnapshot, Card, GridPosition } from "./types";
+import type { BattleEvent, BattleSnapshot, Card, GridPosition } from "./types";
 
 function installWindowStub(): void {
   const storage = new Map<string, string>();
@@ -692,6 +692,51 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.mode).toBe("result");
     expect(latest?.outcome).toBe("draw");
     expect(latest?.rank).toBe("R");
+  });
+
+  it("clears active enemy warnings when a run ends before the rematch", () => {
+    let latest: BattleSnapshot | undefined;
+    const events: BattleEvent[] = [];
+    const world = new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      event => events.push(event)
+    );
+    const internal = world as unknown as {
+      mode: BattleSnapshot["mode"];
+      playerHp: number;
+      enemies: Array<{
+        state: string;
+        warningShown: boolean;
+        lockedTargets: GridPosition[];
+      }>;
+    };
+    const enemy = internal.enemies[0];
+    if (!enemy) throw new Error("敵が配置されていません");
+
+    internal.mode = "battle";
+    internal.playerHp = 0;
+    enemy.warningShown = true;
+    enemy.lockedTargets = [{ col: 1, row: 1 }];
+    world.update(1 / 60);
+
+    expect(latest?.mode).toBe("result");
+    expect(events).toContainEqual({
+      type: "warning",
+      at: { col: 1, row: 1 },
+      enabled: false,
+    });
+    expect(enemy.warningShown).toBe(false);
+    expect(enemy.lockedTargets).toHaveLength(0);
+
+    world.controller.restart();
+    expect(latest?.mode).toBe("custom");
+    expect(
+      events.filter(
+        event => event.type === "warning" && event.enabled === false
+      )
+    ).toHaveLength(1);
   });
 
   it("completes ten consecutive four-wave runs and rematches without state leakage", () => {
