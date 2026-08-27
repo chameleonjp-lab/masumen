@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Relay mark">
+<rect x="5" y="5" width="86" height="86" rx="16" fill="#071017" stroke="#2ad4d9" stroke-width="4"/>
+<g fill="none" stroke="#54f5ff" stroke-width="4"><rect x="23" y="23" width="50" height="50"/><path d="M23 48h50M48 23v50"/></g>
+<circle cx="48" cy="48" r="11" fill="#ff5e3b" stroke="#fff0ae" stroke-width="3"/>
+</svg>
