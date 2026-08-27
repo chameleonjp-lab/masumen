@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-label="Signal Relay Tactical arena reference">
+<defs>
+  <linearGradient id="bg" x2="0" y2="1"><stop stop-color="#07131c"/><stop offset="1" stop-color="#02070b"/></linearGradient>
+  <pattern id="grid" width="92" height="92" patternUnits="userSpaceOnUse"><path d="M92 0H0V92" fill="none" stroke="#2ad4d9" stroke-opacity=".13" stroke-width="2"/></pattern>
+  <linearGradient id="teal" x2="1"><stop stop-color="#2ad4d9" stop-opacity=".26"/><stop offset="1" stop-color="#0b3038" stop-opacity=".1"/></linearGradient>
+  <linearGradient id="ochre" x2="1"><stop stop-color="#e4a33a" stop-opacity=".24"/><stop offset="1" stop-color="#3a2712" stop-opacity=".1"/></linearGradient>
+</defs>
+<rect width="1920" height="1080" fill="url(#bg)"/>
+<rect x="170" y="160" width="1580" height="760" rx="28" fill="#071017" stroke="#45606a" stroke-width="4"/>
+<rect x="220" y="220" width="1480" height="640" fill="url(#grid)" opacity=".9"/>
+<rect x="220" y="220" width="740" height="640" fill="url(#teal)"/>
+<rect x="960" y="220" width="740" height="640" fill="url(#ochre)"/>
+<path d="M960 220V860" stroke="#ff5e3b" stroke-width="8" stroke-opacity=".75"/>
+<g fill="none" stroke="#9ffcff" stroke-opacity=".35" stroke-width="3">
+  <path d="M220 433h1480M220 646h1480"/>
+  <path d="M467 220v640M714 220v640M1207 220v640M1454 220v640"/>
+</g>
+<g fill="#2ad4d9" opacity=".7"><circle cx="470" cy="540" r="22"/><circle cx="714" cy="540" r="22"/></g>
+<g fill="#e4a33a" opacity=".7"><circle cx="1207" cy="540" r="22"/><circle cx="1454" cy="540" r="22"/></g>
+<g fill="none" stroke="#ff5e3b" stroke-width="3" opacity=".65"><circle cx="1330" cy="430" r="58"/><circle cx="1330" cy="430" r="86"/></g>
+<path d="M270 190h320M1330 190h320" stroke="#2ad4d9" stroke-width="5" opacity=".8"/>
+<text x="270" y="145" fill="#d5faff" font-family="sans-serif" font-size="30" letter-spacing="7">SIGNAL RELAY / ARENA</text>
+<text x="1450" y="955" fill="#e4a33a" font-family="sans-serif" font-size="20" letter-spacing="4">TACTICAL LINK ONLINE</text>
+</svg>

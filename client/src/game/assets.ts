@@ -1,12 +1,14 @@
-/** Signal Relay Tactical asset contract: all generated media is served from stable manuscript storage URLs. */
+/** Signal Relay Tactical asset contract: production media is bundled with the application. */
+const assetPath = (file: string): string => `./assets/${file}`;
+
 export const ASSET_URLS = {
-  reference: "/manus-storage/grid-signal-arena-reference_56f27308.png",
-  pilot: "/manus-storage/grid-signal-arena-pilot_9a97a223.png",
-  pilotAttack: "/manus-storage/grid-signal-arena-pilot-attack_b61d8314.png",
-  shieldDrone: "/manus-storage/grid-signal-arena-shield-drone_8a5a8709.png",
-  sensorOrb: "/manus-storage/grid-signal-arena-sensor-orb_b017ccba.png",
-  razorScout: "/manus-storage/grid-signal-arena-razor-scout_be702fa9.png",
-  mortarNode: "/manus-storage/grid-signal-arena-mortar-node_922f5363.png",
-  voltSentinel: "/manus-storage/grid-signal-arena-volt-sentinel_3e948412.png",
-  mark: "/manus-storage/grid-signal-arena-mark_b59cf158.png",
+  reference: assetPath("arena-reference.svg"),
+  pilot: assetPath("pilot.svg"),
+  pilotAttack: assetPath("pilot-attack.svg"),
+  shieldDrone: assetPath("shield-drone.svg"),
+  sensorOrb: assetPath("sensor-orb.svg"),
+  razorScout: assetPath("razor-scout.svg"),
+  mortarNode: assetPath("mortar-node.svg"),
+  voltSentinel: assetPath("volt-sentinel.svg"),
+  mark: assetPath("relay-mark.svg"),
 } as const;
