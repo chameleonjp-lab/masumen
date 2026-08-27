@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Mortar node">
+<defs><linearGradient id="m" x2="0" y2="1"><stop stop-color="#fff0ae"/><stop offset=".5" stop-color="#e4a33a"/><stop offset="1" stop-color="#754118"/></linearGradient></defs>
+<path d="M18 95h92L96 33H32z" fill="#10171f" stroke="#ffb24c" stroke-width="4"/>
+<path d="M32 38 53 18h22l21 20-9 55H41z" fill="url(#m)" stroke="#fff0ae" stroke-width="3"/>
+<path d="M54 39h20l8 43H46z" fill="#071017" stroke="#ffce74" stroke-width="3"/><circle cx="64" cy="62" r="12" fill="#ff633e" stroke="#ffe57d" stroke-width="3"/>
+<path d="M27 104h74M43 110h42" stroke="#ff633e" stroke-width="5" stroke-linecap="round"/>
+</svg>
