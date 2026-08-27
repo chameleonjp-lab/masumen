@@ -694,4 +694,47 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.rank).toBe("R");
   });
 
+  it("completes ten consecutive four-wave runs and rematches without state leakage", () => {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      let latest: BattleSnapshot | undefined;
+      const world = new GameWorld(snapshot => {
+        latest = snapshot;
+      }, () => undefined);
+      const internal = world as unknown as {
+        enemies: Array<{ state: string }>;
+      };
+
+      for (let wave = 1; wave <= 4; wave += 1) {
+        if (latest?.mode === "custom") world.controller.confirmCustom();
+        expect(latest?.mode).toBe("battle");
+        internal.enemies.forEach(enemy => {
+          enemy.state = "deleted";
+        });
+        world.update(1 / 60);
+
+        if (wave < 4) {
+          expect(latest?.mode).toBe("intermission");
+          world.controller.nextWave();
+          expect(latest?.mode).toBe("custom");
+        } else {
+          expect(latest?.mode).toBe("result");
+          expect(latest?.outcome).toBe("victory");
+        }
+      }
+
+      world.controller.restart();
+      expect(latest?.mode).toBe("custom");
+      expect(latest?.wave).toBe(1);
+      expect(latest?.elapsed).toBe(0);
+      expect(latest?.playerHp).toBe(latest?.playerMaxHp);
+      expect(latest?.enemies.length).toBeGreaterThan(0);
+      expect(latest?.enemies.every(enemy => enemy.state !== "deleted")).toBe(true);
+      expect(latest?.objects).toHaveLength(0);
+      expect(latest?.projectiles).toHaveLength(0);
+      expect(latest?.selected).toHaveLength(0);
+    }
+  });
+
+
+
 });
