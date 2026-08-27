@@ -20,7 +20,8 @@
     "audit:attack-data": "node scripts/audit-attack-data.mjs",
     "audit:folder-data": "node scripts/audit-folder-data.mjs",
     "format": "prettier --write .",
-    "audit:browser-contract": "node scripts/audit-browser-contract.mjs"
+    "audit:browser-contract": "node scripts/audit-browser-contract.mjs",
+    "audit:build-output": "node scripts/audit-build-output.mjs"
   },
   "dependencies": {
     "@babylonjs/core": "^9.21.2",
