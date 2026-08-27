@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 112 112" role="img" aria-label="Razor scout">
+<defs><linearGradient id="r" x2="1" y2="1"><stop stop-color="#fff0b5"/><stop offset=".35" stop-color="#ff8a4b"/><stop offset="1" stop-color="#8e2f3d"/></linearGradient></defs>
+<path d="m10 62 34-7L22 30l42 17 33-29-14 38 19 18-38-9-22 32 3-34z" fill="url(#r)" stroke="#ffd36a" stroke-width="4" stroke-linejoin="round"/>
+<path d="m38 58 28-6 19 6-23 8z" fill="#10171f" stroke="#fff1cd" stroke-width="3"/><circle cx="62" cy="58" r="5" fill="#ff5e3b"/>
+<path d="M17 78 5 87m90-7 12 9" stroke="#ff633e" stroke-width="4" stroke-linecap="round"/>
+</svg>
