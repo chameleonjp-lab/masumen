@@ -904,9 +904,12 @@ export class GameWorld {
   }
 
   private clearWarnings(enemy: Enemy): void {
-    enemy.lockedTargets.forEach(target =>
-      this.onEvent({ type: "warning", at: target, enabled: false })
-    );
+    if (enemy.warningShown) {
+      enemy.lockedTargets.forEach(target =>
+        this.onEvent({ type: "warning", at: target, enabled: false })
+      );
+    }
+    enemy.warningShown = false;
   }
 
   private executeEnemyAction(
@@ -3831,6 +3834,7 @@ export class GameWorld {
   }
 
   private resetBoard(): void {
+    this.clearEnemyWarnings();
     this.panelSystem.reset();
     this.objectSystem.reset();
     this.objectSequence = 0;
@@ -4180,6 +4184,7 @@ export class GameWorld {
     this.notify();
   }
   private finishRun(outcome: RunOutcome): void {
+    this.clearEnemyWarnings();
     this.projectileSystem.reset();
     this.pendingMelee = [];
     this.pendingChainEffects = [];
@@ -4214,6 +4219,12 @@ export class GameWorld {
     };
     saveRecords(this.records);
     this.notify();
+  }
+  private clearEnemyWarnings(): void {
+    this.enemies.forEach(enemy => {
+      this.clearWarnings(enemy);
+      enemy.lockedTargets = [];
+    });
   }
   private makeEnemies(wave: number): Enemy[] {
     const now = this.gameTimeMs;
