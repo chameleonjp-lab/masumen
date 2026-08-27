@@ -127,7 +127,7 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     camera.fov = portrait ? 0.88 : 0.76;
   };
   adaptCameraToViewport();
-  engine.onResizeObservable.add(adaptCameraToViewport);
+  const resizeObserver = engine.onResizeObservable.add(adaptCameraToViewport);
 
   const light = new HemisphericLight("arena-light", new Vector3(-0.3, 1, -0.5), scene);
   light.intensity = 1.5;
@@ -1636,6 +1636,7 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("pointerdown", unlockAudio);
       window.removeEventListener("keydown", unlockAudio);
+      if (resizeObserver) engine.onResizeObservable.remove(resizeObserver);
       (navigator as unknown as { vibrate?: (value: number) => boolean }).vibrate?.(0);
       for (const visual of Array.from(objectMeshes.values())) visual.root.dispose(false, true);
       audio.dispose();
