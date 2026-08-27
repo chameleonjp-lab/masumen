@@ -21,6 +21,14 @@ pnpm dev
 
 開発サーバー起動後は、表示されたURLをブラウザで開きます。
 
+## GitHub Pages公開
+
+1. GitHubのSettings → Pagesで、公開元をGitHub Actionsに設定します。
+2. Actions → Deploy GitHub Pages → Run workflowを開きます。
+3. Branchにmainを選び、実行後に表示されたURLをiPhone Safariで開きます。
+
+公開workflowは手動実行だけにしているため、不要なActions実行を増やしません。
+
 ## 検証
 
 ```bash
