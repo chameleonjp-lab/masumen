@@ -17,7 +17,7 @@ const assetFiles = [...assets.matchAll(/assetPath\("([^"]+)"\)/g)].map(match => 
 if (assetFiles.length !== 9) throw new Error(`Expected 9 bundled assets, found ${assetFiles.length}`);
 
 const builtRoot = "dist/public";
-if (!(await exists(`${builtRoot}/index.html`)) throw new Error("Build output is missing index.html");
+if (!(await exists(`${builtRoot}/index.html`))) throw new Error("Build output is missing index.html");
 const builtIndex = await read(`${builtRoot}/index.html`);
 if (builtIndex.includes("/manus-storage/") || builtIndex.includes("__manus__"))
   throw new Error("Build output still contains a Manus-only reference");
