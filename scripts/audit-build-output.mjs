@@ -32,7 +32,7 @@ for (const file of assetFiles) {
 }
 
 const builtAssetFiles = await readdir(resolve(root, `${builtRoot}/assets`));
-if (builtAssetFiles.filter(file => /\\.svg$/i.test(file)).length < assetFiles.length)
+if (builtAssetFiles.filter(file => /\.svg$/i.test(file)).length < assetFiles.length)
   throw new Error("Build output is missing bundled SVG assets");
 
 console.log(`build output ok: ${assetFiles.length} assets, ${builtAssetFiles.length} asset files`);
