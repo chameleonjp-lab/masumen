@@ -34,6 +34,22 @@ function queueCardForTest(world: GameWorld, id: string): void {
   internal.queue = [card];
 }
 
+function placeMeleeTarget(world: GameWorld): { hp: number } {
+  const internal = world as unknown as {
+    enemies: Array<{
+      id: string;
+      hp: number;
+      grid: GridPosition;
+    }>;
+    syncBoardOccupancy: () => void;
+  };
+  const target = internal.enemies.find(enemy => enemy.id === "scanner");
+  if (!target) throw new Error("近接検査用の敵が配置されていません");
+  target.grid = { col: 2, row: 1 };
+  internal.syncBoardOccupancy();
+  return target;
+}
+
 describe("GameWorldの現行Wave基準", () => {
   beforeEach(() => installWindowStub());
 
@@ -357,6 +373,56 @@ describe("GameWorldの現行Wave基準", () => {
     expect(
       latest?.projectiles.map(projectile => projectile.sourceCardId)
     ).toEqual(["triplet", "triplet", "triplet"]);
+  });
+
+  it.each(["slash", "sweep", "dashslash", "gridcut", "moonblade"])(
+    "routes the %s card through the melee resolver",
+    cardId => {
+      const world = new GameWorld(() => undefined, () => undefined);
+      const target = placeMeleeTarget(world);
+      const enemyBefore = target.hp;
+
+      queueCardForTest(world, cardId);
+      world.controller.useSkill();
+      advanceAtFixedRate(world, 0.8);
+
+      expect(target.hp).toBeLessThan(enemyBefore);
+    }
+  );
+
+  it("lets dashslash enter the enemy side temporarily and return safely", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      enemies: Array<{
+        id: string;
+        hp: number;
+        grid: GridPosition;
+      }>;
+      notify: () => void;
+    };
+    const target = internal.enemies.find(enemy => enemy.id === "scanner");
+    if (!target) throw new Error("突進斬検査用の敵が配置されていません");
+    const guard = internal.enemies.find(enemy => enemy.id === "bulwark");
+    if (!guard) throw new Error("突進斬検査用の敵編成が不正です");
+    guard.grid = { col: 5, row: 0 };
+    target.grid = { col: 5, row: 1 };
+    (world as unknown as { syncBoardOccupancy: () => void }).syncBoardOccupancy();
+    const enemyBefore = target.hp;
+
+    queueCardForTest(world, "dashslash");
+    world.controller.useSkill();
+    advanceAtFixedRate(world, 0.2);
+    internal.notify();
+
+    expect(latest?.playerGrid).toEqual({ col: 4, row: 1 });
+    expect(target.hp).toBeLessThan(enemyBefore);
+
+    advanceAtFixedRate(world, 0.3);
+    world.controller.move(0, 0);
+    expect(latest?.playerGrid).toEqual({ col: 1, row: 1 });
   });
 
   it("keeps PR8 installation cards as visible or hidden board objects", () => {

@@ -1895,6 +1895,8 @@ export class GameWorld {
       this.beginOverdrive(pointTarget, power);
       return [pointTarget];
     }
+    if (["slash", "sweep", "dashslash", "gridcut", "moonblade"].includes(action))
+      return this.dispatchMeleeCard(card, power);
     if (action === "dream" || action === "sanctuary") return [];
 
     if (action === "overload-limit-cannon") {
@@ -2044,12 +2046,7 @@ export class GameWorld {
           activeMs: COMBAT_BALANCE.chain.tripleMoonActiveMs,
           recoveryMs: COMBAT_BALANCE.chain.tripleMoonRecoveryMs,
         },
-        canEnter: position =>
-          this.panelSystem.canEnter(
-            position,
-            "player",
-            candidate => this.objectSystem.isSolidAt(candidate)
-          ),
+        canEnter: position => this.canEnterTemporaryMeleePosition(position),
       });
       const meleeOrigin = firstPlan.dashTo ?? origin;
       const stageCards = ["slash", "sweep", "moonblade"];
@@ -2378,6 +2375,16 @@ export class GameWorld {
     this.notify();
   }
 
+  private canEnterTemporaryMeleePosition(position: GridPosition): boolean {
+    const panel = this.panelSystem.get(position);
+    return Boolean(
+      panel &&
+        panel.terrain !== "hole" &&
+        panel.occupantId === null &&
+        !this.objectSystem.isSolidAt(position)
+    );
+  }
+
   private dispatchMeleeCard(card: Card, power: number): GridPosition[] {
     const action = getCardCombatProfile(card.id).actionId;
     const target = action === "dashslash"
@@ -2389,7 +2396,7 @@ export class GameWorld {
     const plan = createMeleePlan(this.playerGrid, target, power, action === "moonblade" ? 2 : 1, {
       dash: action === "dashslash",
       timing: { startupMs, activeMs, recoveryMs },
-      canEnter: position => this.panelSystem.canEnter(position, "player", candidate => this.objectSystem.isSolidAt(candidate)),
+      canEnter: position => this.canEnterTemporaryMeleePosition(position),
     });
     const scaleDamage = (base: number): number =>
       Math.max(0, Math.round((base * power) / Math.max(1, card.power)));
