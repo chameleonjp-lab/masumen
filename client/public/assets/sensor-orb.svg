@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 112 112" role="img" aria-label="Sensor orb">
+<defs><radialGradient id="o"><stop stop-color="#fff6d2"/><stop offset=".28" stop-color="#ffb24c"/><stop offset=".72" stop-color="#e45b35"/><stop offset="1" stop-color="#5b241c"/></radialGradient><filter id="b"><feGaussianBlur stdDeviation="3"/></filter></defs>
+<circle cx="56" cy="56" r="40" fill="#ff633e" opacity=".3" filter="url(#b)"/><circle cx="56" cy="56" r="31" fill="url(#o)" stroke="#ffe27a" stroke-width="4"/>
+<path d="M56 15v12m0 58v12M15 56h12m58 0h12" stroke="#ffcf72" stroke-width="4" stroke-linecap="round"/>
+<circle cx="56" cy="56" r="11" fill="#071017" stroke="#fff6d2" stroke-width="3"/><circle cx="52" cy="52" r="3" fill="#fff"/>
+</svg>
