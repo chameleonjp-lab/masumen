@@ -5,16 +5,14 @@ const root = resolve(".");
 const read = path => readFile(resolve(root, path), "utf8");
 
 const assets = await read("client/src/game/assets.ts");
-const assetEntries = [...assets.matchAll(/^\s+(\w+):\s+"([^"]+)",?$/gm)].map(match => ({
-  name: match[1],
-  url: match[2],
-}));
+const assetEntries = [...assets.matchAll(/assetPath\("([^"]+)"\)/g)].map(match => match[1]);
 if (assetEntries.length !== 9) throw new Error(`Expected 9 runtime assets, found ${assetEntries.length}`);
-const assetUrls = assetEntries.map(entry => entry.url);
-if (new Set(assetUrls).size !== assetUrls.length) throw new Error("Runtime asset URLs must be unique");
-for (const entry of assetEntries) {
-  if (!entry.url.startsWith("/manus-storage/") || !/\.(png|webp|jpg|jpeg)$/i.test(entry.url))
-    throw new Error(`Invalid runtime asset URL for ${entry.name}: ${entry.url}`);
+if (new Set(assetEntries).size !== assetEntries.length) throw new Error("Runtime asset filenames must be unique");
+for (const file of assetEntries) {
+  if (!/^[-a-z0-9]+\.svg$/i.test(file)) throw new Error(`Invalid bundled asset filename: ${file}`);
+  const svg = await read(`client/public/assets/${file}`);
+  if (!/<svg\b[^>]*xmlns=["']http:\/\/www\.w3\.org\/2000\/svg["']/i.test(svg))
+    throw new Error(`Bundled asset is not a valid SVG: ${file}`);
 }
 
 const visuals = await read("client/src/game/cardVisuals.ts");
@@ -29,6 +27,8 @@ if (visualEntries.join(",") !== audioEntries.join(","))
   throw new Error("Visual and audio recipe order/coverage must match");
 
 const scene = await read("client/src/game/scene.ts");
+const index = await read("client/index.html");
+const viteConfig = await read("vite.config.ts");
 for (const required of [
   "new Texture(",
   "engine.onResizeObservable.add",
@@ -38,7 +38,15 @@ for (const required of [
 ]) {
   if (!scene.includes(required)) throw new Error(`Scene lifecycle contract missing: ${required}`);
 }
+for (const source of [assets, scene, index, viteConfig]) {
+  if (source.includes("/manus-storage/") || source.includes("vitePluginManusRuntime"))
+    throw new Error("Production client must not depend on Manus-only runtime or storage paths");
+}
+if (!index.includes("./assets/relay-mark.svg")) throw new Error("Entry page favicon must be bundled");
+if (index.includes("VITE_ANALYTICS_ENDPOINT") || index.includes("/umami"))
+  throw new Error("Entry page must not emit an unconfigured analytics request");
+if (!viteConfig.includes('base: "./"')) throw new Error("Vite base must support repository subpaths");
 if (/console\.(log|debug)\s*\(/.test(scene))
   throw new Error("Scene must not ship debug console output");
 
-console.log(`browser contract ok: ${assetEntries.length} assets, ${visualEntries.length} visual/audio recipes, scene cleanup covered`);
+console.log(`browser contract ok: ${assetEntries.length} bundled assets, ${visualEntries.length} visual/audio recipes, scene cleanup covered`);
