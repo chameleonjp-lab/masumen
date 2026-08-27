@@ -173,6 +173,7 @@ export default function GameCanvas() {
   const [soundVolume, setSoundVolume] = useState(70);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const [folderEditorOpen, setFolderEditorOpen] = useState(false);
+  const [bootError, setBootError] = useState(false);
   const touchInputRef = useRef(createTouchInputState());
 
   useEffect(() => {
@@ -201,6 +202,8 @@ export default function GameCanvas() {
       createdHandle.controller.setSoundVolume?.(soundVolume / 100);
       createdHandle.controller.setVibrationEnabled?.(vibrationEnabled);
       engine.runRenderLoop(() => createdHandle.scene.render());
+    }).catch(() => {
+      if (!disposed) setBootError(true);
     });
     const onResize = () => engine.resize();
     window.addEventListener("resize", onResize);
@@ -340,6 +343,26 @@ export default function GameCanvas() {
         style={{ touchAction: "none" }}
         aria-label="グリッド・シグナル・アリーナの戦闘フィールド"
       />
+      {bootError && (
+        <section
+          className="startup-error"
+          role="alert"
+          aria-live="assertive"
+        >
+          <p className="eyebrow">接続失敗 / 起動停止</p>
+          <h1>戦闘画面を読み込めませんでした</h1>
+          <p>
+            端末の描画準備を確認して、ページを再読み込みしてください。
+          </p>
+          <button
+            type="button"
+            className="engage-button"
+            onClick={() => window.location.reload()}
+          >
+            再読み込み <span>↗</span>
+          </button>
+        </section>
+      )}
       <div className="screen-noise" aria-hidden="true" />
       <div className="crisis-frame" aria-hidden="true" />
       <div className="signal-hud">
