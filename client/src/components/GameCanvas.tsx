@@ -764,7 +764,7 @@ export default function GameCanvas() {
               onLostPointerCapture={event => endPointerAction(event, true)}
               aria-label="チャージショット"
             >
-              CHG
+              溜め
             </button>
             <button
               type="button"
