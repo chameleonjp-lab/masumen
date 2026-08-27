@@ -12,6 +12,7 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Scene } from "@babylonjs/core/scene";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { GameWorld } from "./GameWorld";
+import { createMovementRepeat } from "./movementRepeat";
 import { ASSET_URLS } from "./assets";
 import { CardAudio } from "./cardAudio";
 import { getCardVfxRecipe } from "./cardVisuals";
@@ -1312,13 +1313,34 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     world.controller.toggleCard(index);
   });
 
+  const keyMoveRepeat = createMovementRepeat();
+  let activeMoveKey: string | null = null;
+  const moveDirections: Record<string, GridPosition> = {
+    arrowup: { col: 0, row: 1 },
+    w: { col: 0, row: 1 },
+    arrowdown: { col: 0, row: -1 },
+    s: { col: 0, row: -1 },
+    arrowleft: { col: -1, row: 0 },
+    a: { col: -1, row: 0 },
+    arrowright: { col: 1, row: 0 },
+    d: { col: 1, row: 0 },
+  };
+  const stopKeyMove = () => {
+    activeMoveKey = null;
+    keyMoveRepeat.stop();
+  };
   const keyDown = (event: KeyboardEvent) => {
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Enter"].includes(event.key)) event.preventDefault();
-    if (event.repeat && event.key !== " ") return;
-    if (event.key === "ArrowUp" || event.key.toLowerCase() === "w") world.controller.move(0, 1);
-    if (event.key === "ArrowDown" || event.key.toLowerCase() === "s") world.controller.move(0, -1);
-    if (event.key === "ArrowLeft" || event.key.toLowerCase() === "a") world.controller.move(-1, 0);
-    if (event.key === "ArrowRight" || event.key.toLowerCase() === "d") world.controller.move(1, 0);
+    const moveKey = event.key.toLowerCase();
+    const direction = moveDirections[moveKey];
+    if (direction) {
+      if (activeMoveKey !== null) return;
+      activeMoveKey = moveKey;
+      keyMoveRepeat.start(() =>
+        world.controller.move(direction.col, direction.row),
+      );
+      return;
+    }
     if (event.key.toLowerCase() === "z") world.controller.fire();
     if (event.key === " ") world.controller.startCharge();
     if (event.key.toLowerCase() === "x") world.controller.useSkill();
@@ -1326,12 +1348,14 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     if (event.key === "Enter") world.controller.confirmCustom();
   };
   const keyUp = (event: KeyboardEvent) => {
+    if (activeMoveKey === event.key.toLowerCase()) stopKeyMove();
     if (event.key === " ") {
       event.preventDefault();
       world.controller.releaseCharge();
     }
   };
   const cancelInterruptedInput = () => {
+    stopKeyMove();
     world.controller.cancelCharge();
     world.onVisibilityChange(false);
     hitstopUntil = 0;
@@ -1634,6 +1658,7 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
       window.removeEventListener("pagehide", cancelInterruptedInput);
       window.removeEventListener("pointercancel", cancelInterruptedInput);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      stopKeyMove();
       window.removeEventListener("pointerdown", unlockAudio);
       window.removeEventListener("keydown", unlockAudio);
       if (resizeObserver) engine.onResizeObservable.remove(resizeObserver);

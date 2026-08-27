@@ -9,6 +9,7 @@ import type { BattleSnapshot, GameHandle } from "@/game/types";
 import FolderEditor from "@/components/game/FolderEditor";
 import ResultScreen from "@/components/game/ResultScreen";
 import Tutorial from "@/components/game/Tutorial";
+import { createMovementRepeat, type MovementRepeat } from "@/game/movementRepeat";
 import { beginTouchAction, createTouchInputState, endTouchAction, type TouchAction } from "@/game/touchInputGuard";
 
 const initialSnapshot: BattleSnapshot = {
@@ -175,6 +176,18 @@ export default function GameCanvas() {
   const [folderEditorOpen, setFolderEditorOpen] = useState(false);
   const [bootError, setBootError] = useState(false);
   const touchInputRef = useRef(createTouchInputState());
+  const moveRepeatRef = useRef<MovementRepeat | null>(null);
+
+  const stopMoveRepeat = () => {
+    moveRepeatRef.current?.stop();
+    moveRepeatRef.current = null;
+  };
+
+  const startMoveRepeat = (callback: () => void) => {
+    if (!moveRepeatRef.current)
+      moveRepeatRef.current = createMovementRepeat();
+    moveRepeatRef.current.start(callback);
+  };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -189,7 +202,11 @@ export default function GameCanvas() {
     });
     createGameScene(engine, canvas, {
       onSnapshot: nextSnapshot => {
-        if (!disposed) setSnapshot(nextSnapshot);
+        if (!disposed) {
+          if (nextSnapshot.mode !== "battle" || nextSnapshot.paused)
+            stopMoveRepeat();
+          setSnapshot(nextSnapshot);
+        }
       },
     }).then(createdHandle => {
       if (disposed) {
@@ -229,6 +246,7 @@ export default function GameCanvas() {
 
   useEffect(() => {
     const clearTouchState = () => {
+      stopMoveRepeat();
       if (touchInputRef.current.activeAction === "charge") {
         controllerRef.current?.cancelCharge();
       }
@@ -238,6 +256,7 @@ export default function GameCanvas() {
       const current = touchInputRef.current;
       if (current.activePointerId !== event.pointerId) return;
       const wasCharge = current.activeAction === "charge";
+      if (current.activeAction === "move") stopMoveRepeat();
       touchInputRef.current = endTouchAction(current, event.pointerId);
       if (wasCharge) {
         if (cancelled) controllerRef.current?.cancelCharge();
@@ -261,6 +280,7 @@ export default function GameCanvas() {
       window.removeEventListener("blur", clearTouchState);
       window.removeEventListener("pagehide", clearTouchState);
       document.removeEventListener("visibilitychange", clearTouchState);
+      stopMoveRepeat();
     };
   }, []);
 
@@ -310,7 +330,8 @@ export default function GameCanvas() {
     } catch {
       // Pointer capture is unavailable in a few embedded browsers.
     }
-    callback();
+    if (action === "move") startMoveRepeat(callback);
+    else callback();
   };
 
   const endPointerAction = (
@@ -326,6 +347,7 @@ export default function GameCanvas() {
     const current = touchInputRef.current;
     if (current.activePointerId !== event.pointerId) return;
     const wasCharge = current.activeAction === "charge";
+    if (current.activeAction === "move") stopMoveRepeat();
     touchInputRef.current = endTouchAction(current, event.pointerId);
     if (wasCharge) {
       if (cancelled) controllerRef.current?.cancelCharge();
