@@ -65,7 +65,7 @@ export default function ResultScreen({
           合計時間 <b>{timecode(snapshot.elapsed)}</b>
         </span>
         <span>
-          到達Wave <b>{snapshot.reachedWave ?? snapshot.wave}</b>
+          到達ウェーブ <b>{snapshot.reachedWave ?? snapshot.wave}</b>
         </span>
         <span>
           自己ベスト差 <b>{deltaLabel}</b>
@@ -107,7 +107,7 @@ export default function ResultScreen({
         <div className="result-breakdown">
           <span>スコア内訳</span>
           <p>
-            敵撃破 +{breakdown.enemyDefeatPoints} / Wave突破 +
+            敵撃破 +{breakdown.enemyDefeatPoints} / ウェーブ突破 +
             {breakdown.waveClearPoints} / 時間 +{breakdown.timePoints}
           </p>
           <p>

@@ -215,3 +215,440 @@ button { font: inherit; }
   .practice-actions { display: grid; grid-template-columns: 1fr; }
   .practice-actions button { width: 100%; }
 }
+
+
+/* PR13: 日本語モバイルUI、セーフエリア、回転対応、単一タッチ入力。 */
+html,
+body,
+#root {
+  width: 100%;
+  min-width: 0;
+  height: 100%;
+}
+
+html {
+  overflow: hidden;
+}
+
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+}
+
+.game-shell {
+  width: 100vw;
+  min-width: 0;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 100svh;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.game-canvas {
+  touch-action: none;
+}
+
+button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+select {
+  touch-action: manipulation;
+  font-size: 16px;
+}
+
+.terminal-brand {
+  top: max(24px, calc(env(safe-area-inset-top, 0px) + 12px));
+  left: max(28px, calc(env(safe-area-inset-left, 0px) + 16px));
+}
+
+.pause-button {
+  top: max(24px, calc(env(safe-area-inset-top, 0px) + 12px));
+  right: max(28px, calc(env(safe-area-inset-right, 0px) + 16px));
+}
+
+.signal-log {
+  top: max(34px, calc(env(safe-area-inset-top, 0px) + 22px));
+}
+
+.player-console {
+  top: max(91px, calc(env(safe-area-inset-top, 0px) + 67px));
+  left: max(28px, calc(env(safe-area-inset-left, 0px) + 16px));
+}
+
+.enemy-console {
+  top: max(91px, calc(env(safe-area-inset-top, 0px) + 67px));
+  right: max(28px, calc(env(safe-area-inset-right, 0px) + 16px));
+}
+
+.queue-console,
+.gauge-console {
+  bottom: max(42px, calc(env(safe-area-inset-bottom, 0px) + 42px));
+}
+
+.skill-rail {
+  bottom: max(18px, calc(env(safe-area-inset-bottom, 0px) + 18px));
+}
+
+.control-guide {
+  bottom: max(16px, calc(env(safe-area-inset-bottom, 0px) + 12px));
+}
+
+.pause-console,
+.result-console,
+.practice-console {
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 20px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.folder-editor {
+  padding: max(8px, calc(env(safe-area-inset-top, 0px) + 8px))
+    max(8px, calc(env(safe-area-inset-right, 0px) + 8px))
+    max(8px, calc(env(safe-area-inset-bottom, 0px) + 8px))
+    max(8px, calc(env(safe-area-inset-left, 0px) + 8px));
+}
+
+@media (max-width: 760px) {
+  .terminal-brand {
+    top: max(10px, calc(env(safe-area-inset-top, 0px) + 8px));
+    left: max(12px, calc(env(safe-area-inset-left, 0px) + 8px));
+  }
+
+  .signal-log {
+    top: max(10px, calc(env(safe-area-inset-top, 0px) + 8px));
+    right: max(12px, calc(env(safe-area-inset-right, 0px) + 8px));
+    left: auto;
+    width: min(48vw, 210px);
+    max-width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 150px);
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .player-console {
+    top: max(60px, calc(env(safe-area-inset-top, 0px) + 50px));
+    left: max(10px, calc(env(safe-area-inset-left, 0px) + 8px));
+  }
+
+  .enemy-console {
+    top: max(60px, calc(env(safe-area-inset-top, 0px) + 50px));
+    right: max(10px, calc(env(safe-area-inset-right, 0px) + 8px));
+  }
+
+  .custom-console {
+    padding-top: max(58px, calc(env(safe-area-inset-top, 0px) + 52px));
+    padding-right: max(12px, calc(env(safe-area-inset-right, 0px) + 10px));
+    padding-bottom: max(16px, calc(env(safe-area-inset-bottom, 0px) + 12px));
+    padding-left: max(12px, calc(env(safe-area-inset-left, 0px) + 10px));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .custom-topline {
+    flex-wrap: wrap;
+    gap: 6px 12px;
+    line-height: 1.4;
+  }
+
+  .custom-heading {
+    min-width: 0;
+    margin: 14px 0;
+  }
+
+  .custom-heading h1 {
+    font-size: clamp(30px, 9vw, 39px);
+    letter-spacing: -0.05em;
+  }
+
+  .custom-heading > span,
+  .card-inspector {
+    overflow-wrap: anywhere;
+  }
+
+  .card-deck {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    min-width: 0;
+    gap: 8px;
+    padding: 0 0 6px;
+    overflow-x: hidden;
+    overflow-y: visible;
+  }
+
+  .signal-card {
+    min-width: 0;
+    min-height: 136px;
+    padding: 10px;
+  }
+
+  .signal-card strong,
+  .signal-card small {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .signal-card strong {
+    font-size: 13px;
+  }
+
+  .signal-card small {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+
+  .signal-card b {
+    right: 9px;
+    bottom: 24px;
+    font-size: 19px;
+  }
+
+  .signal-card > i {
+    right: 8px;
+    left: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 7px;
+  }
+
+  .custom-range-preview {
+    width: 100%;
+    min-width: 0;
+    margin-top: 10px;
+    overflow: hidden;
+  }
+
+  .range-preview-label {
+    min-width: 0;
+    gap: 6px;
+  }
+
+  .range-preview-label span,
+  .range-preview-label b {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .range-board {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .custom-range-preview > small {
+    overflow-wrap: anywhere;
+  }
+
+  .custom-footer {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
+  .custom-footer p {
+    line-height: 1.35;
+  }
+
+  .custom-footer-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+  }
+
+  .custom-footer-actions > button {
+    width: 100%;
+    min-width: 0;
+    padding: 10px 6px;
+  }
+
+  .custom-footer-actions > .engage-button {
+    grid-column: 1 / -1;
+  }
+
+  .mobile-controls {
+    right: max(8px, calc(env(safe-area-inset-right, 0px) + 8px));
+    bottom: max(10px, calc(env(safe-area-inset-bottom, 0px) + 10px));
+    left: max(8px, calc(env(safe-area-inset-left, 0px) + 8px));
+    gap: 6px;
+  }
+
+  .dpad.dpad-large {
+    flex: 0 1 auto;
+    width: 174px;
+    height: 150px;
+  }
+
+  .result-console,
+  .practice-console,
+  .pause-console {
+    width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 20px);
+    max-width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 20px);
+    padding: 22px 14px;
+  }
+
+  .result-console-rich {
+    width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 20px);
+  }
+
+  .rank-dial {
+    width: 88px;
+    height: 88px;
+    margin: 16px auto;
+  }
+
+  .practice-stages {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .practice-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .practice-actions button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) and (orientation: portrait) {
+  .pause-button {
+    top: max(198px, calc(env(safe-area-inset-top, 0px) + 190px));
+    right: max(10px, calc(env(safe-area-inset-right, 0px) + 8px));
+  }
+}
+
+@media (max-width: 760px) and (orientation: landscape) {
+  .pause-button {
+    top: max(10px, calc(env(safe-area-inset-top, 0px) + 8px));
+    right: max(10px, calc(env(safe-area-inset-right, 0px) + 8px));
+  }
+
+  .custom-console {
+    padding-top: max(40px, calc(env(safe-area-inset-top, 0px) + 34px));
+  }
+
+  .custom-heading {
+    margin: 18px 0 10px;
+  }
+
+  .custom-heading h1 {
+    font-size: clamp(28px, 6vw, 40px);
+  }
+
+  .card-deck {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .signal-card {
+    min-height: 124px;
+    padding: 8px;
+  }
+
+  .signal-card strong {
+    font-size: clamp(10px, 2.4vw, 14px);
+  }
+
+  .signal-card small {
+    font-size: 7px;
+  }
+
+  .custom-range-preview {
+    grid-template-columns: 130px minmax(0, 1fr);
+    margin-top: 10px;
+  }
+
+  .range-board {
+    grid-template-rows: repeat(3, 15px);
+  }
+
+  .custom-footer {
+    margin-top: 10px;
+  }
+
+  .custom-footer-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .custom-footer-actions > .engage-button {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 380px) {
+  .mobile-controls {
+    right: max(6px, calc(env(safe-area-inset-right, 0px) + 6px));
+    left: max(6px, calc(env(safe-area-inset-left, 0px) + 6px));
+    gap: 4px;
+  }
+
+  .dpad.dpad-large {
+    width: 132px;
+    height: 114px;
+  }
+
+  .dpad.dpad-large button {
+    width: 44px;
+    height: 38px;
+    font-size: 16px;
+  }
+
+  .dpad.dpad-large button:nth-child(1) {
+    top: 0;
+    left: 44px;
+  }
+
+  .dpad.dpad-large button:nth-child(2) {
+    top: 39px;
+    left: 0;
+  }
+
+  .dpad.dpad-large button:nth-child(3) {
+    top: 39px;
+    right: 0;
+  }
+
+  .dpad.dpad-large button:nth-child(4) {
+    bottom: 0;
+    left: 44px;
+  }
+
+  .action-buttons {
+    gap: 4px;
+  }
+
+  .action-buttons button {
+    width: 44px;
+    height: 44px;
+    font-size: 8px;
+  }
+
+  .charge-indicator {
+    right: 6px;
+    bottom: 52px;
+    width: 88px;
+  }
+
+  .custom-heading h1 {
+    font-size: 30px;
+  }
+
+  .signal-card {
+    min-height: 128px;
+    padding: 8px;
+  }
+
+  .signal-card strong {
+    font-size: 12px;
+  }
+}

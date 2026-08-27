@@ -168,22 +168,22 @@ const CUSTOM_INTERVAL_SECONDS = COMBAT_BALANCE.custom.intervalMs / 1000;
 const TERRITORY_EXPANSION_DURATION_MS = 10000;
 const STORAGE_KEY = "grid-signal-arena-records-v2";
 const PATTERN_LABEL: Record<Pattern, string> = {
-  "lane-sweep": "LANE SWEEP",
-  "column-scan": "COLUMN SCAN",
-  "pursuit-dash": "PURSUIT DASH",
-  "mortar-spread": "MORTAR SPREAD",
-  "pulse-grid": "PULSE GRID",
-  "wave-runner": "WAVE RUNNER",
-  "boomer-arc": "BOOMER ARC",
-  "hopper-bomb": "HOPPER BOMB",
-  "gaia-hammer": "GAIA HAMMER",
-  "weather-core": "WEATHER CORE",
-  "support-relay": "SUPPORT RELAY",
-  "mirror-node": "MIRROR NODE",
-  "bastion-prime": "BASTION PRIME",
-  "prism-hunter": "PRISM HUNTER",
-  "climate-engine": "CLIMATE ENGINE",
-  "core-arbiter": "CORE ARBITER",
+  "lane-sweep": "横一列砲撃",
+  "column-scan": "縦列走査",
+  "pursuit-dash": "踏み込み斬り",
+  "mortar-spread": "砲撃準備",
+  "pulse-grid": "電撃準備",
+  "wave-runner": "水波準備",
+  "boomer-arc": "周回弾準備",
+  "hopper-bomb": "爆弾準備",
+  "gaia-hammer": "槌撃準備",
+  "weather-core": "天候攻撃準備",
+  "support-relay": "支援行動準備",
+  "mirror-node": "反射行動準備",
+  "bastion-prime": "要塞行動準備",
+  "prism-hunter": "転送斬準備",
+  "climate-engine": "気象攻撃準備",
+  "core-arbiter": "裁定攻撃準備",
 };
 const playerTiles = () =>
   Array.from({ length: 3 }, (_, col) =>
@@ -368,7 +368,7 @@ export class GameWorld {
     this.onEvent = onEvent;
     if (startWave > 1 && startWave <= FINAL_WAVE) {
       this.wave = startWave;
-      this.message = `WAVE 0${this.wave} デモ — カードを選択`;
+      this.message = `ウェーブ 0${this.wave} デモ — カードを選択`;
     }
     this.resetBattleDeck();
     this.resetBoard();
@@ -4006,10 +4006,10 @@ export class GameWorld {
     this.syncCustomRemaining();
     this.message =
       chainTechnique
-        ? `WAVE 0${this.wave} — ${chainTechnique.name}を接続`
+        ? `ウェーブ 0${this.wave} — ${chainTechnique.name}を接続`
         : this.queue.length > 0
-          ? `WAVE 0${this.wave} — 接続開始`
-          : `WAVE 0${this.wave} — カードなしで戦闘開始`;
+          ? `ウェーブ 0${this.wave} — 接続開始`
+          : `ウェーブ 0${this.wave} — カードなしで戦闘開始`;
     const now = this.gameTimeMs;
     this.enemies.forEach((enemy, index) => {
       if (enemy.state !== "deleted")
@@ -4039,7 +4039,7 @@ export class GameWorld {
       this.healPlayer(Math.ceil(this.playerMaxHp * 0.15));
       this.lastWaveRecovery = Math.max(0, this.playerHp - beforeRecovery);
       this.message =
-        "WAVE 0" +
+        "ウェーブ 0" +
         this.wave +
         " 完了 — 耐久を" +
         this.lastWaveRecovery +
@@ -4096,7 +4096,7 @@ export class GameWorld {
     this.resetBattleDeck();
     this.resetBoard();
     this.mode = "custom";
-    this.message = `WAVE 0${this.wave} 接近 — カードを選択`;
+    this.message = `ウェーブ 0${this.wave} 接近 — カードを選択`;
     this.notify();
   }
   private restart(): void {

@@ -1,5 +1,5 @@
 /** Signal Relay Tactical component: the React frame supplies a clipped industrial HUD while Babylon owns the live arena. */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { ASSET_URLS } from "@/game/assets";
 import { validateSelection } from "@/game/deck";
@@ -9,6 +9,7 @@ import type { BattleSnapshot, GameHandle } from "@/game/types";
 import FolderEditor from "@/components/game/FolderEditor";
 import ResultScreen from "@/components/game/ResultScreen";
 import Tutorial from "@/components/game/Tutorial";
+import { beginTouchAction, createTouchInputState, endTouchAction, type TouchAction } from "@/game/touchInputGuard";
 
 const initialSnapshot: BattleSnapshot = {
   mode: "custom",
@@ -33,7 +34,7 @@ const initialSnapshot: BattleSnapshot = {
   panels: [],
   objects: [],
   projectiles: [],
-  message: "INITIALIZING TERMINAL",
+  message: "端末を起動しています",
   elapsed: 0,
   counters: 0,
   rank: "—",
@@ -74,6 +75,25 @@ function cardClassLabel(card: BattleSnapshot["queue"][number]): string {
   return card.family;
 }
 
+const enemyPatternLabels: Record<string, string> = {
+  "lane-sweep": "横一列砲撃",
+  "column-scan": "縦列走査",
+  "pursuit-dash": "踏み込み斬り",
+  "mortar-spread": "砲撃準備",
+  "pulse-grid": "電撃準備",
+  "wave-runner": "水波準備",
+  "boomer-arc": "周回弾準備",
+  "hopper-bomb": "爆弾準備",
+  "gaia-hammer": "槌撃準備",
+  "weather-core": "天候攻撃準備",
+  "support-relay": "支援行動準備",
+  "mirror-node": "反射行動準備",
+  "bastion-prime": "要塞行動準備",
+  "prism-hunter": "転送斬準備",
+  "climate-engine": "気象攻撃準備",
+  "core-arbiter": "裁定攻撃準備",
+};
+
 function enemyReadoutLabel(
   enemy: BattleSnapshot["enemies"][number]
 ): string {
@@ -84,7 +104,7 @@ function enemyReadoutLabel(
   if (enemy.actionPhase === "recovery") return "攻撃後の隙";
   if (enemy.actionPhase === "stunned") return "麻痺";
   if (enemy.state === "deleted") return "停止";
-  return enemy.actionName ?? enemy.pattern.replace("-", " ").toUpperCase();
+  return enemy.actionName ?? enemyPatternLabels[enemy.pattern] ?? "行動待機";
 }
 
 function previewTargets(
@@ -130,6 +150,20 @@ function previewVector(card: BattleSnapshot["customHand"][number] | undefined) {
   return "→";
 }
 
+const targetLabels: Record<string, string> = {
+  front: "正面",
+  near: "近距離",
+  row: "横一列",
+  column: "縦一列",
+  cross: "十字",
+  self: "自分",
+  "enemy-field": "敵陣全体",
+};
+
+function targetLabel(target: string | undefined): string {
+  return targetLabels[target ?? "front"] ?? "対象範囲";
+}
+
 export default function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const startedRef = useRef(false);
@@ -139,6 +173,7 @@ export default function GameCanvas() {
   const [soundVolume, setSoundVolume] = useState(70);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const [folderEditorOpen, setFolderEditorOpen] = useState(false);
+  const touchInputRef = useRef(createTouchInputState());
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -169,13 +204,60 @@ export default function GameCanvas() {
     });
     const onResize = () => engine.resize();
     window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    window.visualViewport?.addEventListener("resize", onResize);
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(onResize);
+    resizeObserver?.observe(canvas);
     return () => {
       disposed = true;
       window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+      window.visualViewport?.removeEventListener("resize", onResize);
+      resizeObserver?.disconnect();
       handle?.dispose();
       engine.dispose();
       controllerRef.current = null;
       startedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const clearTouchState = () => {
+      if (touchInputRef.current.activeAction === "charge") {
+        controllerRef.current?.cancelCharge();
+      }
+      touchInputRef.current = createTouchInputState();
+    };
+    const finishNativePointer = (event: PointerEvent, cancelled: boolean) => {
+      const current = touchInputRef.current;
+      if (current.activePointerId !== event.pointerId) return;
+      const wasCharge = current.activeAction === "charge";
+      touchInputRef.current = endTouchAction(current, event.pointerId);
+      if (wasCharge) {
+        if (cancelled) controllerRef.current?.cancelCharge();
+        else controllerRef.current?.releaseCharge();
+      }
+    };
+    const onWindowPointerUp = (event: PointerEvent) => {
+      finishNativePointer(event, false);
+    };
+    const onWindowPointerCancel = (event: PointerEvent) => {
+      finishNativePointer(event, true);
+    };
+    window.addEventListener("pointerup", onWindowPointerUp);
+    window.addEventListener("pointercancel", onWindowPointerCancel);
+    window.addEventListener("blur", clearTouchState);
+    window.addEventListener("pagehide", clearTouchState);
+    document.addEventListener("visibilitychange", clearTouchState);
+    return () => {
+      window.removeEventListener("pointerup", onWindowPointerUp);
+      window.removeEventListener("pointercancel", onWindowPointerCancel);
+      window.removeEventListener("blur", clearTouchState);
+      window.removeEventListener("pagehide", clearTouchState);
+      document.removeEventListener("visibilitychange", clearTouchState);
     };
   }, []);
 
@@ -202,6 +284,52 @@ export default function GameCanvas() {
     controller?.setVibrationEnabled?.(next);
   };
 
+  const beginPointerAction = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    action: TouchAction,
+    callback: () => void,
+  ) => {
+    event.preventDefault();
+    if (event.pointerType === "mouse") {
+      callback();
+      return;
+    }
+    const result = beginTouchAction(
+      touchInputRef.current,
+      event.pointerId,
+      action,
+      performance.now(),
+    );
+    if (!result.accepted) return;
+    touchInputRef.current = result.state;
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture is unavailable in a few embedded browsers.
+    }
+    callback();
+  };
+
+  const endPointerAction = (
+    event: ReactPointerEvent<HTMLButtonElement>,
+    cancelled = false,
+  ) => {
+    event.preventDefault();
+    if (event.pointerType === "mouse") {
+      if (cancelled) controllerRef.current?.cancelCharge();
+      else controllerRef.current?.releaseCharge();
+      return;
+    }
+    const current = touchInputRef.current;
+    if (current.activePointerId !== event.pointerId) return;
+    const wasCharge = current.activeAction === "charge";
+    touchInputRef.current = endTouchAction(current, event.pointerId);
+    if (wasCharge) {
+      if (cancelled) controllerRef.current?.cancelCharge();
+      else controllerRef.current?.releaseCharge();
+    }
+  };
+
   return (
     <main
       className={`game-shell ${crisisState !== "normal" ? `is-${crisisState}` : ""}`}
@@ -210,16 +338,16 @@ export default function GameCanvas() {
         ref={canvasRef}
         className="game-canvas"
         style={{ touchAction: "none" }}
-        aria-label="Grid Signal Arenaの戦闘フィールド"
+        aria-label="グリッド・シグナル・アリーナの戦闘フィールド"
       />
       <div className="screen-noise" aria-hidden="true" />
       <div className="crisis-frame" aria-hidden="true" />
       <div className="signal-hud">
         <header className="terminal-brand">
-          <img src={ASSET_URLS.mark} alt="Grid Signal Arena" />
+          <img src={ASSET_URLS.mark} alt="グリッド・シグナル・アリーナ" />
           <div>
-            <p>GRID SIGNAL</p>
-            <strong>ARENA</strong>
+            <p>グリッド・シグナル</p>
+            <strong>アリーナ</strong>
           </div>
           <span className="brand-node" />
         </header>
@@ -238,9 +366,9 @@ export default function GameCanvas() {
         <section
           className={`player-console technical-panel ${crisisState !== "normal" ? "is-crisis" : ""}`}
         >
-          <p className="eyebrow">01 / PILOT STATUS // WAVE 0{snapshot.wave}</p>
+          <p className="eyebrow">01 / 操作体情報 // ウェーブ 0{snapshot.wave}</p>
           <div className="metric-row">
-            <span>INTEGRITY</span>
+            <span>耐久</span>
             <strong className={crisisState !== "normal" ? "is-crisis" : ""}>
               {String(snapshot.playerHp).padStart(3, "0")}
             </strong>
@@ -254,12 +382,12 @@ export default function GameCanvas() {
             <div className={`crisis-readout is-${crisisState}`}>
               <i />{" "}
               {crisisState === "critical"
-                ? "CRITICAL // EVASIVE ACTION"
-                : "CAUTION // INTEGRITY LOW"}
+                ? "危険 // 回避行動"
+                : "注意 // 耐久低下"}
             </div>
           )}
           <div className="metric-row compact">
-            <span>POSITION</span>
+            <span>位置</span>
             <strong>
               {snapshot.playerGrid.col + 1} · {snapshot.playerGrid.row + 1}
             </strong>
@@ -267,12 +395,12 @@ export default function GameCanvas() {
           <div className={`sync-status ${snapshot.sync ? "is-synced" : ""}`}>
             <i />{" "}
             {snapshot.sync
-              ? "FULL SYNC // 次カード x2"
+              ? "完全同期 // 次カード ×2"
               : snapshot.invincible
-                ? `PHASE VEIL // ${snapshot.invincibleRemaining.toFixed(1)}S`
+                ? `位相化 // ${snapshot.invincibleRemaining.toFixed(1)}秒`
                 : snapshot.barrier > 0
-                  ? `BARRIER // ${snapshot.barrier}`
-                  : "SYNC LINK // STANDBY"}
+                  ? `障壁 // ${snapshot.barrier}`
+                  : "同期接続 // 待機"}
           </div>
           <div className={`emotion-status emotion-${snapshot.emotion}`}>
             <span>精神状態</span>
@@ -287,7 +415,7 @@ export default function GameCanvas() {
         </section>
 
         <section className="enemy-console technical-panel">
-          <p className="eyebrow">06 / THREAT SCAN</p>
+          <p className="eyebrow">06 / 敵情報</p>
           {snapshot.enemies.map(enemy => (
             <div className="enemy-readout" key={enemy.id}>
               <div>
@@ -309,13 +437,13 @@ export default function GameCanvas() {
         </section>
 
         <section className="run-console technical-panel">
-          <p className="eyebrow">RUN RECORD</p>
+          <p className="eyebrow">プレイ記録</p>
           <div>
-            <span>SCORE</span>
+            <span>得点</span>
             <strong>{String(snapshot.score).padStart(5, "0")}</strong>
           </div>
           <small>
-            BEST {String(snapshot.highScore).padStart(5, "0")} / WAVE{" "}
+            最高得点 {String(snapshot.highScore).padStart(5, "0")} / 到達ウェーブ{" "}
             {String(snapshot.bestWave).padStart(2, "0")}
           </small>
         </section>
@@ -323,7 +451,7 @@ export default function GameCanvas() {
         {snapshot.mode === "battle" && (
           <>
             <section className="queue-console technical-panel">
-              <p className="eyebrow">NEXT CARD</p>
+              <p className="eyebrow">次のカード</p>
               {snapshot.queue.length > 0 ? (
                 <>
                   <strong>{snapshot.queue[0].name}</strong>
@@ -331,7 +459,7 @@ export default function GameCanvas() {
                     {snapshot.sync || snapshot.emotion === "enraged"
                       ? snapshot.queue[0].power * 2
                       : snapshot.queue[0].power}{" "}
-                    OUT
+                    威力
                   </span>
                 </>
               ) : (
@@ -340,7 +468,7 @@ export default function GameCanvas() {
             </section>
             <section className="gauge-console technical-panel">
               <div className="metric-row">
-                <span>CUSTOM IN</span>
+                <span>カード選択まで</span>
                 <strong>{snapshot.customRemaining.toFixed(1)}S</strong>
               </div>
               <div className="meter gauge-meter">
@@ -385,15 +513,15 @@ export default function GameCanvas() {
           />
           <div className="custom-topline">
             <span>
-              RELAY CONSOLE / WAVE 0{snapshot.wave} /{" "}
-              {snapshot.elapsed > 0 ? "10S RE-ROUTE" : "FIRST ROUTE"}
+              カード選択 / ウェーブ 0{snapshot.wave} /{" "}
+              {snapshot.elapsed > 0 ? "10秒後に再選択" : "初回選択"}
             </span>
             <span>
               手札 {String(snapshot.customHand.length).padStart(2, "0")} / 05
             </span>
           </div>
           <div className="custom-heading">
-            <p>SELECT CARDS</p>
+            <p>カードを選ぶ</p>
             <h1>
               次の一手を、
               <br />
@@ -461,10 +589,12 @@ export default function GameCanvas() {
           >
             <div className="range-preview-label">
               <span>
-                RANGE MAP /{" "}
-                {snapshot.customHand[
-                  snapshot.focusedCard ?? snapshot.selected[0] ?? 0
-                ]?.target ?? "front"}
+                攻撃範囲 /{" "}
+                {targetLabel(
+                  snapshot.customHand[
+                    snapshot.focusedCard ?? snapshot.selected[0] ?? 0
+                  ]?.target
+                )}
               </span>
               <b>
                 {snapshot.customHand[
@@ -510,13 +640,13 @@ export default function GameCanvas() {
                   ]
                 )}
               </b>{" "}
-              現在位置の P
+              現在位置（P）
               から、説明中または選択中のカードが作用する対象マスを順に走査
             </small>
           </section>
           <div className="custom-footer">
             <p>
-              <span>{snapshot.selected.length}</span> / 05 CARDS ROUTED
+              <span>{snapshot.selected.length}</span> / 05枚を選択中
               {snapshot.selectionError && (
                 <small>{snapshot.selectionError}</small>
               )}
@@ -551,40 +681,56 @@ export default function GameCanvas() {
             <button
               type="button"
               aria-label="上へ移動"
-              onPointerDown={event => {
-                event.preventDefault();
-                controller?.move(0, 1);
-              }}
+              onPointerDown={event =>
+                beginPointerAction(event, "move", () =>
+                  controllerRef.current?.move(0, 1),
+                )
+              }
+              onPointerUp={event => endPointerAction(event)}
+              onPointerCancel={event => endPointerAction(event, true)}
+              onLostPointerCapture={event => endPointerAction(event, true)}
             >
               ▲
             </button>
             <button
               type="button"
               aria-label="左へ移動"
-              onPointerDown={event => {
-                event.preventDefault();
-                controller?.move(-1, 0);
-              }}
+              onPointerDown={event =>
+                beginPointerAction(event, "move", () =>
+                  controllerRef.current?.move(-1, 0),
+                )
+              }
+              onPointerUp={event => endPointerAction(event)}
+              onPointerCancel={event => endPointerAction(event, true)}
+              onLostPointerCapture={event => endPointerAction(event, true)}
             >
               ◀
             </button>
             <button
               type="button"
               aria-label="右へ移動"
-              onPointerDown={event => {
-                event.preventDefault();
-                controller?.move(1, 0);
-              }}
+              onPointerDown={event =>
+                beginPointerAction(event, "move", () =>
+                  controllerRef.current?.move(1, 0),
+                )
+              }
+              onPointerUp={event => endPointerAction(event)}
+              onPointerCancel={event => endPointerAction(event, true)}
+              onLostPointerCapture={event => endPointerAction(event, true)}
             >
               ▶
             </button>
             <button
               type="button"
               aria-label="下へ移動"
-              onPointerDown={event => {
-                event.preventDefault();
-                controller?.move(0, -1);
-              }}
+              onPointerDown={event =>
+                beginPointerAction(event, "move", () =>
+                  controllerRef.current?.move(0, -1),
+                )
+              }
+              onPointerUp={event => endPointerAction(event)}
+              onPointerCancel={event => endPointerAction(event, true)}
+              onLostPointerCapture={event => endPointerAction(event, true)}
             >
               ▼
             </button>
@@ -593,23 +739,29 @@ export default function GameCanvas() {
             <button
               type="button"
               className="action-fire"
-              onPointerDown={event => {
-                event.preventDefault();
-                controller?.fire();
-              }}
+              onPointerDown={event =>
+                beginPointerAction(event, "fire", () =>
+                  controllerRef.current?.fire(),
+                )
+              }
+              onPointerUp={event => endPointerAction(event)}
+              onPointerCancel={event => endPointerAction(event, true)}
+              onLostPointerCapture={event => endPointerAction(event, true)}
               aria-label="通常攻撃"
             >
-              FIRE
+              攻撃
             </button>
             <button
               type="button"
               className="action-charge"
-              onPointerDown={event => {
-                event.preventDefault();
-                controller?.startCharge();
-              }}
-              onPointerUp={() => controller?.releaseCharge()}
-              onPointerCancel={() => controller?.releaseCharge()}
+              onPointerDown={event =>
+                beginPointerAction(event, "charge", () =>
+                  controllerRef.current?.startCharge(),
+                )
+              }
+              onPointerUp={event => endPointerAction(event)}
+              onPointerCancel={event => endPointerAction(event, true)}
+              onLostPointerCapture={event => endPointerAction(event, true)}
               aria-label="チャージショット"
             >
               CHG
@@ -617,13 +769,17 @@ export default function GameCanvas() {
             <button
               type="button"
               className="action-skill"
-              onPointerDown={event => {
-                event.preventDefault();
-                controller?.useSkill();
-              }}
+              onPointerDown={event =>
+                beginPointerAction(event, "skill", () =>
+                  controllerRef.current?.useSkill(),
+                )
+              }
+              onPointerUp={event => endPointerAction(event)}
+              onPointerCancel={event => endPointerAction(event, true)}
+              onLostPointerCapture={event => endPointerAction(event, true)}
               aria-label="次のカードを使用"
             >
-              CARD
+              カード
             </button>
           </div>
           <div className="charge-indicator">
@@ -639,7 +795,7 @@ export default function GameCanvas() {
           role="dialog"
           aria-label="一時停止と設定"
         >
-          <p className="eyebrow">COMBAT PAUSED / SETTINGS</p>
+          <p className="eyebrow">戦闘停止 / 設定</p>
           <h2>
             戦闘を
             <br />
@@ -652,7 +808,7 @@ export default function GameCanvas() {
               onClick={toggleSound}
               aria-pressed={soundEnabled}
             >
-              SFX {soundEnabled ? "ON" : "OFF"}
+              効果音 {soundEnabled ? "有効" : "無効"}
             </button>
             <label className="volume-control">
               音量{" "}
@@ -680,27 +836,27 @@ export default function GameCanvas() {
             className="engage-button"
             onClick={() => controller?.togglePause()}
           >
-            RESUME <span>↗</span>
+            再開 <span>↗</span>
           </button>
         </section>
       )}
 
       {snapshot.mode === "intermission" && (
         <section className="result-console wave-clear" aria-live="polite">
-          <p className="eyebrow">Wave 0{snapshot.wave} / クリア</p>
+          <p className="eyebrow">ウェーブ 0{snapshot.wave} / クリア</p>
           <h2>
-            次のWaveへ
+            次のウェーブへ
             <br />
             進みます
           </h2>
           <div className="wave-reward">
             <span>耐久回復</span>
             <strong>+{snapshot.lastWaveRecovery ?? 0}</strong>
-            <small>Wave 0{snapshot.wave + 1} 準備完了</small>
+            <small>ウェーブ 0{snapshot.wave + 1} 準備完了</small>
           </div>
           <div className="result-details">
             <span>
-              Wave獲得 <b>+{snapshot.lastWaveScore?.total ?? 0}</b>
+              ウェーブ獲得 <b>+{snapshot.lastWaveScore?.total ?? 0}</b>
             </span>
             <span>
               合計スコア <b>{snapshot.score}</b>
@@ -711,7 +867,7 @@ export default function GameCanvas() {
             className="engage-button"
             onClick={() => controller?.nextWave()}
           >
-            次のWaveへ <span>↗</span>
+            次のウェーブへ <span>↗</span>
           </button>
         </section>
       )}
@@ -745,19 +901,19 @@ export default function GameCanvas() {
 
       <footer className="control-guide">
         <span>
-          <b>MOVE</b> WASD / ARROWS
+          <b>移動</b> WASD / 矢印キー
         </span>
         <span>
-          <b>FIRE</b> Z / 正面直線
+          <b>通常攻撃</b> Z / 正面直線
         </span>
         <span>
-          <b>CHARGE</b> HOLD SPACE + MOVE
+          <b>チャージ</b> スペース長押し＋移動
         </span>
         <span>
-          <b>CARD</b> X
+          <b>カード</b> X
         </span>
         <span>
-          <b>CUSTOM</b> 10 SEC
+          <b>カード選択</b> 10秒
         </span>
       </footer>
     </main>

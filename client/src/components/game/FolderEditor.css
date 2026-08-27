@@ -381,3 +381,75 @@
     grid-template-columns: 1fr;
   }
 }
+
+
+/* PR13: フォルダ編集の横スクロール防止とセーフエリア対応。 */
+.folder-editor {
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+.folder-editor-panel {
+  min-width: 0;
+  max-height: calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 16px);
+}
+
+.folder-tabs {
+  flex-wrap: wrap;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: visible;
+}
+
+.folder-editor-grid {
+  min-width: 0;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+}
+
+.folder-list-panel,
+.catalog-panel {
+  min-width: 0;
+}
+
+.catalog-tools input {
+  min-width: 0;
+  font-size: 16px;
+}
+
+.catalog-grid {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+@media (max-width: 560px) {
+  .folder-editor-header,
+  .folder-editor-footer {
+    min-width: 0;
+  }
+
+  .folder-editor-header > div,
+  .folder-editor-footer > span {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .folder-tabs button {
+    flex: 1 1 30%;
+    min-width: 0;
+  }
+
+  .folder-editor-footer {
+    padding-bottom: max(0.75rem, calc(env(safe-area-inset-bottom, 0px) + 0.5rem));
+  }
+
+  .folder-editor-footer > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .folder-editor-footer button {
+    min-width: 0;
+  }
+}

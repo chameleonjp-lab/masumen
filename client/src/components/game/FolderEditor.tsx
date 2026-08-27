@@ -184,7 +184,7 @@ export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
       <div className="folder-editor-panel">
         <header className="folder-editor-header">
           <div>
-            <p className="eyebrow">CARD FOLDER / 30 SLOTS</p>
+            <p className="eyebrow">カードフォルダ / 30枚</p>
             <h2>フォルダ編集</h2>
             <span>使用する30枚と接続コードを準備します。</span>
           </div>
