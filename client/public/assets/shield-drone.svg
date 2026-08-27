@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Shield drone">
+<defs><linearGradient id="s" x2="0" y2="1"><stop stop-color="#fff0ae"/><stop offset=".45" stop-color="#e4a33a"/><stop offset="1" stop-color="#70421d"/></linearGradient></defs>
+<path d="M64 10 111 27v39c0 26-20 42-47 52C37 108 17 92 17 66V27z" fill="#13151a" stroke="#ffb24c" stroke-width="4"/>
+<path d="m64 22 34 13v30c0 17-12 28-34 38-22-10-34-21-34-38V35z" fill="url(#s)" opacity=".9"/>
+<path d="M64 31v52M38 57h52" stroke="#fff6d2" stroke-width="6" opacity=".8"/><circle cx="64" cy="57" r="10" fill="#10171f" stroke="#fff6d2" stroke-width="3"/>
+<path d="M12 48h10M106 48h10M25 20l7 8m71-8-7 8" stroke="#ff6b43" stroke-width="4" stroke-linecap="round"/>
+</svg>
