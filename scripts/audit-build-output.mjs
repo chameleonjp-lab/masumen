@@ -31,8 +31,8 @@ for (const file of assetFiles) {
     throw new Error(`Build output is missing asset: ${file}`);
 }
 
-const outputFiles = await readdir(resolve(root, builtRoot));
-if (outputFiles.length < assetFiles.length + 2)
-  throw new Error("Build output is unexpectedly empty");
+const builtAssetFiles = await readdir(resolve(root, `${builtRoot}/assets`));
+if (builtAssetFiles.filter(file => /\\.svg$/i.test(file)).length < assetFiles.length)
+  throw new Error("Build output is missing bundled SVG assets");
 
-console.log(`build output ok: ${assetFiles.length} assets, ${outputFiles.length} top-level files`);
+console.log(`build output ok: ${assetFiles.length} assets, ${builtAssetFiles.length} asset files`);
