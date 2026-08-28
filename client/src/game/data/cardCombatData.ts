@@ -3,6 +3,7 @@ import type {
   Card,
   CardElement,
   GridPosition,
+  PanelState,
   PanelTerrain,
 } from "../types";
 
@@ -95,10 +96,16 @@ function unique(tiles: GridPosition[]): GridPosition[] {
   );
 }
 
-function nearestEnemy(origin: GridPosition, enemies: readonly GridPosition[]): GridPosition | null {
+function gridDistance(origin: GridPosition, position: GridPosition): number {
+  return Math.abs(position.col - origin.col) + Math.abs(position.row - origin.row);
+}
+
+export function nearestEnemyPosition(
+  origin: GridPosition,
+  enemies: readonly GridPosition[]
+): GridPosition | null {
   return [...enemies].sort((a, b) =>
-    Math.abs(a.col - origin.col) + Math.abs(a.row - origin.row) -
-    (Math.abs(b.col - origin.col) + Math.abs(b.row - origin.row)) ||
+    gridDistance(origin, a) - gridDistance(origin, b) ||
     a.col - b.col || a.row - b.row
   )[0] ?? null;
 }
@@ -160,8 +167,54 @@ function fanLines(origin: GridPosition): GridPosition[] {
 }
 
 function pointTarget(origin: GridPosition, enemies: readonly GridPosition[]): GridPosition {
-  const target = nearestEnemy(origin, enemies);
+  const target = nearestEnemyPosition(origin, enemies);
   return target ? { ...target } : { col: Math.min(5, Math.max(3, origin.col + 2)), row: origin.row };
+}
+
+function isAvailablePanel(panel: PanelState | undefined): boolean {
+  return Boolean(
+    panel &&
+      panel.occupantId === null &&
+      panel.objectId === null &&
+      panel.terrain !== "hole"
+  );
+}
+
+export function cardPlacementTarget(
+  origin: GridPosition,
+  enemies: readonly GridPosition[],
+  panels: readonly PanelState[]
+): GridPosition {
+  const preferred = pointTarget(origin, enemies);
+  return (
+    panels
+      .filter(panel => panel.owner === "enemy" && isAvailablePanel(panel))
+      .sort(
+        (a, b) =>
+          gridDistance(preferred, a) - gridDistance(preferred, b) ||
+          gridDistance(origin, a) - gridDistance(origin, b) ||
+          a.col - b.col ||
+          a.row - b.row
+      )
+      .map(panel => ({ col: panel.col, row: panel.row }))[0] ?? { col: 5, row: 1 }
+  );
+}
+
+export function cardTransferTarget(
+  origin: GridPosition,
+  enemies: readonly GridPosition[],
+  panels: readonly PanelState[]
+): GridPosition {
+  const target = pointTarget(origin, enemies);
+  const candidates = [target, ...areaAround(target), ...allBoard()];
+  return (
+    candidates.find(position => {
+      const panel = panels.find(
+        candidate => candidate.col === position.col && candidate.row === position.row
+      );
+      return isAvailablePanel(panel);
+    }) ?? target
+  );
 }
 
 function twoByTwo(point: GridPosition): GridPosition[] {
@@ -175,7 +228,7 @@ function twoByTwo(point: GridPosition): GridPosition[] {
 }
 
 function targetColumn(origin: GridPosition, enemies: readonly GridPosition[]): number {
-  return nearestEnemy(origin, enemies)?.col ?? Math.min(5, origin.col + 2);
+  return nearestEnemyPosition(origin, enemies)?.col ?? Math.min(5, origin.col + 2);
 }
 function areaAround(point: GridPosition, radius = 1): GridPosition[] {
   const tiles: GridPosition[] = [];
@@ -225,11 +278,27 @@ export function enrichCard(card: Card): Card {
   };
 }
 
-export function cardPreviewTiles(card: Card | undefined, origin: GridPosition, enemies: readonly GridPosition[] = []): GridPosition[] {
+export function cardPreviewTiles(
+  card: Card | undefined,
+  origin: GridPosition,
+  enemies: readonly GridPosition[] = [],
+  panels: readonly PanelState[] = []
+): GridPosition[] {
   if (!card) return [];
   const action = getCardCombatProfile(card.id).actionId;
-  if (action === "timer" || action === "stake" || action === "breakpillar" || action === "rush")
-    return [pointTarget(origin, enemies)];
+  if (action === "timer" || action === "stake")
+    return [
+      panels.length > 0
+        ? cardPlacementTarget(origin, enemies, panels)
+        : pointTarget(origin, enemies),
+    ];
+  if (action === "breakpillar") return [pointTarget(origin, enemies)];
+  if (action === "rush")
+    return [
+      panels.length > 0
+        ? cardTransferTarget(origin, enemies, panels)
+        : pointTarget(origin, enemies),
+    ];
   if (action === "meteor") return enemyTerritory();
   if (action === "dream") return [{ ...origin }];
   if (action === "sanctuary") return playerTerritory();
@@ -237,13 +306,34 @@ export function cardPreviewTiles(card: Card | undefined, origin: GridPosition, e
   if (action === "watchmine") return enemyTerritory();
   if (action === "turret") return columnAt(2);
   if (action === "block") return [{ col: origin.col + 1, row: origin.row }].filter(inside);
-  if (action === "toxic") return areaAround(pointTarget(origin, enemies));
+  if (action === "toxic") {
+    const target = panels.length > 0
+      ? cardPlacementTarget(origin, enemies, panels)
+      : pointTarget(origin, enemies);
+    return areaAround(target);
+  }
   if (action === "sanctum") return selfCross(origin);
   if (action === "crack") return pathToFront(origin).slice(0, 2);
   if (action === "sector") return columnAt(3);
-  if (action === "gravity") return areaAround(pointTarget(origin, enemies));
+  if (action === "gravity") {
+    const target = panels.length > 0
+      ? cardPlacementTarget(origin, enemies, panels)
+      : pointTarget(origin, enemies);
+    return areaAround(target);
+  }
   if (action === "gustwall") return allBoard();
-  if (action === "hole") return enemyTerritory().slice(0, 3);
+  if (action === "hole") {
+    if (panels.length === 0) return enemyTerritory().slice(0, 3);
+    const enemyPanels = panels.filter(panel => panel.owner === "enemy");
+    const emptyTargets = enemyPanels
+      .filter(panel => panel.occupantId === null && panel.objectId === null)
+      .slice(0, 3)
+      .map(panel => ({ col: panel.col, row: panel.row }));
+    const occupiedTargets = enemyPanels
+      .filter(panel => panel.occupantId !== null)
+      .map(panel => ({ col: panel.col, row: panel.row }));
+    return unique([...emptyTargets, ...occupiedTargets]);
+  }
   if (["prism", "phase", "return", "substitute", "magguard", "premonition", "rectify", "repair", "fastsync", "stamp", "reroute"].includes(action))
     return [{ ...origin }];
   if (["rapid", "lance", "seeker", "triplet", "ember", "root"].includes(action)) return pathToFront(origin);
@@ -253,12 +343,15 @@ export function cardPreviewTiles(card: Card | undefined, origin: GridPosition, e
   if (action === "cross") return impactCross(origin, enemies);
   if (action === "fan") return fanLines(origin);
   if (action === "icewall") return [pointTarget(origin, enemies)];
-  if (action === "volt") return unique([...pathToFront(origin), ...(nearestEnemy(origin, enemies) ? [nearestEnemy(origin, enemies) as GridPosition] : [])]);
+  if (action === "volt") {
+    const target = nearestEnemyPosition(origin, enemies);
+    return unique([...pathToFront(origin), ...(target ? [target] : [])]);
+  }
   if (action === "web") return twoByTwo(pointTarget(origin, enemies));
   if (action === "slash") return [{ col: origin.col + 1, row: origin.row }].filter(inside);
   if (action === "sweep") return columnAt(origin.col + 1).filter(tile => tile.col > origin.col);
   if (action === "dashslash") {
-    const target = nearestEnemy(origin, enemies);
+    const target = nearestEnemyPosition(origin, enemies);
     return target ? [target] : pathToFront(origin).slice(0, 1);
   }
   if (action === "gridcut") {

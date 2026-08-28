@@ -111,13 +111,15 @@ function enemyReadoutLabel(
 function previewTargets(
   card: BattleSnapshot["customHand"][number] | undefined,
   playerGrid: BattleSnapshot["playerGrid"],
-  enemies: BattleSnapshot["enemies"]
+  enemies: BattleSnapshot["enemies"],
+  panels: BattleSnapshot["panels"]
 ) {
   return new Set(
     cardPreviewTiles(
       card,
       playerGrid,
-      enemies.map(enemy => enemy.grid)
+      enemies.map(enemy => enemy.grid),
+      panels
     ).map(tile => String(tile.col) + ":" + String(tile.row))
   );
 }
@@ -658,8 +660,15 @@ export default function GameCanvas() {
                 const col = Math.floor(index / 3);
                 const row = index % 3;
                 const tileKey = `${col}:${row}`;
-                const target = previewTargets(previewCard, snapshot.playerGrid, snapshot.enemies).has(tileKey);
-                const player = tileKey === "1:1";
+                const target = previewTargets(
+                  previewCard,
+                  snapshot.playerGrid,
+                  snapshot.enemies,
+                  snapshot.panels
+                ).has(tileKey);
+                const player =
+                  col === snapshot.playerGrid.col &&
+                  row === snapshot.playerGrid.row;
                 return (
                   <span
                     className={`range-tile ${col <= 2 ? "ally" : "enemy"} ${target ? "target animated-target" : ""} ${player ? "player" : ""}`}
