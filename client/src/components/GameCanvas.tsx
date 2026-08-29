@@ -3,9 +3,9 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { ASSET_URLS } from "@/game/assets";
 import { validateSelection } from "@/game/deck";
-import { cardPreviewTiles } from "@/game/data/cardCombatData";
+import { cardPreviewTiles, nearestEnemyPosition } from "@/game/data/cardCombatData";
 import { createGameScene } from "@/game/scene";
-import type { BattleSnapshot, GameHandle } from "@/game/types";
+import type { BattleSnapshot, GameHandle, GridPosition } from "@/game/types";
 import FolderEditor from "@/components/game/FolderEditor";
 import ResultScreen from "@/components/game/ResultScreen";
 import Tutorial from "@/components/game/Tutorial";
@@ -118,24 +118,58 @@ function previewTargets(
     cardPreviewTiles(
       card,
       playerGrid,
-      enemies.map(enemy => enemy.grid),
+      enemies
+        .filter(enemy => enemy.state !== "deleted")
+        .map(enemy => enemy.grid),
       panels
     ).map(tile => String(tile.col) + ":" + String(tile.row))
   );
+}
+
+function previewCenter(
+  card: BattleSnapshot["customHand"][number] | undefined,
+  playerGrid: BattleSnapshot["playerGrid"],
+  enemies: BattleSnapshot["enemies"]
+): GridPosition | null {
+  if (!card) return null;
+  const action = card.actionId ?? card.id;
+  const activeEnemies = enemies.filter(enemy => enemy.state !== "deleted");
+  if (action === "gridcut") {
+    return nearestEnemyPosition(
+      playerGrid,
+      activeEnemies.map(enemy => enemy.grid)
+    ) ?? {
+      col: Math.min(5, Math.max(3, playerGrid.col + 2)),
+      row: playerGrid.row,
+    };
+  }
+  if (action === "cross") {
+    return activeEnemies
+      .filter(enemy => enemy.grid.row === playerGrid.row && enemy.grid.col > playerGrid.col)
+      .sort((a, b) => a.grid.col - b.grid.col)[0]?.grid ?? {
+        col: Math.min(5, playerGrid.col + 3),
+        row: playerGrid.row,
+      };
+  }
+  return null;
 }
 
 function previewDelay(
   card: BattleSnapshot["customHand"][number] | undefined,
   col: number,
   row: number,
-  playerGrid: BattleSnapshot["playerGrid"]
+  playerGrid: BattleSnapshot["playerGrid"],
+  enemies: BattleSnapshot["enemies"]
 ) {
   if (!card) return 0;
   const action = card.actionId ?? card.id;
   if (action === "rapid" || action === "triplet") return Math.max(0, col - playerGrid.col) * 90;
   if (action === "fan") return Math.max(0, col - playerGrid.col) * 120 + Math.abs(row - playerGrid.row) * 40;
   if (action === "column" || action === "thunderline" || action === "sweep") return row * 110;
-  if (action === "cross" || action === "gridcut") return (Math.abs(col - 4) + Math.abs(row - playerGrid.row)) * 100;
+  if (action === "cross" || action === "gridcut") {
+    const center = previewCenter(card, playerGrid, enemies);
+    return center ? (Math.abs(col - center.col) + Math.abs(row - center.row)) * 100 : 0;
+  }
   if (action === "slash" || action === "moonblade" || action === "dashslash") return 120;
   return Math.max(0, col - playerGrid.col) * 135;
 }
@@ -163,8 +197,9 @@ const targetLabels: Record<string, string> = {
   "enemy-field": "敵陣全体",
 };
 
-function targetLabel(target: string | undefined): string {
-  return targetLabels[target ?? "front"] ?? "対象範囲";
+function targetLabel(card: BattleSnapshot["customHand"][number] | undefined): string {
+  if (card?.rangeLabel) return card.rangeLabel;
+  return targetLabels[card?.target ?? "front"] ?? "対象範囲";
 }
 
 export default function GameCanvas() {
@@ -640,7 +675,7 @@ export default function GameCanvas() {
                 {targetLabel(
                   snapshot.customHand[
                     snapshot.focusedCard ?? snapshot.selected[0] ?? 0
-                  ]?.target
+                  ]
                 )}
               </span>
               <b>
@@ -675,7 +710,7 @@ export default function GameCanvas() {
                     style={
                       target
                         ? {
-                            animationDelay: `${previewDelay(previewCard, col, row, snapshot.playerGrid)}ms`,
+                            animationDelay: `${previewDelay(previewCard, col, row, snapshot.playerGrid, snapshot.enemies)}ms`,
                           }
                         : undefined
                     }

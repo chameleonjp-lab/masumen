@@ -209,6 +209,7 @@ export interface Card {
   selectedCode?: ConnectionCode;
   family: CardFamily;
   target: TargetShape;
+  rangeLabel?: string;
   power: number;
   description: string;
   status?: CardStatus;

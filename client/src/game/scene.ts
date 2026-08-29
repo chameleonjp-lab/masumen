@@ -743,11 +743,22 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
       const column = targets[0]?.col ?? event.at.col;
       addRangeBar({ col: column, row: 0 }, { col: column, row: 2 }, color);
     }
-    if (event.target === "near") addRangeBar({ col: 3, row: 0 }, { col: 3, row: 2 }, color);
     if (event.target === "cross") {
-      const center = targets.find(position => position.col === 4 && position.row === (latest?.playerGrid.row ?? event.at.row)) ?? event.at;
-      addRangeBar({ col: 3, row: center.row }, { col: 5, row: center.row }, color);
-      addRangeBar({ col: 4, row: 0 }, { col: 4, row: 2 }, color);
+      const desiredRow = latest?.playerGrid.row ?? event.at.row;
+      const center = targets.reduce((best, candidate) => {
+        const candidateCount = targets.filter(tile => tile.col === candidate.col).length;
+        const bestCount = targets.filter(tile => tile.col === best.col).length;
+        if (candidateCount !== bestCount) return candidateCount > bestCount ? candidate : best;
+        return Math.abs(candidate.row - desiredRow) < Math.abs(best.row - desiredRow)
+          ? candidate
+          : best;
+      }, event.at);
+      addRangeBar(
+        { col: Math.max(0, center.col - 1), row: center.row },
+        { col: Math.min(5, center.col + 1), row: center.row },
+        color
+      );
+      addRangeBar({ col: center.col, row: 0 }, { col: center.col, row: 2 }, color);
     }
     if (event.target === "enemy-field") {
       const field = MeshBuilder.CreateTorus("field-direction-boundary", { diameter: 2.7, thickness: 0.035, tessellation: 4 }, scene);
