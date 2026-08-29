@@ -2,6 +2,7 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { GameWorld } from "./GameWorld";
 import { CARD_CATALOG } from "./deck";
 import { createChainCard, findChainTechnique } from "./data/chainTechniques";
+import { getEnemyDefinition } from "./data/enemies";
 import type { BattleEvent, BattleSnapshot, Card, GridPosition } from "./types";
 
 type ProjectileEvent = Extract<BattleEvent, { type: "projectile" }>;
@@ -806,6 +807,111 @@ describe("GameWorldの現行Wave基準", () => {
     const cleared = latest?.enemies.find(enemy => enemy.id === telegraph.id);
     expect(cleared?.warningStage).toBeNull();
     expect(cleared?.warningTargets).toEqual([]);
+  });
+
+  it("keeps projectile and melee resolution on the warning target snapshot", () => {
+    const world = new GameWorld(() => undefined, () => undefined);
+    const internal = world as unknown as {
+      mode: BattleSnapshot["mode"];
+      playerGrid: GridPosition;
+      playerHp: number;
+      enemies: Array<{ id: string; grid: GridPosition; cycle: number }>;
+      targetsForAction: (enemy: unknown, action: unknown) => GridPosition[];
+      executeEnemyAction: (
+        enemy: unknown,
+        action: unknown,
+        now: number,
+        targets: GridPosition[]
+      ) => void;
+      projectileSystem: {
+        snapshot: () => BattleSnapshot["projectiles"];
+      };
+      findHomingTarget: (
+        projectile: BattleSnapshot["projectiles"][number]
+      ) => GridPosition | null;
+    };
+    const scanner = internal.enemies.find(enemy => enemy.id === "scanner");
+    const signalLock = getEnemyDefinition("scanner")?.actions.find(
+      action => action.id === "scanner-signal-lock"
+    );
+    const crossSlash = getEnemyDefinition("razor")?.actions.find(
+      action => action.id === "razor-cross-slash"
+    );
+    if (!scanner || !signalLock || !crossSlash)
+      throw new Error("対象固定検査用の敵行動がありません");
+
+    internal.mode = "battle";
+    const warningTarget = { col: 1, row: 1 };
+    internal.playerGrid = warningTarget;
+    const homingTargets = internal.targetsForAction(scanner, signalLock);
+    internal.playerGrid = { col: 0, row: 2 };
+    internal.executeEnemyAction(scanner, signalLock, 0, homingTargets);
+
+    const projectile = internal.projectileSystem.snapshot()[0];
+    if (!projectile) throw new Error("固定対象の追尾弾が生成されていません");
+    expect(projectile.target).toEqual(warningTarget);
+    expect(internal.findHomingTarget(projectile)).toEqual(warningTarget);
+
+    internal.playerHp = 220;
+    internal.playerGrid = warningTarget;
+    const meleeTargets = internal.targetsForAction(scanner, crossSlash);
+    internal.playerGrid = { col: 2, row: 2 };
+    internal.executeEnemyAction(scanner, crossSlash, 0, meleeTargets);
+    expect(internal.playerHp).toBe(220);
+
+    internal.playerGrid = { col: 2, row: 1 };
+    internal.executeEnemyAction(scanner, crossSlash, 0, meleeTargets);
+    expect(internal.playerHp).toBeLessThan(220);
+  });
+
+  it("keeps landing and object placement on the warning target snapshot", () => {
+    const events: BattleEvent[] = [];
+    const world = new GameWorld(() => undefined, event => events.push(event), 2);
+    const internal = world as unknown as {
+      playerGrid: GridPosition;
+      enemies: Array<{ id: string; grid: GridPosition }>;
+      targetsForAction: (enemy: unknown, action: unknown) => GridPosition[];
+      executeEnemyAction: (
+        enemy: unknown,
+        action: unknown,
+        now: number,
+        targets: GridPosition[]
+      ) => void;
+      objectSystem: {
+        snapshot: () => Array<{ kind: string; panel: GridPosition }>;
+      };
+    };
+    const hopper = internal.enemies.find(enemy => enemy.id === "hopper-bomb");
+    const jump = getEnemyDefinition("hopper-bomb")?.actions.find(
+      action => action.id === "hopper-jump-land"
+    );
+    const bomb = getEnemyDefinition("hopper-bomb")?.actions.find(
+      action => action.id === "hopper-bomb-drop"
+    );
+    if (!hopper || !jump || !bomb)
+      throw new Error("着地・設置検査用の敵行動がありません");
+
+    internal.playerGrid = { col: 1, row: 1 };
+    const landingTargets = internal.targetsForAction(hopper, jump);
+    const lockedLanding = { ...landingTargets[0] };
+    internal.playerGrid = { col: 1, row: 0 };
+    internal.executeEnemyAction(hopper, jump, 0, landingTargets);
+    expect(hopper.grid).toEqual(lockedLanding);
+    expect(events).toContainEqual({
+      type: "impact",
+      at: lockedLanding,
+      side: "enemy",
+      enemyId: hopper.id,
+      damage: jump.damage,
+    });
+
+    const bombTargets = internal.targetsForAction(hopper, bomb);
+    const lockedBomb = { ...bombTargets[0] };
+    internal.playerGrid = { col: 0, row: 2 };
+    internal.executeEnemyAction(hopper, bomb, 0, bombTargets);
+    expect(internal.objectSystem.snapshot()).toContainEqual(
+      expect.objectContaining({ kind: "bomb", panel: lockedBomb })
+    );
   });
 
   it("alternates an enemy action after its active and recovery phases", () => {
