@@ -4,9 +4,26 @@ import {
   CARD_COMBAT_PROFILES,
   PR7_CARD_IDS,
   PR8_CARD_IDS,
+  cardPlacementTarget,
   cardPreviewTiles,
+  cardTransferTarget,
   getElementalMultiplier,
+  nearestEnemyPosition,
 } from "./cardCombatData";
+import type { PanelState } from "../types";
+
+function panel(overrides: Partial<PanelState>): PanelState {
+  return {
+    col: 0,
+    row: 0,
+    owner: "enemy",
+    terrain: "normal",
+    occupantId: null,
+    objectId: null,
+    expiresAt: null,
+    ...overrides,
+  };
+}
 
 describe("card combat data", () => {
   it("defines all 21 PR7 cards with power and range metadata", () => {
@@ -66,6 +83,46 @@ describe("card combat data", () => {
       { col: 2, row: 0 },
       { col: 2, row: 1 },
       { col: 2, row: 2 },
+    ]);
+  });
+
+  it("shares the nearest target and available placement between preview helpers", () => {
+    const origin = { col: 1, row: 1 };
+    const enemies = [{ col: 2, row: 0 }, { col: 5, row: 1 }];
+    const timer = CARD_CATALOG.find(card => card.id === "timer");
+    const rush = CARD_CATALOG.find(card => card.id === "rush");
+    const panels = [
+      panel({ col: 2, row: 0, occupantId: "scanner" }),
+      panel({ col: 3, row: 0 }),
+      panel({ col: 3, row: 1 }),
+      panel({ col: 2, row: 1, owner: "player", occupantId: "player" }),
+    ];
+
+    expect(nearestEnemyPosition(origin, enemies)).toEqual({ col: 2, row: 0 });
+    expect(cardPlacementTarget(origin, enemies, panels)).toEqual({ col: 3, row: 0 });
+    expect(cardPreviewTiles(timer, origin, enemies, panels)).toEqual([
+      { col: 3, row: 0 },
+    ]);
+    expect(cardTransferTarget(origin, enemies, panels)).toEqual({ col: 3, row: 0 });
+    expect(cardPreviewTiles(rush, origin, enemies, panels)).toEqual([
+      { col: 3, row: 0 },
+    ]);
+  });
+
+  it("previews only the empty panels selected by the reverse-phase hole", () => {
+    const hole = CARD_CATALOG.find(card => card.id === "hole");
+    const panels = [
+      panel({ col: 3, row: 0 }),
+      panel({ col: 3, row: 1, occupantId: "enemy-a" }),
+      panel({ col: 3, row: 2 }),
+      panel({ col: 4, row: 0 }),
+    ];
+
+    expect(cardPreviewTiles(hole, { col: 1, row: 1 }, [], panels)).toEqual([
+      { col: 3, row: 0 },
+      { col: 3, row: 2 },
+      { col: 4, row: 0 },
+      { col: 3, row: 1 },
     ]);
   });
 

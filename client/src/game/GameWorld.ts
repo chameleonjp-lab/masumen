@@ -9,7 +9,14 @@ import {
   findChainTechnique,
   CHAIN_TECHNIQUES,
 } from "./data/chainTechniques";
-import { cardPreviewTiles, getCardCombatProfile, getElementalMultiplier } from "./data/cardCombatData";
+import {
+  cardPlacementTarget,
+  cardPreviewTiles,
+  cardTransferTarget,
+  getCardCombatProfile,
+  getElementalMultiplier,
+  nearestEnemyPosition,
+} from "./data/cardCombatData";
 import {
   activeFolder as getActiveFolder,
   BattleDeck,
@@ -1829,8 +1836,15 @@ export class GameWorld {
       Math.max(0, Math.round((base * power) / Math.max(1, card.power)));
     const origin = { ...this.playerGrid };
     const right = { col: 1, row: 0 };
-    const enemies = this.enemies.filter(enemy => enemy.state !== "deleted").map(enemy => enemy.grid);
-    const preview = cardPreviewTiles(card, origin, enemies);
+    const enemies = this.enemies
+      .filter(enemy => enemy.state !== "deleted")
+      .map(enemy => enemy.grid);
+    const preview = cardPreviewTiles(
+      card,
+      origin,
+      enemies,
+      this.panelSystem.snapshot()
+    );
     this.applyElementalPanelInteraction(card.element, preview);
     const spawn = (
       options: Parameters<ProjectileSystem["spawn"]>[0],
@@ -1855,18 +1869,15 @@ export class GameWorld {
       }, delayMs);
       return preview;
     };
-    const columnTarget = this.enemies
-      .filter(enemy => enemy.state !== "deleted")
-      .sort((a, b) =>
-        Math.abs(a.grid.col - origin.col) + Math.abs(a.grid.row - origin.row) -
-        (Math.abs(b.grid.col - origin.col) + Math.abs(b.grid.row - origin.row))
-      )[0]?.grid ?? { col: Math.min(5, origin.col + 2), row: origin.row };
-    const pointTarget = this.enemies
-      .filter(enemy => enemy.state !== "deleted")
-      .sort((a, b) =>
-        Math.abs(a.grid.col - origin.col) + Math.abs(a.grid.row - origin.row) -
-        (Math.abs(b.grid.col - origin.col) + Math.abs(b.grid.row - origin.row))
-      )[0]?.grid ?? { col: Math.min(5, Math.max(3, origin.col + 2)), row: origin.row };
+    const nearestTarget = nearestEnemyPosition(origin, enemies);
+    const columnTarget = nearestTarget ?? {
+      col: Math.min(5, origin.col + 2),
+      row: origin.row,
+    };
+    const pointTarget = nearestTarget ?? {
+      col: Math.min(5, Math.max(3, origin.col + 2)),
+      row: origin.row,
+    };
 
     if (action === "meteor") {
       const landingPanels = this.panelSystem
@@ -2012,7 +2023,7 @@ export class GameWorld {
       enemy => enemy.state !== "deleted"
     );
     const enemyPositions = activeEnemies.map(enemy => ({ ...enemy.grid }));
-    const target = this.closestEnemy()?.grid ?? this.closestEmptyEnemyPanel();
+    const target = this.cardPointTarget();
     const sourceCard = (id: string): Card | undefined => this.cardForSource(id);
     const scale = (damage: number): number =>
       Math.max(0, Math.round(damage * Math.max(1, power)));
@@ -2034,7 +2045,8 @@ export class GameWorld {
       return cardPreviewTiles(
         sourceCard("rapid"),
         origin,
-        enemyPositions
+        enemyPositions,
+        this.panelSystem.snapshot()
       );
     }
 
@@ -2255,14 +2267,16 @@ export class GameWorld {
     const enemies = this.enemies
       .filter(enemy => enemy.state !== "deleted")
       .map(enemy => enemy.grid);
+    const panels = this.panelSystem.snapshot();
     ids.forEach(cardId => {
       const source = this.cardForSource(cardId);
       if (!source) return;
+      const sourcePreview = cardPreviewTiles(source, origin, enemies, panels);
       const sourceTiles =
         card.chainTechniqueId === undefined
           ? tiles
-          : cardPreviewTiles(source, origin, enemies).length > 0
-            ? cardPreviewTiles(source, origin, enemies)
+          : sourcePreview.length > 0
+            ? sourcePreview
             : tiles;
       this.onEvent({
         type: "card",
@@ -2387,9 +2401,12 @@ export class GameWorld {
 
   private dispatchMeleeCard(card: Card, power: number): GridPosition[] {
     const action = getCardCombatProfile(card.id).actionId;
-    const target = action === "dashslash"
-      ? (this.closestEnemy()?.grid ?? null)
-      : (this.frontTarget()?.grid ?? null);
+    const target =
+      action === "dashslash"
+        ? (this.closestEnemy()?.grid ?? null)
+        : action === "gridcut"
+          ? this.cardPointTarget()
+          : (this.frontTarget()?.grid ?? null);
     const startupMs = action === "moonblade" ? 380 : action === "gridcut" ? 120 : 90;
     const activeMs = action === "moonblade" ? 110 : 80;
     const recoveryMs = action === "moonblade" ? 420 : 180;
@@ -3030,7 +3047,16 @@ export class GameWorld {
     );
   }
   private cardPointTarget(): GridPosition {
-    return this.closestEnemy()?.grid ?? this.closestEmptyEnemyPanel();
+    const target = nearestEnemyPosition(
+      this.playerGrid,
+      this.enemies
+        .filter(enemy => enemy.state !== "deleted")
+        .map(enemy => enemy.grid)
+    );
+    return target ? { ...target } : {
+      col: Math.min(5, Math.max(3, this.playerGrid.col + 2)),
+      row: this.playerGrid.row,
+    };
   }
 
   private freezeEmptyEnemyPanels(): void {
@@ -3365,23 +3391,12 @@ export class GameWorld {
   }
 
   private closestEmptyEnemyPanel(): GridPosition {
-    const enemy = this.closestEnemy();
-    const candidates = [
-      enemy?.grid,
-      ...this.panelSystem
-        .snapshot()
-        .filter(panel => panel.owner === "enemy")
-        .map(panel => ({ col: panel.col, row: panel.row })),
-    ].filter((position): position is GridPosition => Boolean(position));
-    return (
-      candidates.find(position => {
-        const panel = this.panelSystem.get(position);
-        return (
-          panel?.occupantId === null &&
-          panel.objectId === null &&
-          panel.terrain !== "hole"
-        );
-      }) ?? { col: 5, row: 1 }
+    return cardPlacementTarget(
+      this.playerGrid,
+      this.enemies
+        .filter(enemy => enemy.state !== "deleted")
+        .map(enemy => enemy.grid),
+      this.panelSystem.snapshot()
     );
   }
 
@@ -3495,17 +3510,21 @@ export class GameWorld {
   }
 
   private transferPlayerToCardTarget(): void {
-    const target = this.cardPointTarget();
-    const candidates = [
-      target,
-      ...this.areaAround(target),
-      ...this.panelSystem.snapshot().map(panel => ({ col: panel.col, row: panel.row })),
-    ];
-    const destination = candidates.find(position => {
-      const panel = this.panelSystem.get(position);
-      return panel?.terrain !== "hole" && panel?.occupantId === null && panel.objectId === null;
-    });
-    if (!destination) return;
+    const destination = cardTransferTarget(
+      this.playerGrid,
+      this.enemies
+        .filter(enemy => enemy.state !== "deleted")
+        .map(enemy => enemy.grid),
+      this.panelSystem.snapshot()
+    );
+    const destinationPanel = this.panelSystem.get(destination);
+    if (
+      !destinationPanel ||
+      destinationPanel.terrain === "hole" ||
+      destinationPanel.occupantId !== null ||
+      destinationPanel.objectId !== null
+    )
+      return;
     const previous = { ...this.playerGrid };
     this.panelSystem.vacate(previous, this.gameTimeMs);
     this.playerGrid = { ...destination };
@@ -3573,14 +3592,12 @@ export class GameWorld {
     this.syncBoardOccupancy();
   }
   private closestEnemy(): Enemy | undefined {
-    return [...this.enemies]
-      .filter(enemy => enemy.state !== "deleted")
-      .sort(
-        (a, b) =>
-          Math.abs(a.grid.row - this.playerGrid.row) -
-            Math.abs(b.grid.row - this.playerGrid.row) ||
-          a.grid.col - b.grid.col
-      )[0];
+    const active = this.enemies.filter(enemy => enemy.state !== "deleted");
+    const target = nearestEnemyPosition(
+      this.playerGrid,
+      active.map(enemy => enemy.grid)
+    );
+    return active.find(enemy => target !== null && sameTile(enemy.grid, target));
   }
   private frontTarget(): Enemy | undefined {
     return this.enemies
@@ -3599,7 +3616,8 @@ export class GameWorld {
     const tiles = cardPreviewTiles(
       card,
       this.playerGrid,
-      this.enemies.filter(enemy => enemy.state !== "deleted").map(enemy => enemy.grid)
+      this.enemies.filter(enemy => enemy.state !== "deleted").map(enemy => enemy.grid),
+      this.panelSystem.snapshot()
     );
     const enemies = this.enemies.filter(enemy =>
       enemy.state !== "deleted" &&

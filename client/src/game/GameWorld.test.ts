@@ -375,6 +375,72 @@ describe("GameWorldの現行Wave基準", () => {
     ).toEqual(["triplet", "triplet", "triplet"]);
   });
 
+  it("places a point installation on the empty panel used by its preview", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+
+    queueCardForTest(world, "timer");
+    world.controller.useSkill();
+
+    expect(latest?.objects).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        effectId: "timed-bomb",
+        panel: { col: 3, row: 1 },
+      }),
+    ]));
+  });
+
+  it("transfers to the first safe panel around the shared nearest target", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      enemies: Array<{ id: string; grid: GridPosition }>;
+      syncBoardOccupancy: () => void;
+    };
+    const scanner = internal.enemies.find(enemy => enemy.id === "scanner");
+    const bulwark = internal.enemies.find(enemy => enemy.id === "bulwark");
+    if (!scanner || !bulwark) throw new Error("転送検査用の敵編成が不正です");
+    scanner.grid = { col: 2, row: 0 };
+    bulwark.grid = { col: 5, row: 1 };
+    internal.syncBoardOccupancy();
+
+    queueCardForTest(world, "rush");
+    world.controller.useSkill();
+
+    expect(latest?.playerGrid).toEqual({ col: 1, row: 0 });
+  });
+
+  it("uses the same Manhattan-nearest enemy for gridcut and point targeting", () => {
+    const world = new GameWorld(() => undefined, () => undefined);
+    const internal = world as unknown as {
+      enemies: Array<{
+        id: string;
+        hp: number;
+        grid: GridPosition;
+      }>;
+      syncBoardOccupancy: () => void;
+    };
+    const scanner = internal.enemies.find(enemy => enemy.id === "scanner");
+    const bulwark = internal.enemies.find(enemy => enemy.id === "bulwark");
+    if (!scanner || !bulwark) throw new Error("対象検査用の敵編成が不正です");
+    scanner.grid = { col: 2, row: 0 };
+    bulwark.grid = { col: 5, row: 1 };
+    internal.syncBoardOccupancy();
+    const scannerBefore = scanner.hp;
+    const bulwarkBefore = bulwark.hp;
+
+    queueCardForTest(world, "gridcut");
+    world.controller.useSkill();
+    advanceAtFixedRate(world, 0.5);
+
+    expect(scanner.hp).toBeLessThan(scannerBefore);
+    expect(bulwark.hp).toBe(bulwarkBefore);
+  });
+
   it.each(["slash", "sweep", "dashslash", "gridcut", "moonblade"])(
     "routes the %s card through the melee resolver",
     cardId => {
