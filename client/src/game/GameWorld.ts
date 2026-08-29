@@ -1661,6 +1661,7 @@ export class GameWorld {
         COMBAT_BALANCE.normalShot.damage * this.normalShotDamageMultiplier
       ),
       charged: false,
+      target: target ? { ...target.grid } : null,
       speedCellsPerSecond: COMBAT_BALANCE.normalShot.speedCellsPerSecond,
     });
     this.message = "正面へ通常弾を発射";
@@ -1695,6 +1696,7 @@ export class GameWorld {
       motion: "straight",
       position: { ...this.playerGrid },
       direction: { col: 1, row: 0 },
+      target: this.frontTarget()?.grid ?? null,
       damage: Math.round(
         (charged
           ? COMBAT_BALANCE.chargeShot.damage
