@@ -16,6 +16,7 @@ export type EnemyActionPhase =
   | "recovery"
   | "stunned"
   | "deleted";
+export type EnemyWarningStage = "telegraph" | "urgent";
 export type EnemyMovementMode =
   | "ground"
   | "flying"
@@ -243,6 +244,10 @@ export interface EnemySnapshot {
   actionId?: string | null;
   actionName?: string | null;
   counterWindowRemaining?: number;
+  warningStage?: EnemyWarningStage | null;
+  warningProgress?: number;
+  warningRemainingMs?: number;
+  warningTargets?: GridPosition[];
   defense?: EnemyDefenseMode;
   movement?: EnemyMovementMode;
   boss?: boolean;

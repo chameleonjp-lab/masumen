@@ -31,6 +31,7 @@ button { font: inherit; }
 .player-console.is-crisis { border-color: rgba(255, 111, 77, .72); box-shadow: 0 0 22px rgba(255, 70, 46, .13); }.crisis-readout { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: #ff856b; font-size: 7px; letter-spacing: .1em; }.crisis-readout i { width: 6px; height: 6px; background: currentColor; box-shadow: 0 0 9px currentColor; }.crisis-readout.is-critical { color: #ff5e3b; font-weight: 700; }
 .sync-status { display: flex; align-items: center; gap: 6px; margin-top: 13px; padding-top: 10px; border-top: 1px solid rgba(150,215,213,.14); color: #6f8b8a; font-size: 8px; }.sync-status i { width: 7px; height: 7px; border: 1px solid #6f8b8a; border-radius: 50%; }.sync-status.is-synced { color: #ff795c; }.sync-status.is-synced i { background: #ff5e3b; border-color: #ff5e3b; box-shadow: 0 0 9px #ff5e3b; }
 .enemy-readout { margin-top: 10px; color: #d8e9e5; }.enemy-readout > div:first-child { display: flex; align-items: center; gap: 6px; }.enemy-readout b { font-size: 9px; }.enemy-readout small { display: block; margin: 4px 0 4px 13px; color: #869b98; font-size: 8px; }.enemy-state { width: 7px; height: 7px; background: #e4a33a; }.state-windup { background: #ff5e3b; box-shadow: 0 0 8px #ff5e3b; }.state-stunned { background: #2ad4d9; box-shadow: 0 0 8px #2ad4d9; }.state-deleted { background: #3f5658; }
+.enemy-warning { display: grid; grid-template-columns: auto minmax(28px, 1fr) auto; align-items: center; gap: 5px; margin: 5px 0 7px 13px; color: #ffb56f; font: 600 7px/1 "IBM Plex Mono", monospace; letter-spacing: .06em; }.enemy-warning .meter { min-width: 28px; height: 4px; margin-top: 0; transform: skewX(-18deg); }.enemy-warning .meter span { background: #ff9a62; box-shadow: 0 0 8px rgba(255, 94, 59, .7); }.enemy-warning time { min-width: 25px; color: #ffd4b0; text-align: right; font-variant-numeric: tabular-nums; }.enemy-warning.is-urgent { color: #ffe2c6; text-shadow: 0 0 8px rgba(255, 94, 59, .65); }.enemy-warning.is-urgent .meter span { background: #ffe0bd; box-shadow: 0 0 10px rgba(255, 210, 163, .9); }
 .signal-log { position: absolute; left: 50%; top: 34px; display: flex; align-items: center; gap: 10px; min-width: 390px; max-width: 48vw; padding: 8px 12px 9px; transform: translateX(-50%); color: #d7eae5; border-bottom: 1px solid rgba(150,215,213,.3); background: linear-gradient(90deg, transparent, rgba(5, 18, 24, .65), transparent); }.signal-log p { flex: 1; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }.signal-log time { color: #829694; font-variant-numeric: tabular-nums; }.log-pin { width: 5px; height: 5px; background: #2ad4d9; box-shadow: 0 0 8px #2ad4d9; }
 .run-console { position: absolute; top: 244px; left: 28px; width: 180px; padding: 10px 13px; }.run-console .eyebrow { margin-bottom: 6px; }.run-console div { display: flex; align-items: baseline; justify-content: space-between; color: #90aaa6; font-size: 8px; }.run-console strong { color: #ff775b; font: 600 16px/1 "Space Grotesk", sans-serif; font-variant-numeric: tabular-nums; }.run-console small { display: block; margin-top: 7px; padding-top: 7px; color: #7e9895; border-top: 1px solid rgba(150,215,213,.13); font-size: 7px; }
 .queue-console { position: absolute; left: 28px; bottom: 42px; min-width: 180px; padding: 11px 13px; }.queue-console .eyebrow { margin-bottom: 5px; }.queue-console strong { display: block; color: #f1f6ee; font: 600 15px/1 "Space Grotesk", sans-serif; }.queue-console span { display: block; margin-top: 5px; color: #ff785f; font-size: 9px; }.empty-queue { color: #678181 !important; font-size: 10px !important; }
@@ -684,6 +685,18 @@ select {
   margin-top: 22px;
   min-height: 48px;
 }
+@media (max-width: 760px) {
+  .enemy-warning {
+    gap: 3px;
+    margin-left: 0;
+    font-size: 6px;
+  }
+  .enemy-warning time {
+    min-width: 22px;
+    font-size: 6px;
+  }
+}
+
 @media (max-width: 760px) {
   .startup-error {
     width: calc(100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 20px);

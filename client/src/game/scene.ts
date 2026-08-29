@@ -18,11 +18,20 @@ import { CardAudio } from "./cardAudio";
 import { cardPreviewTiles } from "./data/cardCombatData";
 import { getCardVfxRecipe } from "./cardVisuals";
 import { CARD_CATALOG } from "./deck";
-import type { BattleEvent, BattleSnapshot, FieldObject, GameHandle, GridPosition, PanelTerrain } from "./types";
+import type {
+  BattleEvent,
+  BattleSnapshot,
+  EnemyWarningStage,
+  FieldObject,
+  GameHandle,
+  GridPosition,
+  PanelTerrain,
+} from "./types";
 
 const TEAL = Color3.FromHexString("#2AD4D9");
 const OCHRE = Color3.FromHexString("#E4A33A");
 const EMBER = Color3.FromHexString("#FF5E3B");
+const WARNING_URGENT = Color3.FromHexString("#FFD2A3");
 const GRAPHITE = Color3.FromHexString("#10171F");
 
 interface SceneCallbacks {
@@ -40,7 +49,10 @@ interface ActiveBeam {
 interface WarningEffect {
   ring: Mesh;
   scan: Mesh;
-  startedAt: number;
+  core: Mesh;
+  stage: EnemyWarningStage;
+  progress: number;
+  animationTime: number;
 }
 
 interface TimedEffect {
@@ -427,14 +439,74 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     scanMaterial.alpha = 0.3;
     scanMaterial.backFaceCulling = false;
     scan.material = scanMaterial;
-    warningEffects.set(tileKey, { ring, scan, startedAt: performance.now() });
+    const core = MeshBuilder.CreateTorus(
+      "warning-core",
+      { diameter: 0.68, thickness: 0.07, tessellation: 24 },
+      scene
+    );
+    core.rotation.x = Math.PI / 2;
+    core.position = center.add(new Vector3(0, 0.215, 0));
+    const coreMaterial = new StandardMaterial("warning-core-mat", scene);
+    coreMaterial.emissiveColor = WARNING_URGENT;
+    coreMaterial.alpha = 0.9;
+    core.material = coreMaterial;
+    core.isVisible = false;
+    warningEffects.set(tileKey, {
+      ring,
+      scan,
+      core,
+      stage: "telegraph",
+      progress: 0,
+      animationTime: 0,
+    });
   };
   const clearWarningEffect = (tileKey: string) => {
     const effect = warningEffects.get(tileKey);
     if (!effect) return;
     effect.ring.dispose();
     effect.scan.dispose();
+    effect.core.dispose();
     warningEffects.delete(tileKey);
+  };
+  const updateWarningVisuals = (
+    snapshot: BattleSnapshot,
+    delta: number
+  ): void => {
+    const stageRank: Record<EnemyWarningStage, number> = {
+      telegraph: 0,
+      urgent: 1,
+    };
+    const states = new Map<
+      string,
+      { stage: EnemyWarningStage; progress: number }
+    >();
+    snapshot.enemies.forEach(enemy => {
+      const stage = enemy.warningStage;
+      const targets = enemy.warningTargets;
+      if (!stage || !targets) return;
+      targets.forEach(target => {
+        const tileKey = key(target);
+        const current = states.get(tileKey);
+        const next = {
+          stage,
+          progress: enemy.warningProgress ?? 0,
+        };
+        if (
+          !current ||
+          stageRank[next.stage] > stageRank[current.stage] ||
+          (next.stage === current.stage && next.progress > current.progress)
+        )
+          states.set(tileKey, next);
+      });
+    });
+    warningEffects.forEach((effect, tileKey) => {
+      const state = states.get(tileKey);
+      if (state) {
+        effect.stage = state.stage;
+        effect.progress = state.progress;
+      }
+      effect.animationTime += delta;
+    });
   };
   const makeImpact = (position: GridPosition, color: Color3, counter = false) => {
     const ring = MeshBuilder.CreateTorus(
@@ -1473,6 +1545,7 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     if (!latest) return;
     updatePanelVisuals(latest);
     syncObjectVisuals(latest);
+    updateWarningVisuals(latest, delta);
     if (requestedVfxCard && performance.now() >= nextVfxPreviewAt) {
       const tiles = debugVfxTiles(
         requestedVfxCard,
@@ -1634,22 +1707,50 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
       const material = tile.material as StandardMaterial;
       const warning = warningTiles.has(tileKey);
       const effect = warningEffects.get(tileKey);
-      const age = effect ? (performance.now() - effect.startedAt) / 1000 : 0;
-      const urgency = reducedMotion ? 0.6 : Math.min(1, 0.35 + age * 0.42);
-      const pulseRate = 5 + urgency * 12;
-      const pulse = reducedMotion ? 0.72 : 0.5 + 0.5 * Math.sin(age * pulseRate * Math.PI * 2);
+      const stage = effect?.stage ?? "telegraph";
+      const progress = effect?.progress ?? 0;
+      const urgency =
+        stage === "urgent"
+          ? Math.min(1, 0.76 + progress * 0.24)
+          : Math.min(0.72, 0.28 + progress * 0.48);
+      const pulseRate = stage === "urgent" ? 9.5 : 3.6;
+      const animationTime = effect?.animationTime ?? 0;
+      const pulse = reducedMotion
+        ? 0.72
+        : 0.5 + 0.5 * Math.sin(animationTime * pulseRate * Math.PI * 2);
       if (warning) {
-        material.diffuseColor = EMBER.scale(0.18 + urgency * 0.24 + pulse * 0.1);
-        material.emissiveColor = EMBER.scale(0.16 + urgency * 0.44 + pulse * 0.22);
+        material.diffuseColor = EMBER.scale(
+          0.18 + urgency * 0.24 + pulse * 0.1
+        );
+        material.emissiveColor = EMBER.scale(
+          0.16 + urgency * 0.44 + pulse * 0.22
+        );
       }
       if (effect) {
         const ringMaterial = effect.ring.material as StandardMaterial;
         const scanMaterial = effect.scan.material as StandardMaterial;
-        const cycle = reducedMotion ? 0.55 : (age * (0.62 + urgency * 0.9)) % 1;
-        effect.ring.scaling.setAll(0.72 + urgency * 0.16 + pulse * 0.11);
+        const coreMaterial = effect.core.material as StandardMaterial;
+        const cycle = reducedMotion
+          ? 0.55
+          : (animationTime * (stage === "urgent" ? 2.8 : 1.45)) % 1;
+        ringMaterial.emissiveColor =
+          stage === "urgent" ? WARNING_URGENT : EMBER;
+        scanMaterial.emissiveColor =
+          stage === "urgent" ? WARNING_URGENT : EMBER;
+        effect.ring.scaling.setAll(
+          0.72 + urgency * 0.16 + pulse * (stage === "urgent" ? 0.15 : 0.11)
+        );
         ringMaterial.alpha = 0.35 + urgency * 0.45 + pulse * 0.2;
         effect.scan.scaling.setAll(0.22 + cycle * 1.15);
-        scanMaterial.alpha = Math.max(0.06, (1 - cycle) * (0.14 + urgency * 0.18));
+        scanMaterial.alpha = Math.max(
+          0.06,
+          (1 - cycle) * (0.14 + urgency * 0.18)
+        );
+        effect.core.isVisible = stage === "urgent";
+        effect.core.scaling.setAll(
+          0.9 + pulse * (reducedMotion ? 0.03 : 0.13)
+        );
+        coreMaterial.alpha = stage === "urgent" ? 0.72 + pulse * 0.2 : 0;
       }
     }
 
