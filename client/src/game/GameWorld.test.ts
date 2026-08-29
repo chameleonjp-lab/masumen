@@ -4,6 +4,8 @@ import { CARD_CATALOG } from "./deck";
 import { createChainCard, findChainTechnique } from "./data/chainTechniques";
 import type { BattleEvent, BattleSnapshot, Card, GridPosition } from "./types";
 
+type ProjectileEvent = Extract<BattleEvent, { type: "projectile" }>;
+
 function installWindowStub(): void {
   const storage = new Map<string, string>();
   Object.defineProperty(globalThis, "window", {
@@ -48,6 +50,14 @@ function placeMeleeTarget(world: GameWorld): { hp: number } {
   target.grid = { col: 2, row: 1 };
   internal.syncBoardOccupancy();
   return target;
+}
+
+function getProjectileEvent(events: BattleEvent[]): ProjectileEvent {
+  const projectile = events.find(
+    (event): event is ProjectileEvent => event.type === "projectile"
+  );
+  if (!projectile) throw new Error("projectile event was not emitted");
+  return projectile;
 }
 
 describe("GameWorldの現行Wave基準", () => {
@@ -623,6 +633,59 @@ describe("GameWorldの現行Wave基準", () => {
 
     expect(latest?.projectiles[0]?.charged).toBe(true);
     expect(latest?.projectiles[0]?.damage).toBe(42);
+  });
+
+  it("shows normal and full-charge shots to the far edge when no enemy remains", () => {
+    const fireEnemyFreeShot = (charged: boolean): ProjectileEvent => {
+      const events: BattleEvent[] = [];
+      const world = new GameWorld(() => undefined, event => events.push(event));
+      const internal = world as unknown as { enemies: unknown[] };
+      internal.enemies = [];
+      world.controller.confirmCustom();
+
+      if (charged) {
+        world.controller.startCharge();
+        advanceAtFixedRate(world, 0.85);
+        world.controller.releaseCharge();
+      } else {
+        world.controller.fire();
+      }
+
+      return getProjectileEvent(events);
+    };
+
+    expect(fireEnemyFreeShot(false)).toMatchObject({
+      from: { col: 1, row: 1 },
+      to: { col: 5, row: 1 },
+      side: "player",
+      charged: false,
+    });
+    expect(fireEnemyFreeShot(true)).toMatchObject({
+      from: { col: 1, row: 1 },
+      to: { col: 5, row: 1 },
+      side: "player",
+      charged: true,
+    });
+  });
+
+  it("uses the current front enemy as the normal-shot display endpoint", () => {
+    const events: BattleEvent[] = [];
+    const world = new GameWorld(() => undefined, event => events.push(event));
+    const internal = world as unknown as {
+      enemies: Array<{ state: string; grid: GridPosition }>;
+    };
+    world.controller.confirmCustom();
+    internal.enemies.forEach(enemy => {
+      enemy.state = "deleted";
+    });
+    const target = internal.enemies[0];
+    if (!target) throw new Error("normal-shot target was not spawned");
+    target.state = "idle";
+    target.grid = { col: 3, row: 1 };
+
+    world.controller.fire();
+
+    expect(getProjectileEvent(events).to).toEqual({ col: 3, row: 1 });
   });
 
   it("implements the four upper cards and the trump input sequence", () => {

@@ -15,6 +15,7 @@ import { GameWorld } from "./GameWorld";
 import { createMovementRepeat } from "./movementRepeat";
 import { ASSET_URLS } from "./assets";
 import { CardAudio } from "./cardAudio";
+import { cardPreviewTiles } from "./data/cardCombatData";
 import { getCardVfxRecipe } from "./cardVisuals";
 import { CARD_CATALOG } from "./deck";
 import type { BattleEvent, BattleSnapshot, FieldObject, GameHandle, GridPosition, PanelTerrain } from "./types";
@@ -1429,7 +1430,23 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     if (query.has("pause")) pauseTimeout = window.setTimeout(() => world.controller.togglePause(), 1800);
   }
 
-  const debugVfxTiles = (target: NonNullable<typeof requestedVfxCard>["target"], playerGrid: GridPosition): GridPosition[] => {
+  const debugVfxTiles = (
+    card: NonNullable<typeof requestedVfxCard>,
+    playerGrid: GridPosition,
+    enemies: BattleSnapshot["enemies"],
+    panels: BattleSnapshot["panels"],
+  ): GridPosition[] => {
+    if (card.family === "近接") {
+      return cardPreviewTiles(
+        card,
+        playerGrid,
+        enemies
+          .filter(enemy => enemy.state !== "deleted")
+          .map(enemy => enemy.grid),
+        panels,
+      );
+    }
+    const target = card.target;
     const row = playerGrid.row;
     if (target === "self") return [{ ...playerGrid }];
     if (target === "near") return [0, 1, 2].map(targetRow => ({ col: 3, row: targetRow }));
@@ -1457,7 +1474,12 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     updatePanelVisuals(latest);
     syncObjectVisuals(latest);
     if (requestedVfxCard && performance.now() >= nextVfxPreviewAt) {
-      const tiles = debugVfxTiles(requestedVfxCard.target, latest.playerGrid);
+      const tiles = debugVfxTiles(
+        requestedVfxCard,
+        latest.playerGrid,
+        latest.enemies,
+        latest.panels,
+      );
       handleEvent({
         type: "card",
         cardId: requestedVfxCard.id,
