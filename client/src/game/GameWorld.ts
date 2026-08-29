@@ -36,6 +36,11 @@ import { CustomSystem } from "./systems/CustomSystem";
 import { EmotionSystem } from "./systems/EmotionSystem";
 import { ProjectileSystem } from "./systems/ProjectileSystem";
 import {
+  warningProgress as getWarningProgress,
+  warningRemainingMs as getWarningRemainingMs,
+  warningStage as getWarningStage,
+} from "./systems/WarningSystem";
+import {
   calculateScoreTotal,
   createScoreBreakdown,
   enemyDefeatScore,
@@ -107,6 +112,8 @@ interface Enemy extends EnemySnapshot {
   activeUntil: number;
   warningAt: number;
   warningShown: boolean;
+  warningStage: import("./types").EnemyWarningStage | null;
+  warningStartedAt: number;
   defense: import("./types").EnemyDefenseMode;
   movement: import("./types").EnemyMovementMode;
   isBoss: boolean;
@@ -657,6 +664,13 @@ export class GameWorld {
           this.onEvent({ type: "warning", at: target, enabled: true })
         );
         enemy.warningShown = true;
+        enemy.warningStartedAt = now;
+        enemy.warningStage = "telegraph";
+      }
+      if (enemy.warningShown) {
+        enemy.warningStage = getWarningStage(
+          getWarningProgress(now, enemy.warningStartedAt, enemy.windupUntil)
+        );
       }
       enemy.actionPhase = isCounterWindowOpen(now, enemy.counterWindowState)
         ? "counter-window"
@@ -672,6 +686,8 @@ export class GameWorld {
         enemy.recoverUntil =
           enemy.activeUntil + (action?.recoveryMs ?? 430);
         enemy.warningShown = false;
+        enemy.warningStage = null;
+        enemy.warningStartedAt = 0;
       }
       return;
     }
@@ -744,6 +760,8 @@ export class GameWorld {
     enemy.counterEndAt = enemy.counterWindowState.endAt;
     enemy.warningAt = now + (action.warningDelayMs ?? 0);
     enemy.warningShown = false;
+    enemy.warningStage = null;
+    enemy.warningStartedAt = 0;
     this.message = enemy.name + " — " + action.name;
   }
 
@@ -917,6 +935,8 @@ export class GameWorld {
       );
     }
     enemy.warningShown = false;
+    enemy.warningStage = null;
+    enemy.warningStartedAt = 0;
   }
 
   private executeEnemyAction(
@@ -4283,6 +4303,8 @@ export class GameWorld {
         activeUntil: 0,
         warningAt: 0,
         warningShown: false,
+        warningStage: null,
+        warningStartedAt: 0,
         defense: firstPhase?.defense ?? definition.defense,
         movement: firstPhase?.movement ?? definition.movement,
         isBoss: definition.rank === "boss",
@@ -4405,6 +4427,7 @@ export class GameWorld {
           activeUntil: _activeUntil,
           warningAt: _warningAt,
           warningShown: _warningShown,
+          warningStartedAt: _warningStartedAt,
           isBoss: _isBoss,
           bossPhase: _bossPhase,
           bossPhaseLabel: _bossPhaseLabel,
@@ -4414,22 +4437,37 @@ export class GameWorld {
           baseMovement: _baseMovement,
           lastMirrorCardId: _lastMirrorCardId,
           ...enemy
-        }) => ({
-          ...enemy,
-          boss: _isBoss,
-          bossPhase: _bossPhase,
-          bossPhaseLabel: _bossPhaseLabel,
-          weakness: _weaknessElement,
-          barrier: _enemyBarrier,
-          grid: { ...enemy.grid },
-          counterWindow:
-            this.sync &&
-            enemy.actionPhase === "counter-window" &&
-            isCounterWindowOpen(now, _cws),
-          counterWindowRemaining: _cws
-            ? Math.max(0, (_cws.endAt - now) / 1000)
-            : 0,
-        })
+        }) => {
+          const warningActive =
+            _warningShown && enemy.warningStage !== null;
+          const progress = warningActive
+            ? getWarningProgress(now, _warningStartedAt, _w)
+            : 0;
+          return {
+            ...enemy,
+            boss: _isBoss,
+            bossPhase: _bossPhase,
+            bossPhaseLabel: _bossPhaseLabel,
+            weakness: _weaknessElement,
+            barrier: _enemyBarrier,
+            grid: { ...enemy.grid },
+            counterWindow:
+              this.sync &&
+              enemy.actionPhase === "counter-window" &&
+              isCounterWindowOpen(now, _cws),
+            counterWindowRemaining: _cws
+              ? Math.max(0, (_cws.endAt - now) / 1000)
+              : 0,
+            warningStage: warningActive ? enemy.warningStage : null,
+            warningProgress: progress,
+            warningRemainingMs: warningActive
+              ? getWarningRemainingMs(now, _w)
+              : 0,
+            warningTargets: warningActive
+              ? _l.map(target => ({ ...target }))
+              : [],
+          };
+        }
       ),
       panels: this.panelSystem.snapshot(),
       objects: this.objectSystem.snapshot(),

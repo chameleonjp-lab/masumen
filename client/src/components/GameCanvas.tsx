@@ -100,6 +100,10 @@ function enemyReadoutLabel(
 ): string {
   if (enemy.counterWindow) return "完全同期カウンター受付";
   if (enemy.actionPhase === "counter-window") return "カウンター受付中";
+  if (enemy.warningStage === "urgent")
+    return "危険予兆 // " + (enemy.actionName ?? "攻撃準備");
+  if (enemy.warningStage === "telegraph")
+    return "攻撃予兆 // " + (enemy.actionName ?? "攻撃準備");
   if (enemy.actionPhase === "startup") return enemy.actionName ?? "攻撃準備";
   if (enemy.actionPhase === "active") return enemy.actionName ?? "攻撃中";
   if (enemy.actionPhase === "recovery") return "攻撃後の隙";
@@ -505,6 +509,29 @@ export default function GameCanvas() {
                 <b>{enemy.name}</b>
               </div>
               <small>{enemyReadoutLabel(enemy)}</small>
+              {enemy.warningStage && (
+                <div
+                  className={"enemy-warning is-" + enemy.warningStage}
+                  role="status"
+                  aria-label={
+                    enemy.warningStage === "urgent"
+                      ? "攻撃直前の危険予兆"
+                      : "敵攻撃の予兆"
+                  }
+                >
+                  <span>
+                    {enemy.warningStage === "urgent" ? "危険" : "予兆"}
+                  </span>
+                  <div className="meter enemy-warning-meter">
+                    <span
+                      style={meterStyle((enemy.warningProgress ?? 0) * 100)}
+                    />
+                  </div>
+                  <time>
+                    {((enemy.warningRemainingMs ?? 0) / 1000).toFixed(1)}秒
+                  </time>
+                </div>
+              )}
               <div className="meter enemy-meter">
                 <span style={meterStyle((enemy.hp / enemy.maxHp) * 100)} />
               </div>

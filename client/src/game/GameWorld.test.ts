@@ -770,6 +770,44 @@ describe("GameWorldの現行Wave基準", () => {
     expect(bulwark?.counterWindowRemaining).toBeGreaterThan(0);
   });
 
+  it("publishes staged warning progress and freezes it while paused", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    world.controller.confirmCustom();
+
+    advanceAtFixedRate(world, 1.2);
+    const telegraph = latest?.enemies.find(
+      enemy => enemy.warningStage === "telegraph"
+    );
+    if (!telegraph) throw new Error("予兆中の敵がいません");
+    expect(telegraph.warningProgress).toBeGreaterThan(0);
+    expect(telegraph.warningProgress).toBeLessThan(0.68);
+    expect(telegraph.warningTargets?.length).toBeGreaterThan(0);
+
+    world.controller.togglePause();
+    const pausedAt = latest?.enemies.find(enemy => enemy.id === telegraph.id);
+    const progressAtPause = pausedAt?.warningProgress;
+    const remainingAtPause = pausedAt?.warningRemainingMs;
+    advanceAtFixedRate(world, 1);
+    const paused = latest?.enemies.find(enemy => enemy.id === telegraph.id);
+    expect(latest?.paused).toBe(true);
+    expect(paused?.warningProgress).toBe(progressAtPause);
+    expect(paused?.warningRemainingMs).toBe(remainingAtPause);
+
+    world.controller.togglePause();
+    advanceAtFixedRate(world, 0.75);
+    const urgent = latest?.enemies.find(enemy => enemy.id === telegraph.id);
+    expect(urgent?.warningStage).toBe("urgent");
+    expect(urgent?.warningRemainingMs).toBeGreaterThan(0);
+
+    advanceAtFixedRate(world, 0.5);
+    const cleared = latest?.enemies.find(enemy => enemy.id === telegraph.id);
+    expect(cleared?.warningStage).toBeNull();
+    expect(cleared?.warningTargets).toEqual([]);
+  });
+
   it("alternates an enemy action after its active and recovery phases", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(snapshot => {
