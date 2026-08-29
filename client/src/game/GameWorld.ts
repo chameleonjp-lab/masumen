@@ -770,6 +770,19 @@ export class GameWorld {
     action: EnemyActionDefinition
   ): GridPosition[] {
     const player = { ...this.playerGrid };
+    if (action.target === "support") {
+      return [{ ...this.findEnemySupportTarget(enemy).grid }];
+    }
+    if (action.id === "hopper-jump-land") {
+      return [{ ...this.findHopperLanding() }];
+    }
+    if (
+      action.id === "hopper-bomb-drop" ||
+      action.id === "bastion-obstacle-deploy" ||
+      action.id === "arbiter-stake-field"
+    ) {
+      return [{ ...this.findEnemyObjectPlacement(enemy) }];
+    }
     switch (action.target) {
       case "row":
         return [0, 1, 2].map(col => ({ col, row: player.row }));
@@ -778,7 +791,7 @@ export class GameWorld {
       case "player":
       case "adjacent":
       case "mine":
-        return [player];
+        return [action.target === "mine" ? this.findEnemyMinePlacement() : player];
       case "cross":
         return uniqueTiles([
           player,
@@ -822,7 +835,6 @@ export class GameWorld {
         ];
       case "landing":
         return [player];
-      case "support":
       case "mirror":
         return [{ ...enemy.grid }];
       case "player-territory":
@@ -939,6 +951,12 @@ export class GameWorld {
     enemy.warningStartedAt = 0;
   }
 
+  private firstLockedTarget(
+    targets: readonly GridPosition[]
+  ): GridPosition {
+    return { ...(targets[0] ?? this.playerGrid) };
+  }
+
   private executeEnemyAction(
     enemy: Enemy,
     action: EnemyActionDefinition | undefined,
@@ -947,6 +965,10 @@ export class GameWorld {
   ): void {
     if (!action) return;
 
+    const lockedTarget = this.firstLockedTarget(targets);
+    const lockedRow = targets[0]?.row ?? lockedTarget.row;
+    const lockedColumn = targets[0]?.col ?? lockedTarget.col;
+
     if (
       action.id === "bulwark-lane-cannon" ||
       action.id === "bastion-lane-cannon"
@@ -954,7 +976,7 @@ export class GameWorld {
       this.spawnEnemyProjectile(enemy, action, {
         motion: "straight",
         direction: { col: -1, row: 0 },
-        target: { col: 0, row: this.playerGrid.row },
+        target: { col: 0, row: lockedRow },
       });
       return;
     }
@@ -964,33 +986,33 @@ export class GameWorld {
       action.id === "razor-dash-cut" ||
       action.id === "arbiter-close-cut"
     ) {
-      this.resolveEnemyMelee(enemy, action, "adjacent");
+      this.resolveEnemyMelee(enemy, action, targets);
       return;
     }
     if (
       action.id === "razor-cross-slash" ||
       action.id === "prism-cross-cut"
     ) {
-      this.resolveEnemyMelee(enemy, action, "cross");
+      this.resolveEnemyMelee(enemy, action, targets);
       return;
     }
     if (action.id === "prism-teleport-cut") {
-      this.teleportEnemyNearPlayer(enemy);
-      this.resolveEnemyMelee(enemy, action, "adjacent");
+      this.teleportEnemyNearPlayer(enemy, lockedTarget);
+      this.resolveEnemyMelee(enemy, action, targets);
       return;
     }
     if (action.id === "prism-front-cut") {
-      this.resolveEnemyMelee(enemy, action, "adjacent");
+      this.resolveEnemyMelee(enemy, action, targets);
       return;
     }
     if (action.id === "prism-triple-cut") {
-      this.resolveEnemyMelee(enemy, action, "cross");
+      this.resolveEnemyMelee(enemy, action, targets);
       return;
     }
     if (action.id === "scanner-column-scan") {
       this.spawnEnemyProjectile(enemy, action, {
         motion: "thrown",
-        target: { col: this.playerGrid.col, row: this.playerGrid.row },
+        target: { col: lockedColumn, row: lockedTarget.row },
         rowSpan: true,
         flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
       });
@@ -999,7 +1021,7 @@ export class GameWorld {
     if (action.id === "scanner-signal-lock") {
       this.spawnEnemyProjectile(enemy, action, {
         motion: "homing",
-        target: { ...this.playerGrid },
+        target: lockedTarget,
         speedCellsPerSecond: 9,
       });
       return;
@@ -1007,7 +1029,7 @@ export class GameWorld {
     if (action.id === "mortar-shell") {
       this.spawnEnemyProjectile(enemy, action, {
         motion: "thrown",
-        target: { ...this.playerGrid },
+        target: lockedTarget,
         flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
       });
       return;
@@ -1031,7 +1053,7 @@ export class GameWorld {
       return;
     }
     if (action.id === "mortar-mine-drop") {
-      const panel = this.findEnemyMinePlacement();
+      const panel = lockedTarget;
       this.placeFieldObject(
         "mine",
         panel,
@@ -1045,6 +1067,7 @@ export class GameWorld {
           sourceId: enemy.id,
           collision: "passable",
           pushable: false,
+          fallback: false,
         }
       );
       this.message = enemy.name + " — 地雷を設置";
@@ -1068,7 +1091,7 @@ export class GameWorld {
     if (action.id === "sentinel-chain-bolt") {
       this.spawnEnemyProjectile(enemy, action, {
         motion: "homing",
-        target: { ...this.playerGrid },
+        target: lockedTarget,
         speedCellsPerSecond: 9,
       });
       return;
@@ -1082,7 +1105,7 @@ export class GameWorld {
       this.spawnEnemyProjectile(enemy, action, {
         motion: "wave",
         direction: { col: -1, row: 0 },
-        target: { col: 0, row: this.playerGrid.row },
+        target: { col: 0, row: lockedRow },
         rowSpan: true,
         stopOnObject: false,
       });
@@ -1106,14 +1129,14 @@ export class GameWorld {
       return;
     }
     if (action.id === "hopper-jump-land") {
-      const landing = this.findHopperLanding();
+      const landing = lockedTarget;
       enemy.grid = landing;
       this.syncBoardOccupancy();
       this.applyEnemyAreaDamage(enemy, landing, action.damage, 1, true);
       return;
     }
     if (action.id === "hopper-bomb-drop") {
-      const panel = this.findEnemyObjectPlacement(enemy);
+      const panel = lockedTarget;
       this.placeFieldObject(
         "bomb",
         panel,
@@ -1127,13 +1150,14 @@ export class GameWorld {
           sourceId: enemy.id,
           collision: "passable",
           pushable: false,
+          fallback: false,
         }
       );
       this.message = enemy.name + " — 爆弾を投下";
       return;
     }
     if (action.id === "gaia-hammer-strike") {
-      this.resolveEnemyMelee(enemy, action, "adjacent");
+      this.resolveEnemyMelee(enemy, action, targets);
       return;
     }
     if (action.id === "gaia-earthquake") {
@@ -1158,7 +1182,7 @@ export class GameWorld {
             {
               motion: "wave",
               direction: { col: -1, row: 0 },
-              target: { col: 0, row: this.playerGrid.row },
+              target: { col: 0, row: lockedRow },
               rowSpan: true,
               stopOnObject: false,
             },
@@ -1170,7 +1194,7 @@ export class GameWorld {
             action,
             {
               motion: "thrown",
-              target: { col: this.playerGrid.col, row: this.playerGrid.row },
+              target: { col: lockedColumn, row: lockedTarget.row },
               rowSpan: true,
               flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
             },
@@ -1182,7 +1206,7 @@ export class GameWorld {
             action,
             {
               motion: "homing",
-              target: { ...this.playerGrid },
+              target: lockedTarget,
               speedCellsPerSecond: 8,
             },
             delay
@@ -1194,7 +1218,7 @@ export class GameWorld {
             {
               motion: "straight",
               direction: { col: -1, row: 0 },
-              target: { col: 0, row: this.playerGrid.row },
+              target: { col: 0, row: lockedRow },
             },
             delay
           );
@@ -1204,14 +1228,14 @@ export class GameWorld {
     }
 
     if (action.id === "support-relay-heal" || action.id === "support-relay-barrier") {
-      this.applyEnemySupport(enemy, action);
+      this.applyEnemySupport(enemy, action, lockedTarget);
       return;
     }
     if (action.id === "support-relay-shot") {
       this.spawnEnemyProjectile(enemy, action, {
         motion: "straight",
         direction: { col: -1, row: 0 },
-        target: { col: 0, row: this.playerGrid.row },
+        target: { col: 0, row: lockedRow },
       });
       return;
     }
@@ -1228,7 +1252,7 @@ export class GameWorld {
         damage: mimicDamage,
         motion: "straight",
         direction: { col: -1, row: 0 },
-        target: { col: 0, row: this.playerGrid.row },
+        target: { col: 0, row: lockedRow },
       });
       return;
     }
@@ -1236,7 +1260,7 @@ export class GameWorld {
     if (action.id === "bastion-obstacle-deploy") {
       this.placeFieldObject(
         action.objectKind ?? "cube",
-        this.findEnemyObjectPlacement(enemy),
+        lockedTarget,
         action.objectHp ?? 100,
         action.objectLifetimeMs ?? null,
         "damage",
@@ -1245,6 +1269,7 @@ export class GameWorld {
           sourceId: enemy.id,
           collision: "solid",
           pushable: false,
+          fallback: false,
         }
       );
       this.message = enemy.name + " — 障害物を展開";
@@ -1262,7 +1287,7 @@ export class GameWorld {
           {
             motion: "straight",
             direction: { col: -1, row: 0 },
-            target: { col: 0, row: this.playerGrid.row },
+            target: { col: 0, row: lockedRow },
           },
           index * (action.projectileIntervalMs ?? 150)
         );
@@ -1273,7 +1298,7 @@ export class GameWorld {
     if (action.id === "arbiter-tracking-shot") {
       this.spawnEnemyProjectile(enemy, action, {
         motion: "homing",
-        target: { ...this.playerGrid },
+        target: lockedTarget,
         speedCellsPerSecond: 8,
       });
       return;
@@ -1281,7 +1306,7 @@ export class GameWorld {
     if (action.id === "arbiter-stake-field") {
       this.placeFieldObject(
         action.objectKind ?? "mine",
-        this.findEnemyObjectPlacement(enemy),
+        lockedTarget,
         action.objectHp ?? 40,
         action.objectLifetimeMs ?? 4500,
         "enemy-contact",
@@ -1292,6 +1317,7 @@ export class GameWorld {
           sourceId: enemy.id,
           collision: "passable",
           pushable: false,
+          fallback: false,
         }
       );
       this.message = enemy.name + " — 拘束フィールドを設置";
@@ -1305,7 +1331,7 @@ export class GameWorld {
     if (action.kind === "projectile") {
       this.spawnEnemyProjectile(enemy, action, {
         motion: action.motion ?? "straight",
-        target: { ...this.playerGrid },
+        target: lockedTarget,
       });
     }
   }
@@ -1396,18 +1422,32 @@ export class GameWorld {
     });
   }
 
-  private applyEnemySupport(
-    enemy: Enemy,
-    action: EnemyActionDefinition
-  ): void {
-    const target =
+  private findEnemySupportTarget(enemy: Enemy): Enemy {
+    return (
       this.enemies
         .filter(candidate => candidate.state !== "deleted" && candidate.id !== enemy.id)
         .sort((a, b) =>
           Number(b.isBoss) - Number(a.isBoss) ||
           (Math.abs(a.grid.col - enemy.grid.col) + Math.abs(a.grid.row - enemy.grid.row)) -
           (Math.abs(b.grid.col - enemy.grid.col) + Math.abs(b.grid.row - enemy.grid.row))
-        )[0] ?? enemy;
+        )[0] ?? enemy
+    );
+  }
+
+  private applyEnemySupport(
+    enemy: Enemy,
+    action: EnemyActionDefinition,
+    lockedTarget?: GridPosition
+  ): void {
+    const target = lockedTarget
+      ? this.enemies.find(
+          candidate =>
+            candidate.state !== "deleted" &&
+            candidate.id !== enemy.id &&
+            sameTile(candidate.grid, lockedTarget)
+        ) ?? (sameTile(enemy.grid, lockedTarget) ? enemy : undefined)
+      : this.findEnemySupportTarget(enemy);
+    if (!target) return;
     const amount = action.supportAmount ?? 0;
     if (action.supportEffect === "heal")
       target.hp = Math.min(target.maxHp, target.hp + amount);
@@ -1464,12 +1504,15 @@ export class GameWorld {
     this.panelSystem.setTerrain(fallback, "normal", this.gameTimeMs);
   }
 
-  private teleportEnemyNearPlayer(enemy: Enemy): void {
+  private teleportEnemyNearPlayer(
+    enemy: Enemy,
+    lockedTarget = this.playerGrid
+  ): void {
     const candidates = [
-      { col: 3, row: this.playerGrid.row },
-      { col: 4, row: this.playerGrid.row },
-      { col: 3, row: Math.max(0, this.playerGrid.row - 1) },
-      { col: 3, row: Math.min(2, this.playerGrid.row + 1) },
+      { col: 3, row: lockedTarget.row },
+      { col: 4, row: lockedTarget.row },
+      { col: 3, row: Math.max(0, lockedTarget.row - 1) },
+      { col: 3, row: Math.min(2, lockedTarget.row + 1) },
     ];
     const target = candidates.find(
       position =>
@@ -1523,14 +1566,9 @@ export class GameWorld {
   private resolveEnemyMelee(
     enemy: Enemy,
     action: EnemyActionDefinition,
-    mode: "adjacent" | "cross"
+    targets: readonly GridPosition[]
   ): void {
-    const columnDistance = Math.abs(enemy.grid.col - this.playerGrid.col);
-    const rowDistance = Math.abs(enemy.grid.row - this.playerGrid.row);
-    const hits =
-      mode === "cross"
-        ? columnDistance <= 1 && rowDistance <= 1
-        : columnDistance <= 1 && rowDistance === 0;
+    const hits = targets.some(target => sameTile(target, this.playerGrid));
     if (!hits) return;
     const hitCount = Math.max(1, action.hitCount ?? 1);
     for (let index = 0; index < hitCount; index += 1)
@@ -2579,7 +2617,8 @@ export class GameWorld {
     };
   }
   private findHomingTarget(projectile: ProjectileState): GridPosition | null {
-    if (projectile.owner === "enemy") return { ...this.playerGrid };
+    if (projectile.owner === "enemy")
+      return projectile.target ? { ...projectile.target } : null;
     return (
       this.enemies
         .filter(enemy => enemy.state !== "deleted")
