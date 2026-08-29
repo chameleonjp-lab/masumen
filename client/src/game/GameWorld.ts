@@ -2410,7 +2410,7 @@ export class GameWorld {
     const startupMs = action === "moonblade" ? 380 : action === "gridcut" ? 120 : 90;
     const activeMs = action === "moonblade" ? 110 : 80;
     const recoveryMs = action === "moonblade" ? 420 : 180;
-    const plan = createMeleePlan(this.playerGrid, target, power, action === "moonblade" ? 2 : 1, {
+    const plan = createMeleePlan(this.playerGrid, target, power, getMeleeRange(card), {
       dash: action === "dashslash",
       timing: { startupMs, activeMs, recoveryMs },
       canEnter: position => this.canEnterTemporaryMeleePosition(position),

@@ -86,6 +86,43 @@ describe("card combat data", () => {
     ]);
   });
 
+  it("keeps each melee card label aligned with its preview tiles", () => {
+    const origin = { col: 1, row: 1 };
+    const enemies = [{ col: 4, row: 1 }];
+    const cards = new Map(
+      ["slash", "sweep", "dashslash", "gridcut", "moonblade"].map(id => [
+        id,
+        CARD_CATALOG.find(card => card.id === id),
+      ])
+    );
+
+    expect([...cards.values()].map(card => card?.rangeLabel)).toEqual([
+      "正面1マス",
+      "正面の縦3マス",
+      "最も近い敵のマス",
+      "最も近い敵中心の十字",
+      "正面の同じ行2マス",
+    ]);
+    expect(cardPreviewTiles(cards.get("slash"), origin, enemies)).toEqual([{ col: 2, row: 1 }]);
+    expect(cardPreviewTiles(cards.get("sweep"), origin, enemies)).toEqual([
+      { col: 2, row: 0 },
+      { col: 2, row: 1 },
+      { col: 2, row: 2 },
+    ]);
+    expect(cardPreviewTiles(cards.get("dashslash"), origin, enemies)).toEqual([{ col: 4, row: 1 }]);
+    expect(cardPreviewTiles(cards.get("gridcut"), origin, enemies)).toEqual([
+      { col: 3, row: 1 },
+      { col: 4, row: 1 },
+      { col: 5, row: 1 },
+      { col: 4, row: 0 },
+      { col: 4, row: 2 },
+    ]);
+    expect(cardPreviewTiles(cards.get("moonblade"), origin, enemies)).toEqual([
+      { col: 2, row: 1 },
+      { col: 3, row: 1 },
+    ]);
+  });
+
   it("shares the nearest target and available placement between preview helpers", () => {
     const origin = { col: 1, row: 1 };
     const enemies = [{ col: 2, row: 0 }, { col: 5, row: 1 }];

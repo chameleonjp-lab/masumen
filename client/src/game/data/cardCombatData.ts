@@ -14,6 +14,7 @@ export interface CardCombatProfile {
   powerPerHit: number;
   hitCount: number;
   rangePreviewId: string;
+  rangeLabel?: string;
 }
 
 export const PR7_CARD_IDS = [
@@ -50,11 +51,11 @@ export const CARD_COMBAT_PROFILES: Readonly<Record<string, CardCombatProfile>> =
   thunderline: { element: "electric", properties: ["射撃"], actionId: "thunderline", powerPerHit: 40, hitCount: 1, rangePreviewId: "target-column" },
   root: { element: "wood", properties: ["射撃"], actionId: "root", powerPerHit: 45, hitCount: 1, rangePreviewId: "root-line" },
   web: { element: "wood", properties: ["射撃"], actionId: "web", powerPerHit: 25, hitCount: 1, rangePreviewId: "wood-net" },
-  slash: { element: "none", properties: ["剣"], actionId: "slash", powerPerHit: 80, hitCount: 1, rangePreviewId: "front-tile" },
-  sweep: { element: "none", properties: ["剣"], actionId: "sweep", powerPerHit: 70, hitCount: 1, rangePreviewId: "front-column" },
-  dashslash: { element: "none", properties: ["剣"], actionId: "dashslash", powerPerHit: 100, hitCount: 1, rangePreviewId: "dash-target" },
-  gridcut: { element: "none", properties: ["剣"], actionId: "gridcut", powerPerHit: 50, hitCount: 2, rangePreviewId: "grid-cross" },
-  moonblade: { element: "none", properties: ["剣"], actionId: "moonblade", powerPerHit: 140, hitCount: 1, rangePreviewId: "long-line" },
+  slash: { element: "none", properties: ["剣"], actionId: "slash", powerPerHit: 80, hitCount: 1, rangePreviewId: "front-tile", rangeLabel: "正面1マス" },
+  sweep: { element: "none", properties: ["剣"], actionId: "sweep", powerPerHit: 70, hitCount: 1, rangePreviewId: "front-column", rangeLabel: "正面の縦3マス" },
+  dashslash: { element: "none", properties: ["剣"], actionId: "dashslash", powerPerHit: 100, hitCount: 1, rangePreviewId: "dash-target", rangeLabel: "最も近い敵のマス" },
+  gridcut: { element: "none", properties: ["剣"], actionId: "gridcut", powerPerHit: 50, hitCount: 2, rangePreviewId: "grid-cross", rangeLabel: "最も近い敵中心の十字" },
+  moonblade: { element: "none", properties: ["剣"], actionId: "moonblade", powerPerHit: 140, hitCount: 1, rangePreviewId: "long-line", rangeLabel: "正面の同じ行2マス" },
   timer: { element: "none", properties: ["罠"], actionId: "timer", powerPerHit: 90, hitCount: 1, rangePreviewId: "timed-mine-point" },
   watchmine: { element: "none", properties: ["罠"], actionId: "watchmine", powerPerHit: 100, hitCount: 1, rangePreviewId: "hidden-mine-field" },
   turret: { element: "none", properties: ["射撃", "罠"], actionId: "turret", powerPerHit: 12, hitCount: 10, rangePreviewId: "turret-front" },
