@@ -39,7 +39,7 @@ const standardCards: Card[] = [
   { id: "gustwall", name: "乱流壁", code: "B", tier: "standard", family: "地形", target: "enemy-field", power: 0, description: "全行へ風を送り、敵と押せる設置物を1列後退させる" },
   { id: "hole", name: "逆位相穴", code: "C", tier: "standard", family: "地形", target: "enemy-field", power: 30, durationMs: 8000, description: "敵陣の空き3マスを穴へ変更。使用中のマスは30ダメージと亀裂" },
   { id: "prism", name: "プリズムガード", code: "A", tier: "standard", family: "防御", target: "self", power: 0, status: "barrier", effectValue: 100, description: "合計100ダメージを吸収する障壁" },
-  { id: "phase", name: "位相迷彩", code: "B", tier: "standard", family: "防御", target: "self", power: 0, durationMs: 3000, description: "3秒間、直進弾と接触攻撃を通過させる" },
+  { id: "phase", name: "位相迷彩", code: "B", tier: "standard", family: "防御", target: "self", power: 0, durationMs: 5000, description: "5秒間、直進弾と接触攻撃を通過させる" },
   { id: "return", name: "返し手裏剣", code: "C", tier: "standard", family: "反撃", target: "self", power: 0, effectValue: 80, description: "次の直接攻撃を無効化し、攻撃元へ80ダメージ" },
   { id: "substitute", name: "身代わり膜", code: "D", tier: "standard", family: "防御", target: "self", power: 0, description: "次の1撃を無効化し、隣接安全マスへ移動。元の場所へ2秒間囮を残す" },
   { id: "magguard", name: "電磁防壁", code: "E", tier: "standard", family: "防御", target: "self", power: 0, status: "barrier", effectValue: 80, description: "80障壁。破壊時または接触時に周囲へ40電気ダメージと麻痺" },

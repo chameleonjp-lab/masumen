@@ -414,6 +414,40 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.playerGrid).toEqual({ col: 1, row: 0 });
   });
 
+  it.each(["phase", "rush"])(
+    "keeps %s phase protection for five seconds and clears it at the boundary",
+    cardId => {
+      let latest: BattleSnapshot | undefined;
+      const world = new GameWorld(snapshot => {
+        latest = snapshot;
+      }, () => undefined);
+      const internal = world as unknown as {
+        enemies: Array<{ nextAttackAt: number }>;
+        hitstopRemainingMs: number;
+        notify: () => void;
+      };
+
+      queueCardForTest(world, cardId);
+      world.controller.useSkill();
+      expect(latest?.invincible).toBe(true);
+      expect(latest?.invincibleRemaining).toBeCloseTo(5, 5);
+
+      internal.hitstopRemainingMs = 0;
+      internal.enemies.forEach(enemy => {
+        enemy.nextAttackAt = Number.MAX_SAFE_INTEGER;
+      });
+      for (let step = 0; step < 299; step += 1) world.update(1 / 60);
+      internal.notify();
+      expect(latest?.invincible).toBe(true);
+      expect(latest?.invincibleRemaining).toBeCloseTo(1 / 60, 5);
+
+      world.update(1 / 60);
+      internal.notify();
+      expect(latest?.invincible).toBe(false);
+      expect(latest?.invincibleRemaining).toBe(0);
+    }
+  );
+
   it("uses the same Manhattan-nearest enemy for gridcut and point targeting", () => {
     const world = new GameWorld(() => undefined, () => undefined);
     const internal = world as unknown as {
@@ -609,6 +643,7 @@ describe("GameWorldの現行Wave基準", () => {
     queueCardForTest(world, "dream");
     world.controller.useSkill();
     expect(latest?.dreamAuraRemaining).toBeGreaterThan(7.9);
+    expect(latest?.invincible).toBe(false);
     internal.applyPlayerHit(50, "bulwark");
     expect(latest?.playerHp).toBe(180);
     internal.applyPlayerHit(100, "bulwark");
