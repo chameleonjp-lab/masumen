@@ -3153,11 +3153,7 @@ export class GameWorld {
       };
       this.message = "応急修復を準備中 — 被弾すると失敗";
     }
-    if (card.id === "phase")
-      this.phaseUntil = Math.max(
-        this.phaseUntil,
-        this.gameTimeMs + (card.durationMs ?? 3000)
-      );
+    if (card.id === "phase") this.grantPhaseInvincibility();
     if (card.id === "return") {
       this.pendingDefense = "return";
       this.pendingDefenseUntil = 0;
@@ -3529,10 +3525,17 @@ export class GameWorld {
     this.panelSystem.vacate(previous, this.gameTimeMs);
     this.playerGrid = { ...destination };
     this.panelSystem.occupy(this.playerGrid, "player");
-    this.phaseUntil = Math.max(this.phaseUntil, this.gameTimeMs + 350);
+    this.grantPhaseInvincibility();
     this.nextSwordMultiplier = 1.3;
     this.applyPlayerEntryTerrain(this.playerGrid);
     this.message = "強襲転送 — 次の剣攻撃を強化";
+  }
+
+  private grantPhaseInvincibility(): void {
+    this.phaseUntil = Math.max(
+      this.phaseUntil,
+      this.gameTimeMs + COMBAT_BALANCE.phase.invincibilityMs
+    );
   }
 
   private applyGustWall(): void {
