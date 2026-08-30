@@ -707,3 +707,549 @@ select {
     font-size: clamp(24px, 8vw, 34px);
   }
 }
+
+/* PR28: keep each mode in its own visual layer and remove touch/browser gesture dependencies. */
+.game-shell {
+  isolation: isolate;
+  overscroll-behavior: none;
+}
+
+.game-shell,
+.game-shell * {
+  -webkit-touch-callout: none;
+}
+
+.game-shell button,
+.game-shell .signal-card {
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+
+.game-shell .folder-editor input,
+.game-shell .folder-editor textarea,
+.game-shell .folder-editor select {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
+  touch-action: auto;
+}
+
+.game-shell[data-mode="custom"] .signal-hud,
+.game-shell[data-mode="intermission"] .signal-hud,
+.game-shell[data-mode="result"] .signal-hud,
+.game-shell[data-mode="practice"] .signal-hud {
+  visibility: hidden;
+}
+
+.custom-console {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: clamp(22px, 4vh, 44px) clamp(18px, 6vw, 96px) max(22px, env(safe-area-inset-bottom, 0px));
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: #07141a;
+}
+
+.custom-topline,
+.custom-heading,
+.card-deck,
+.custom-range-preview,
+.custom-footer {
+  flex: 0 0 auto;
+  width: min(1080px, 100%);
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.custom-topline {
+  min-height: 18px;
+}
+
+.custom-heading {
+  margin-top: clamp(14px, 3vh, 28px);
+  margin-bottom: clamp(14px, 3vh, 28px);
+}
+
+.custom-heading h1 {
+  font-size: clamp(30px, 5.6vw, 68px);
+  line-height: 0.98;
+}
+
+.custom-heading > span {
+  max-width: 760px;
+  line-height: 1.5;
+}
+
+.card-inspector {
+  min-height: 24px;
+  line-height: 1.45;
+}
+
+.card-deck {
+  align-self: center;
+}
+
+.signal-card {
+  min-width: 0;
+  min-height: 184px;
+}
+
+.signal-card strong,
+.signal-card small {
+  overflow-wrap: anywhere;
+}
+
+.signal-card[aria-pressed="true"] {
+  outline: 2px solid rgba(255, 192, 95, 0.62);
+  outline-offset: -4px;
+}
+
+.custom-range-preview {
+  min-width: 0;
+}
+
+.custom-footer {
+  margin-top: clamp(14px, 3vh, 28px);
+}
+
+@media (max-width: 900px), (pointer: coarse) {
+  .terminal-brand {
+    top: max(8px, calc(env(safe-area-inset-top, 0px) + 6px));
+    left: max(10px, calc(env(safe-area-inset-left, 0px) + 8px));
+  }
+
+  .terminal-brand img {
+    width: 32px;
+    height: 32px;
+  }
+
+  .terminal-brand strong {
+    font-size: 14px;
+  }
+
+  .terminal-brand p {
+    font-size: 7px;
+  }
+
+  .pause-button {
+    top: max(8px, calc(env(safe-area-inset-top, 0px) + 6px));
+    right: max(10px, calc(env(safe-area-inset-right, 0px) + 8px));
+    min-height: 40px;
+    padding: 8px 10px;
+  }
+
+  .signal-log {
+    top: max(48px, calc(env(safe-area-inset-top, 0px) + 42px));
+    left: 50%;
+    width: min(70vw, 420px);
+    max-width: calc(100vw - 32px);
+    min-width: 0;
+    padding: 5px 8px 6px;
+    transform: translateX(-50%);
+  }
+
+  .signal-log p {
+    font-size: 8px;
+  }
+
+  .player-console,
+  .enemy-console {
+    top: max(78px, calc(env(safe-area-inset-top, 0px) + 70px));
+    width: calc(50% - 22px);
+    max-height: 126px;
+    overflow: hidden;
+    padding: 9px 10px;
+  }
+
+  .player-console {
+    left: max(10px, calc(env(safe-area-inset-left, 0px) + 8px));
+  }
+
+  .enemy-console {
+    right: max(10px, calc(env(safe-area-inset-right, 0px) + 8px));
+  }
+
+  .enemy-readout {
+    margin-top: 6px;
+  }
+
+  .enemy-readout small {
+    margin-top: 3px;
+    margin-bottom: 3px;
+    font-size: 7px;
+  }
+
+  .run-console,
+  .queue-console,
+  .gauge-console,
+  .skill-rail,
+  .control-guide {
+    display: none;
+  }
+
+  .mobile-controls {
+    right: max(8px, calc(env(safe-area-inset-right, 0px) + 8px));
+    bottom: max(10px, calc(env(safe-area-inset-bottom, 0px) + 8px));
+    left: max(8px, calc(env(safe-area-inset-left, 0px) + 8px));
+    display: flex;
+    pointer-events: none;
+  }
+
+  .mobile-controls > * {
+    pointer-events: auto;
+  }
+
+  .custom-console {
+    gap: 0;
+    padding-top: max(16px, calc(env(safe-area-inset-top, 0px) + 12px));
+    padding-right: max(12px, calc(env(safe-area-inset-right, 0px) + 10px));
+    padding-bottom: max(16px, calc(env(safe-area-inset-bottom, 0px) + 12px));
+    padding-left: max(12px, calc(env(safe-area-inset-left, 0px) + 10px));
+    touch-action: pan-y;
+  }
+
+  .custom-topline {
+    flex-wrap: wrap;
+    gap: 5px 10px;
+    line-height: 1.35;
+    font-size: 8px;
+  }
+
+  .custom-heading {
+    margin-top: 12px;
+    margin-bottom: 12px;
+  }
+
+  .custom-heading p {
+    margin-bottom: 6px;
+    font-size: 9px;
+  }
+
+  .custom-heading h1 {
+    font-size: clamp(25px, 8vw, 38px);
+    letter-spacing: -0.05em;
+  }
+
+  .custom-heading > span {
+    margin-top: 8px;
+    font-size: 10px;
+    line-height: 1.45;
+  }
+
+  .card-inspector {
+    align-items: flex-start;
+    min-height: 26px;
+    margin-top: 8px;
+    font-size: 8px;
+  }
+
+  .card-deck {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 0;
+  }
+
+  .signal-card {
+    min-height: 126px;
+    padding: 10px;
+  }
+
+  .signal-card strong {
+    margin-top: 19px;
+    font-size: 13px;
+  }
+
+  .signal-card small {
+    margin-top: 7px;
+    font-size: 8px;
+    line-height: 1.4;
+    -webkit-line-clamp: 3;
+  }
+
+  .signal-card b {
+    right: 9px;
+    bottom: 23px;
+    font-size: 18px;
+  }
+
+  .signal-card > i {
+    right: 8px;
+    bottom: 9px;
+    left: 8px;
+    font-size: 7px;
+  }
+
+  .custom-range-preview {
+    grid-template-columns: 1fr;
+    row-gap: 8px;
+    margin-top: 10px;
+    padding: 8px 9px;
+  }
+
+  .range-preview-label {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .range-preview-label b {
+    font-size: 12px;
+  }
+
+  .range-board {
+    grid-template-rows: repeat(3, 17px);
+    gap: 2px;
+  }
+
+  .custom-range-preview > small {
+    font-size: 7px;
+    line-height: 1.35;
+  }
+
+  .custom-footer {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 9px;
+    margin-top: 12px;
+  }
+
+  .custom-footer p {
+    line-height: 1.35;
+  }
+
+  .custom-footer-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 7px;
+  }
+
+  .custom-footer-actions > button {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    padding: 9px 6px;
+    font-size: 8px;
+  }
+
+  .custom-footer-actions > .engage-button {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  .signal-log {
+    top: max(42px, calc(env(safe-area-inset-top, 0px) + 36px));
+    width: min(42vw, 360px);
+  }
+
+  .player-console,
+  .enemy-console {
+    top: max(58px, calc(env(safe-area-inset-top, 0px) + 50px));
+    max-height: 102px;
+  }
+
+  .mobile-controls {
+    bottom: max(6px, calc(env(safe-area-inset-bottom, 0px) + 5px));
+  }
+
+  .dpad.dpad-large {
+    width: 132px;
+    height: 114px;
+  }
+
+  .dpad.dpad-large button {
+    width: 44px;
+    height: 38px;
+    font-size: 16px;
+  }
+
+  .dpad.dpad-large button:nth-child(1) {
+    left: 44px;
+  }
+
+  .dpad.dpad-large button:nth-child(2),
+  .dpad.dpad-large button:nth-child(3) {
+    top: 39px;
+  }
+
+  .dpad.dpad-large button:nth-child(4) {
+    left: 44px;
+  }
+
+  .action-buttons {
+    gap: 4px;
+  }
+
+  .action-buttons button {
+    width: 44px;
+    height: 44px;
+    font-size: 8px;
+  }
+
+  .charge-indicator {
+    right: 6px;
+    bottom: 51px;
+    width: 88px;
+  }
+
+  .custom-console {
+    padding-top: max(8px, calc(env(safe-area-inset-top, 0px) + 6px));
+    padding-bottom: max(8px, calc(env(safe-area-inset-bottom, 0px) + 6px));
+  }
+
+  .custom-heading {
+    margin-top: 6px;
+    margin-bottom: 7px;
+  }
+
+  .custom-heading p {
+    margin-bottom: 3px;
+    font-size: 8px;
+  }
+
+  .custom-heading h1 {
+    font-size: clamp(22px, 4.2vw, 34px);
+  }
+
+  .custom-heading h1 br {
+    display: none;
+  }
+
+  .custom-heading > span {
+    margin-top: 4px;
+    font-size: 8px;
+    line-height: 1.3;
+  }
+
+  .card-inspector {
+    min-height: 18px;
+    margin-top: 4px;
+    font-size: 7px;
+  }
+
+  .card-deck {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .signal-card {
+    min-height: 102px;
+    padding: 7px;
+  }
+
+  .signal-card .card-index {
+    top: 7px;
+    right: 7px;
+    font-size: 7px;
+  }
+
+  .signal-card .card-lane {
+    width: 22px;
+    height: 22px;
+    font-size: 11px;
+  }
+
+  .signal-card strong {
+    margin-top: 13px;
+    font-size: clamp(9px, 1.8vw, 13px);
+  }
+
+  .signal-card small {
+    margin-top: 4px;
+    font-size: 7px;
+    line-height: 1.25;
+    -webkit-line-clamp: 2;
+  }
+
+  .signal-card b {
+    right: 7px;
+    bottom: 19px;
+    font-size: 15px;
+  }
+
+  .signal-card b em {
+    margin-top: 1px;
+    font-size: 6px;
+  }
+
+  .signal-card > i {
+    right: 6px;
+    bottom: 6px;
+    left: 6px;
+    font-size: 6px;
+  }
+
+  .selection-order {
+    top: 20px;
+    right: 7px;
+    width: 19px;
+    height: 19px;
+    font-size: 9px;
+  }
+
+  .custom-range-preview {
+    grid-template-columns: 120px minmax(0, 1fr);
+    row-gap: 5px;
+    margin-top: 7px;
+    padding: 6px 8px;
+  }
+
+  .range-preview-label {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .range-preview-label b {
+    font-size: 10px;
+  }
+
+  .range-board {
+    grid-template-rows: repeat(3, 14px);
+  }
+
+  .custom-range-preview > small {
+    margin-top: 3px;
+    font-size: 6px;
+  }
+
+  .custom-footer {
+    align-items: center;
+    flex-direction: row;
+    gap: 8px;
+    margin-top: 7px;
+  }
+
+  .custom-footer p {
+    flex: 0 0 auto;
+    font-size: 8px;
+  }
+
+  .custom-footer p span {
+    font-size: 14px;
+  }
+
+  .custom-footer-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    flex: 1 1 auto;
+    gap: 5px;
+  }
+
+  .custom-footer-actions > button,
+  .custom-footer-actions > .engage-button {
+    min-height: 36px;
+    padding: 7px 5px;
+    font-size: 7px;
+  }
+
+  .custom-footer-actions > .engage-button {
+    grid-column: auto;
+  }
+}

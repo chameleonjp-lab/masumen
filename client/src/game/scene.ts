@@ -1392,10 +1392,7 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     },
   };
   if (Number.isInteger(requestedFocus) && requestedFocus >= 0 && requestedFocus < 5) world.controller.toggleCard(requestedFocus);
-  requestedSelections.forEach(index => {
-    world.controller.toggleCard(index);
-    world.controller.toggleCard(index);
-  });
+  requestedSelections.forEach(index => world.controller.toggleCard(index));
 
   const keyMoveRepeat = createMovementRepeat();
   let activeMoveKey: string | null = null;
@@ -1465,7 +1462,6 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     demoTimeout = window.setTimeout(() => {
       demoPicks.forEach(index => {
         world.controller.toggleCard(index);
-        world.controller.toggleCard(index);
       });
       world.controller.confirmCustom();
     }, 500);
@@ -1483,7 +1479,6 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
       if (latest.mode === "custom" && latest.selected.length === 0) {
         demoPicks.forEach(index => {
           world.controller.toggleCard(index);
-          world.controller.toggleCard(index);
         });
         world.controller.confirmCustom();
       }
@@ -1491,7 +1486,6 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
         world.controller.nextWave();
         window.setTimeout(() => {
           demoPicks.forEach(index => {
-            world.controller.toggleCard(index);
             world.controller.toggleCard(index);
           });
           world.controller.confirmCustom();

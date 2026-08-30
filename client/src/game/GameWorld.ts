@@ -4032,33 +4032,21 @@ export class GameWorld {
     const card = this.customHand[index];
     if (this.selected.includes(index)) {
       this.selected = this.selected.filter(selected => selected !== index);
-      this.focusedCard = null;
+      this.focusedCard = this.selected.at(-1) ?? null;
       this.selectionError = null;
       this.message = `${card.name} の選択を解除`;
-    } else if (
-      this.selected.length > 0 &&
-      !validateSelection(this.customHand, [...this.selected, index]).valid
-    ) {
-      const reason = validateSelection(this.customHand, [
-        ...this.selected,
-        index,
-      ]).reason;
-      this.focusedCard = null;
-      this.selectionError = reason;
-      this.message = reason;
-    } else if (this.focusedCard !== index) {
-      this.focusedCard = index;
-      this.selectionError = null;
-      this.message = `${card.name}: ${card.description} — もう一度タップで選択`;
     } else {
       const nextSelection = [...this.selected, index];
       const validation = validateSelection(this.customHand, nextSelection);
       if (validation.valid) {
         this.selected = nextSelection;
-        this.focusedCard = null;
+        this.focusedCard = index;
         this.selectionError = null;
         this.message = `${card.name} を ${this.selected.length} 番目に選択`;
       } else {
+        // A rejected card still becomes the preview target so the player can
+        // see why it cannot be added. Selection itself remains unchanged.
+        this.focusedCard = index;
         this.selectionError = validation.reason;
         this.message = validation.reason;
       }

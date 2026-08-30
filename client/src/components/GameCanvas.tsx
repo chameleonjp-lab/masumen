@@ -1,5 +1,11 @@
 /** Signal Relay Tactical component: the React frame supplies a clipped industrial HUD while Babylon owns the live arena. */
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type SyntheticEvent,
+} from "react";
 import { Engine } from "@babylonjs/core/Engines/engine";
 import { ASSET_URLS } from "@/game/assets";
 import { validateSelection } from "@/game/deck";
@@ -206,6 +212,18 @@ function targetLabel(card: BattleSnapshot["customHand"][number] | undefined): st
   return targetLabels[card?.target ?? "front"] ?? "対象範囲";
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  return (
+    typeof Element !== "undefined" &&
+    target instanceof Element &&
+    Boolean(target.closest("input, textarea, select, [contenteditable='true']"))
+  );
+}
+
+function preventNativeAction(event: SyntheticEvent): void {
+  if (!isEditableTarget(event.target)) event.preventDefault();
+}
+
 export default function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const startedRef = useRef(false);
@@ -282,6 +300,30 @@ export default function GameCanvas() {
       engine.dispose();
       controllerRef.current = null;
       startedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const root = document.getElementById("root");
+    if (!root) return;
+    const gestureOptions: AddEventListenerOptions = { passive: false };
+    const preventGesture = (event: Event) => {
+      if (!isEditableTarget(event.target)) event.preventDefault();
+    };
+    const preventMultiTouch = (event: TouchEvent) => {
+      if (event.touches.length > 1) event.preventDefault();
+    };
+    root.addEventListener("gesturestart", preventGesture, gestureOptions);
+    root.addEventListener("gesturechange", preventGesture, gestureOptions);
+    root.addEventListener("gestureend", preventGesture, gestureOptions);
+    root.addEventListener("touchstart", preventMultiTouch, gestureOptions);
+    root.addEventListener("touchmove", preventMultiTouch, gestureOptions);
+    return () => {
+      root.removeEventListener("gesturestart", preventGesture);
+      root.removeEventListener("gesturechange", preventGesture);
+      root.removeEventListener("gestureend", preventGesture);
+      root.removeEventListener("touchstart", preventMultiTouch);
+      root.removeEventListener("touchmove", preventMultiTouch);
     };
   }, []);
 
@@ -399,6 +441,10 @@ export default function GameCanvas() {
   return (
     <main
       className={`game-shell ${crisisState !== "normal" ? `is-${crisisState}` : ""}`}
+      data-mode={snapshot.mode}
+      onContextMenuCapture={preventNativeAction}
+      onDoubleClickCapture={preventNativeAction}
+      onDragStartCapture={preventNativeAction}
     >
       <canvas
         ref={canvasRef}
@@ -646,10 +692,10 @@ export default function GameCanvas() {
                   <span>
                     {snapshot.customHand[snapshot.focusedCard]?.description}
                   </span>
-                  <em>もう一度タップして選択</em>
+                  <em>選択中。タップで解除</em>
                 </>
               ) : (
-                <span>カードを1回タップすると説明を表示します。</span>
+                <span>カードを1回タップで選択。選択中のカードをタップで解除。</span>
               )}
             </div>
           </div>
@@ -670,7 +716,8 @@ export default function GameCanvas() {
                   key={`${card.id}-${index}`}
                   className={`signal-card ${selected ? "selected" : ""} ${focused ? "focused" : ""} ${!canJoin ? "unavailable" : ""} ${card.tier === "mega" ? "mega-card" : ""} ${card.isOverload ? "overload-card" : ""}`}
                   onClick={() => controller?.toggleCard(index)}
-                  aria-disabled={!canJoin}
+                  aria-pressed={selected}
+                  aria-label={`${card.name}。${selected ? "選択中、タップで解除" : canJoin ? "タップで選択" : "現在の選択条件では追加できません"}`}
                 >
                   <span className="card-index">0{index + 1}</span>
                   {selected && (

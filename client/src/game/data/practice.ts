@@ -26,7 +26,7 @@ export const PRACTICE_STAGES: readonly PracticeStage[] = [
     title: "接続コード",
     lesson: "同名、同じ接続コード、共通コード*のカードだけを一度に送信できます。",
     objective: "複数カードを正しい接続で選ぶ",
-    actionHint: "カードをタップして説明、もう一度タップして選択",
+    actionHint: "カードを1回タップして選択。選択中のカードをタップで解除",
   },
   {
     stage: 4,
