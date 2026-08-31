@@ -1,9 +1,20 @@
+import { useState } from "react";
 import { CHAIN_TECHNIQUES } from "@/game/data/chainTechniques";
 import { scoreRate } from "@/game/systems/ScoreSystem";
 import type { BattleSnapshot } from "@/game/types";
+import {
+  LAB_URL,
+  resultShareText,
+  shareOrCopy,
+  shareStatusText,
+  type RankingRow,
+} from "@/game/platform";
 
 interface ResultScreenProps {
   snapshot: BattleSnapshot;
+  playerName: string;
+  ranking: RankingRow[];
+  rankingStatus: string;
   onRestart: () => void;
   onFolderEdit: () => void;
   onHome: () => void;
@@ -31,6 +42,9 @@ function chainName(id: string): string {
 
 export default function ResultScreen({
   snapshot,
+  playerName,
+  ranking,
+  rankingStatus,
   onRestart,
   onFolderEdit,
   onHome,
@@ -41,6 +55,21 @@ export default function ResultScreen({
   const deltaLabel =
     delta > 0 ? "+" + delta : delta < 0 ? String(delta) : "±0";
   const scorePercent = Math.round(scoreRate(snapshot.score) * 100);
+  const [shareStatus, setShareStatus] = useState("");
+  const shareText = resultShareText({
+    score: snapshot.score,
+    rank: snapshot.rank,
+    elapsed: snapshot.elapsed,
+    reachedWave: snapshot.reachedWave ?? snapshot.wave,
+    counters: snapshot.counters,
+    simultaneousDefeats: snapshot.simultaneousDefeats ?? 0,
+    cardsUsed: snapshot.cardsUsed ?? 0,
+    overloadCardsUsed: snapshot.overloadCardsUsed ?? 0,
+  });
+
+  const shareResult = () => {
+    void shareOrCopy(shareText).then(result => setShareStatus(shareStatusText(result)));
+  };
 
   return (
     <section className="result-console result-console-rich" aria-live="polite">
@@ -121,6 +150,27 @@ export default function ResultScreen({
           </p>
         </div>
       )}
+
+      <section className="result-platform technical-panel" aria-label="結果の共有とランキング">
+        <p className="eyebrow">RESULT SIGNAL / ONLINE TOP 10</p>
+        <p className="result-platform__player">{playerName} の結果</p>
+        <textarea className="result-share-text" readOnly value={shareText} aria-label="結果のシェア文" />
+        <button type="button" className="engage-button result-share-button" onClick={shareResult}>
+          結果をシェア／コピー <span>↗</span>
+        </button>
+        <p className="share-status" role="status">{shareStatus || rankingStatus}</p>
+        <ol className="online-ranking" aria-label="オンラインランキング">
+          {ranking.length > 0 ? ranking.map(row => (
+            <li key={`${row.rank}-${row.displayName}`}>
+              <span>{row.rank}. {row.displayName}</span>
+              <strong>{row.score.toLocaleString()}点</strong>
+            </li>
+          )) : <li>ランキングを読み込み中…</li>}
+        </ol>
+        <a className="result-lab-link" href={LAB_URL} target="_blank" rel="noreferrer">
+          カメレオンJPの実験場へ
+        </a>
+      </section>
 
       <div className="result-actions">
         <button type="button" className="engage-button" onClick={onRestart}>

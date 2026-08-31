@@ -17,6 +17,17 @@ import ResultScreen from "@/components/game/ResultScreen";
 import Tutorial from "@/components/game/Tutorial";
 import { createMovementRepeat, type MovementRepeat } from "@/game/movementRepeat";
 import { beginTouchAction, createTouchInputState, endTouchAction, type TouchAction } from "@/game/touchInputGuard";
+import {
+  homeShareText,
+  LAB_URL,
+  readPlayerName,
+  resultShareText,
+  savePlayerName,
+  shareOrCopy,
+  shareStatusText,
+  submitAndLoadRanking,
+  type RankingRow,
+} from "@/game/platform";
 
 const initialSnapshot: BattleSnapshot = {
   mode: "custom",
@@ -224,6 +235,59 @@ function preventNativeAction(event: SyntheticEvent): void {
   if (!isEditableTarget(event.target)) event.preventDefault();
 }
 
+interface NameGateProps {
+  draft: string;
+  error: string;
+  shareStatus: string;
+  onDraftChange: (value: string) => void;
+  onSubmit: () => void;
+  onShare: () => void;
+}
+
+function NameGate({
+  draft,
+  error,
+  shareStatus,
+  onDraftChange,
+  onSubmit,
+  onShare,
+}: NameGateProps) {
+  return (
+    <section className="name-gate" role="dialog" aria-modal="true" aria-labelledby="name-gate-title">
+      <div className="name-gate__panel technical-panel">
+        <p className="eyebrow">ACCESS / PLAYER REGISTRATION</p>
+        <h1 id="name-gate-title">信号を入力して開始</h1>
+        <p className="name-gate__copy">
+          プレイヤー名を登録すると、戦闘結果をオンラインランキングに送信できます。
+        </p>
+        <label className="name-gate__label" htmlFor="masumen-player-name">
+          プレイヤー名（必須）
+        </label>
+        <input
+          id="masumen-player-name"
+          className="name-gate__input"
+          value={draft}
+          maxLength={20}
+          autoComplete="nickname"
+          placeholder="名前を入力"
+          onChange={event => onDraftChange(event.target.value)}
+        />
+        <p className="name-gate__status" role="status">
+          {error || "名前を入力してからカード選択を開始してください"}
+        </p>
+        <button type="button" className="engage-button name-gate__submit" onClick={onSubmit}>
+          カード選択を開始 <span>↗</span>
+        </button>
+        <div className="name-gate__links">
+          <button type="button" onClick={onShare}>ゲームをシェア</button>
+          <a href={LAB_URL} target="_blank" rel="noreferrer">実験場へ</a>
+        </div>
+        {shareStatus && <p className="share-status" role="status">{shareStatus}</p>}
+      </div>
+    </section>
+  );
+}
+
 export default function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const startedRef = useRef(false);
@@ -234,6 +298,13 @@ export default function GameCanvas() {
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const [folderEditorOpen, setFolderEditorOpen] = useState(false);
   const [bootError, setBootError] = useState(false);
+  const [playerName, setPlayerName] = useState(() => readPlayerName());
+  const [nameDraft, setNameDraft] = useState(() => readPlayerName());
+  const [nameError, setNameError] = useState("");
+  const [nameShareStatus, setNameShareStatus] = useState("");
+  const [ranking, setRanking] = useState<RankingRow[]>([]);
+  const [rankingStatus, setRankingStatus] = useState("ランキング登録：待機中");
+  const resultSubmissionKeyRef = useRef<string | null>(null);
   const touchInputRef = useRef(createTouchInputState());
   const moveRepeatRef = useRef<MovementRepeat | null>(null);
 
@@ -367,6 +438,47 @@ export default function GameCanvas() {
     };
   }, []);
 
+  useEffect(() => {
+    if (snapshot.mode !== "result") {
+      resultSubmissionKeyRef.current = null;
+      return;
+    }
+    if (!playerName) return;
+    const resultKey = [
+      snapshot.score,
+      snapshot.elapsed,
+      snapshot.wave,
+      snapshot.rank,
+      snapshot.reachedWave ?? 0,
+    ].join(":");
+    if (resultSubmissionKeyRef.current === resultKey) return;
+    resultSubmissionKeyRef.current = resultKey;
+    let active = true;
+    setRanking([]);
+    setRankingStatus("ランキング登録中…");
+    void submitAndLoadRanking(snapshot.score, playerName)
+      .then(rows => {
+        if (!active) return;
+        setRanking(rows);
+        setRankingStatus("オンラインランキングに反映しました");
+      })
+      .catch(() => {
+        if (!active) return;
+        setRankingStatus("ランキングは現在利用できません（結果は表示されています）");
+      });
+    return () => {
+      active = false;
+    };
+  }, [
+    playerName,
+    snapshot.elapsed,
+    snapshot.mode,
+    snapshot.rank,
+    snapshot.reachedWave,
+    snapshot.score,
+    snapshot.wave,
+  ]);
+
   const controller = controllerRef.current;
   const hpRatio = (snapshot.playerHp / snapshot.playerMaxHp) * 100;
   const crisisState =
@@ -438,6 +550,24 @@ export default function GameCanvas() {
     }
   };
 
+  const submitPlayerName = () => {
+    const name = savePlayerName(nameDraft);
+    if (!name) {
+      setNameError("プレイヤー名を入力してください");
+      return;
+    }
+    setPlayerName(name);
+    setNameDraft(name);
+    setNameError("");
+    setNameShareStatus("");
+  };
+
+  const shareHome = () => {
+    void shareOrCopy(homeShareText()).then(result => {
+      setNameShareStatus(shareStatusText(result));
+    });
+  };
+
   return (
     <main
       className={`game-shell ${crisisState !== "normal" ? `is-${crisisState}` : ""}`}
@@ -452,6 +582,19 @@ export default function GameCanvas() {
         style={{ touchAction: "none" }}
         aria-label="グリッド・シグナル・アリーナの戦闘フィールド"
       />
+      {!playerName && (
+        <NameGate
+          draft={nameDraft}
+          error={nameError}
+          shareStatus={nameShareStatus}
+          onDraftChange={value => {
+            setNameDraft(value);
+            if (nameError) setNameError("");
+          }}
+          onSubmit={submitPlayerName}
+          onShare={shareHome}
+        />
+      )}
       {bootError && (
         <section
           className="startup-error"
@@ -1038,6 +1181,9 @@ export default function GameCanvas() {
       {snapshot.mode === "result" && (
         <ResultScreen
           snapshot={snapshot}
+          playerName={playerName}
+          ranking={ranking}
+          rankingStatus={rankingStatus}
           onRestart={() => controller?.restart()}
           onFolderEdit={() => setFolderEditorOpen(true)}
           onHome={() => controller?.restart()}
