@@ -115,6 +115,57 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.customHand.every(card => card.selectedCode)).toBe(true);
   });
 
+  it("selects and deselects a card with one tap", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      () => undefined
+    );
+
+    world.controller.toggleCard(0);
+    expect(latest?.selected).toEqual([0]);
+    expect(latest?.focusedCard).toBe(0);
+
+    world.controller.toggleCard(0);
+    expect(latest?.selected).toEqual([]);
+  });
+
+  it("allows five compatible cards to be selected without a second tap", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(
+      snapshot => {
+        latest = snapshot;
+      },
+      () => undefined
+    );
+    const compatibleIds = ["rapid", "lance", "triplet", "ember", "root"];
+    const internal = world as unknown as {
+      customHand: Card[];
+      selected: number[];
+      focusedCard: number | null;
+      selectionError: string | null;
+    };
+    internal.customHand = compatibleIds.map((id, index) => {
+      const card = CARD_CATALOG.find(candidate => candidate.id === id);
+      if (!card) throw new Error(`Missing compatible card: ${id}`);
+      return {
+        ...card,
+        instanceId: `compatible-${index}`,
+        selectedCode: "A",
+      };
+    });
+    internal.selected = [];
+    internal.focusedCard = null;
+    internal.selectionError = null;
+
+    compatibleIds.forEach((_id, index) => world.controller.toggleCard(index));
+
+    expect(latest?.selected).toEqual([0, 1, 2, 3, 4]);
+    expect(latest?.selectionError).toBeNull();
+  });
+
   it("allows returning to battle with zero selected cards", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(
@@ -138,8 +189,6 @@ describe("GameWorldの現行Wave基準", () => {
       () => undefined
     );
     world.controller.toggleCard(0);
-    world.controller.toggleCard(0);
-    world.controller.toggleCard(1);
     world.controller.toggleCard(1);
     expect(latest?.mode).toBe("custom");
     expect(latest?.selectionError).toContain("同名、同じ接続コード");
@@ -154,7 +203,6 @@ describe("GameWorldの現行Wave基準", () => {
         },
         () => undefined
       );
-      world.controller.toggleCard(0);
       world.controller.toggleCard(0);
       world.controller.confirmCustom();
       for (let frame = 0; frame < renderRate; frame += 1)
@@ -183,7 +231,6 @@ describe("GameWorldの現行Wave基準", () => {
       },
       () => undefined
     );
-    world.controller.toggleCard(0);
     world.controller.toggleCard(0);
     world.controller.confirmCustom();
     world.update(1 / 60);
@@ -248,7 +295,6 @@ describe("GameWorldの現行Wave基準", () => {
       () => undefined
     );
     world.controller.toggleCard(0);
-    world.controller.toggleCard(0);
     world.controller.confirmCustom();
     advanceAtFixedRate(world, 1);
     const beforePause = latest?.gauge ?? 0;
@@ -273,7 +319,6 @@ describe("GameWorldの現行Wave基準", () => {
     );
 
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      world.controller.toggleCard(0);
       world.controller.toggleCard(0);
       world.controller.confirmCustom();
       world.update(1 / 60);
@@ -315,7 +360,6 @@ describe("GameWorldの現行Wave基準", () => {
     ).toBe(initial?.enemies.length ? initial.enemies.length + 1 : 0);
 
     world.controller.toggleCard(0);
-    world.controller.toggleCard(0);
     world.controller.confirmCustom();
     world.controller.move(1, 0);
     expect(latest?.playerGrid).toEqual({ col: 2, row: 1 });
@@ -343,7 +387,6 @@ describe("GameWorldの現行Wave基準", () => {
     );
     const enemyBefore =
       latest?.enemies.find(enemy => enemy.id === "bulwark")?.hp ?? 0;
-    world.controller.toggleCard(0);
     world.controller.toggleCard(0);
     world.controller.confirmCustom();
     world.controller.fire();
@@ -375,7 +418,6 @@ describe("GameWorldの現行Wave基準", () => {
     const cardIndex =
       latest?.customHand.findIndex(card => card.id === "triplet") ?? -1;
     expect(cardIndex).toBeGreaterThanOrEqual(0);
-    world.controller.toggleCard(cardIndex);
     world.controller.toggleCard(cardIndex);
     world.controller.confirmCustom();
     world.controller.useSkill();
@@ -619,7 +661,6 @@ describe("GameWorldの現行Wave基準", () => {
       },
       () => undefined
     );
-    world.controller.toggleCard(0);
     world.controller.toggleCard(0);
     world.controller.confirmCustom();
     world.controller.startCharge();
