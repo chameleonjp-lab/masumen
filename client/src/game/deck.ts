@@ -1,4 +1,4 @@
-/** Signal Relay Tactical deck: every Japanese battle-chip card can be freely routed together, up to five cards. */
+/** Signal Relay Tactical deck: cards connect by name, code, or the shared wildcard, up to five cards. */
 import type { Card, ConnectionCode } from "./types";
 import { enrichCard } from "./data/cardCombatData";
 
@@ -134,6 +134,7 @@ export function validateSelection(
   hand: readonly Card[],
   selected: readonly number[]
 ): SelectionValidation {
+  // P0-4: the rebuild plan is the canonical rule; UI and tutorial use this validator.
   if (selected.length === 0)
     return { valid: true, rule: null, reason: "カードを選ばず戦闘へ戻れます" };
   if (selected.length > 5)

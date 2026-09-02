@@ -11,6 +11,7 @@ export interface ProjectileSpawn {
   sourceId?: string | null;
   sourceActionId?: string | null;
   continuesAfterHit?: boolean;
+  lockedTargets?: GridPosition[];
   sourceCardId?: string | null;
   charged?: boolean;
   activeAt?: number;
@@ -63,6 +64,7 @@ function cloneProjectile(projectile: ProjectileState): ProjectileState {
     direction: clonePosition(projectile.direction),
     origin: clonePosition(projectile.origin),
     target: projectile.target ? clonePosition(projectile.target) : null,
+    lockedTargets: projectile.lockedTargets?.map(clonePosition),
     hitTargets: [...projectile.hitTargets],
     hitObjects: [...projectile.hitObjects],
   };
@@ -163,6 +165,7 @@ export class ProjectileSystem {
       sourceId: spawn.sourceId ?? null,
       sourceActionId: spawn.sourceActionId ?? null,
       continuesAfterHit: spawn.continuesAfterHit ?? false,
+      lockedTargets: spawn.lockedTargets?.map(clonePosition),
       sourceCardId: spawn.sourceCardId ?? null,
       charged: spawn.charged ?? false,
       activeAt: spawn.activeAt ?? nowMs,

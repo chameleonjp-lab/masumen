@@ -1,3 +1,5 @@
+> この文書は旧仕様の履歴です。現行のゲームプレイ仕様は`docs/COMBAT_REBUILD_PLAN.md`と`client/src/game/data/balance.ts`を正本とします。
+
 # 戦闘再構成仕様
 
 | 項目 | 再構成後の仕様 |
