@@ -183,6 +183,8 @@ export interface ProjectileState {
   sourceId: string | null;
   sourceActionId?: string | null;
   continuesAfterHit?: boolean;
+  /** Enemy attacks only damage tiles captured by the warning telegraph. */
+  lockedTargets?: GridPosition[];
   sourceCardId: string | null;
   charged: boolean;
   activeAt: number;
@@ -331,6 +333,7 @@ export interface BattleSnapshot {
   practiceStageTitle?: string;
   practiceStageLesson?: string;
   practiceStageObjective?: string;
+  practiceCleared?: boolean;
   overdriveStep?: number;
   overdriveRemaining?: number;
   usedChainTechniques?: string[];

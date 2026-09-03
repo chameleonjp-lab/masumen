@@ -129,6 +129,14 @@ function enemyReadoutLabel(
   return enemy.actionName ?? enemyPatternLabels[enemy.pattern] ?? "行動待機";
 }
 
+function enemyDefenseHint(
+  enemy: BattleSnapshot["enemies"][number]
+): string | null {
+  // P1-8: make the guard exception visible where the player analyzes the enemy.
+  if (enemy.defense !== "guard") return null;
+  return "待機中: カード無効 / 通常弾・破砕カード有効";
+}
+
 function previewTargets(
   card: BattleSnapshot["customHand"][number] | undefined,
   playerGrid: BattleSnapshot["playerGrid"],
@@ -333,7 +341,10 @@ export default function GameCanvas() {
     createGameScene(engine, canvas, {
       onSnapshot: nextSnapshot => {
         if (!disposed) {
-          if (nextSnapshot.mode !== "battle" || nextSnapshot.paused)
+          if (
+            (nextSnapshot.mode !== "battle" && nextSnapshot.mode !== "practice") ||
+            nextSnapshot.paused
+          )
             stopMoveRepeat();
           setSnapshot(nextSnapshot);
         }
@@ -480,11 +491,13 @@ export default function GameCanvas() {
   ]);
 
   const controller = controllerRef.current;
+  const isCombatMode =
+    snapshot.mode === "battle" || snapshot.mode === "practice";
   const hpRatio = (snapshot.playerHp / snapshot.playerMaxHp) * 100;
   const crisisState =
-    snapshot.mode === "battle" && hpRatio <= 15
+    isCombatMode && hpRatio <= 15
       ? "critical"
-      : snapshot.mode === "battle" && hpRatio <= 30
+      : isCombatMode && hpRatio <= 30
         ? "caution"
         : "normal";
   const toggleSound = () => {
@@ -673,6 +686,8 @@ export default function GameCanvas() {
               ? "完全同期 // 次カード ×2"
               : snapshot.invincible
                 ? `位相化 // ${snapshot.invincibleRemaining.toFixed(1)}秒`
+              : snapshot.playerBlindRemaining && snapshot.playerBlindRemaining > 0
+                ? `視界遮断 // ${snapshot.playerBlindRemaining.toFixed(1)}秒`
                 : snapshot.barrier > 0
                   ? `障壁 // ${snapshot.barrier}`
                   : "同期接続 // 待機"}
@@ -698,6 +713,11 @@ export default function GameCanvas() {
                 <b>{enemy.name}</b>
               </div>
               <small>{enemyReadoutLabel(enemy)}</small>
+              {enemy.defense === "guard" && (
+                <small className="enemy-defense-hint">
+                  {enemyDefenseHint(enemy)}
+                </small>
+              )}
               {enemy.warningStage && (
                 <div
                   className={"enemy-warning is-" + enemy.warningStage}
@@ -746,7 +766,7 @@ export default function GameCanvas() {
           </small>
         </section>
 
-        {snapshot.mode === "battle" && (
+        {isCombatMode && (
           <>
             <section className="queue-console technical-panel">
               <p className="eyebrow">次のカード</p>
@@ -764,26 +784,25 @@ export default function GameCanvas() {
                 <strong className="empty-queue">送信済みカードなし</strong>
               )}
             </section>
-            <section className="gauge-console technical-panel">
-              <div className="metric-row">
-                <span>カード選択まで</span>
-                <strong>{snapshot.customRemaining.toFixed(1)}S</strong>
-              </div>
-              <div className="meter gauge-meter">
-                <span style={meterStyle(snapshot.gauge)} />
-              </div>
-              <button
-                type="button"
-                disabled={
-                  snapshot.gauge < 100 ||
-                  snapshot.paused ||
-                  snapshot.charging > 0
-                }
-                onClick={() => controller?.openCustom()}
-              >
-                カード選択
-              </button>
-            </section>
+            {snapshot.mode === "battle" && (
+              <section className="gauge-console technical-panel">
+                <div className="metric-row">
+                  <span>カード選択まで</span>
+                  <strong>{snapshot.customRemaining.toFixed(1)}S</strong>
+                </div>
+                <div className="meter gauge-meter">
+                  <span style={meterStyle(snapshot.gauge)} />
+                </div>
+                <button
+                  type="button"
+                  className={snapshot.gauge >= 100 ? "is-ready" : undefined}
+                  disabled={snapshot.gauge < 100 || snapshot.paused}
+                  onClick={() => controller?.openCustom()}
+                >
+                  {snapshot.gauge >= 100 ? "CUSTOM" : "カード選択"}
+                </button>
+              </section>
+            )}
             <section className="skill-rail" aria-label="送信済みカード">
               {snapshot.queue.map((card, index) => (
                 <div
@@ -981,7 +1000,7 @@ export default function GameCanvas() {
         </section>
       )}
 
-      {snapshot.mode === "battle" && (
+      {isCombatMode && (
         <div className="mobile-controls" aria-label="タッチ操作">
           <div className="dpad dpad-large">
             <button
@@ -1074,18 +1093,26 @@ export default function GameCanvas() {
             </button>
             <button
               type="button"
-              className="action-skill"
+              className={`action-skill ${snapshot.mode === "battle" && snapshot.gauge >= 100 ? "is-custom-ready" : ""}`}
               onPointerDown={event =>
                 beginPointerAction(event, "skill", () =>
-                  controllerRef.current?.useSkill(),
+                  snapshot.mode === "battle" && snapshot.gauge >= 100
+                    ? controllerRef.current?.openCustom()
+                    : controllerRef.current?.useSkill(),
                 )
               }
               onPointerUp={event => endPointerAction(event)}
               onPointerCancel={event => endPointerAction(event, true)}
               onLostPointerCapture={event => endPointerAction(event, true)}
-              aria-label="次のカードを使用"
+              aria-label={
+                snapshot.mode === "battle" && snapshot.gauge >= 100
+                  ? "カスタム画面を開く"
+                  : "次のカードを使用"
+              }
             >
-              カード
+              {snapshot.mode === "battle" && snapshot.gauge >= 100
+                ? "CUSTOM"
+                : "カード"}
             </button>
           </div>
           <div className="charge-indicator">
@@ -1193,6 +1220,7 @@ export default function GameCanvas() {
       {snapshot.mode === "practice" && (
         <Tutorial
           stage={snapshot.practiceStage ?? 1}
+          cleared={snapshot.practiceCleared === true}
           onNext={() => controller?.nextPracticeStage()}
           onExit={() => controller?.exitPractice()}
         />

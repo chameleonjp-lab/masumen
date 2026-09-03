@@ -47,7 +47,11 @@ import {
   rankForScore,
   scoreWaveCompletion,
 } from "./systems/ScoreSystem";
-import { getPracticeStage, PRACTICE_STAGES } from "./data/practice";
+import {
+  getPracticeStage,
+  PRACTICE_STAGES,
+  type PracticeAction,
+} from "./data/practice";
 import {
   BOSS_ENEMY_IDS,
   ENEMY_DEFINITIONS,
@@ -181,6 +185,8 @@ const FINAL_WAVE = 4;
 const CUSTOM_INTERVAL_SECONDS = COMBAT_BALANCE.custom.intervalMs / 1000;
 const TERRITORY_EXPANSION_DURATION_MS = 10000;
 const STORAGE_KEY = "grid-signal-arena-records-v2";
+const DEMO_RUN_SEED = 12345;
+let runSeedSequence = 0;
 const PATTERN_LABEL: Record<Pattern, string> = {
   "lane-sweep": "横一列砲撃",
   "column-scan": "縦列走査",
@@ -214,6 +220,24 @@ const columnAtPreview = (column: number): GridPosition[] =>
     col: Math.max(0, Math.min(5, column)),
     row,
   }));
+
+function requestedRunSeed(): number | null {
+  if (typeof window === "undefined") return null;
+  const query = new URLSearchParams(window.location.search);
+  const rawSeed = query.get("seed");
+  if (rawSeed !== null) {
+    const parsed = Number(rawSeed);
+    if (Number.isFinite(parsed)) return Math.trunc(parsed) >>> 0;
+  }
+  return query.has("demo") ? DEMO_RUN_SEED : null;
+}
+
+function createRunSeed(): number {
+  const requested = requestedRunSeed();
+  if (requested !== null) return requested;
+  runSeedSequence += 1;
+  return (Date.now() + runSeedSequence * 0x9e3779b9) >>> 0;
+}
 function loadRecords(): StoredRecords {
   if (typeof window === "undefined") return { highScore: 0, bestWave: 0 };
   try {
@@ -335,6 +359,7 @@ export class GameWorld {
   private nextPlayerTerrainDamageAt = 0;
   private handSizeReduction = 0;
   private overloadRandom = new Random(0x51a7c0de);
+  private runSeed = createRunSeed();
   private activeFolder: SavedFolder = getActiveFolder(loadSaveData());
   private battleDeck = new BattleDeck(this.activeFolder, 1009);
   private customHand: Card[] = [];
@@ -358,10 +383,12 @@ export class GameWorld {
   private outcome: RunOutcome | null = null;
   private personalBestDelta = 0;
   private practiceStage = 1;
+  private practiceCleared = false;
   private records = loadRecords();
   private bossHistory: EnemyId[] = loadBossHistory();
   private lastAttackCard: Card | null = null;
   private enemies: Enemy[] = [];
+  private waveBattleStarted = false;
   private message = "カードを選択してください";
   private elapsed = 0;
   private counters = 0;
@@ -413,25 +440,17 @@ export class GameWorld {
 
   private startPractice(): void {
     if (this.mode !== "custom" || this.wave !== 1 || this.elapsed !== 0) return;
-    this.clock.discardPendingTime();
-    this.cancelCharge();
-    this.paused = false;
-    this.mode = "practice";
-    this.practiceStage = 1;
-    this.message = "練習モード — " + getPracticeStage(this.practiceStage).title;
-    this.notify();
+    this.enterPracticeStage(1);
   }
 
   private nextPracticeStage(): void {
     if (this.mode !== "practice") return;
     if (this.practiceStage < PRACTICE_STAGES.length) {
-      this.practiceStage += 1;
-      this.message =
-        "練習モード — " + getPracticeStage(this.practiceStage).title;
+      this.enterPracticeStage(this.practiceStage + 1);
     } else {
       this.message = "練習を完了しました — 通常モードへ戻れます";
+      this.notify();
     }
-    this.notify();
   }
 
   private exitPractice(): void {
@@ -441,8 +460,36 @@ export class GameWorld {
     this.notify();
   }
 
+  private enterPracticeStage(stage: number): void {
+    // P0-3: each lesson is a real fixed-step combat scene, reset without run scoring.
+    this.restart();
+    const current = getPracticeStage(stage);
+    this.mode = "practice";
+    this.practiceStage = current.stage;
+    this.practiceCleared = false;
+    this.queue = this.customHand.map(card => ({ ...card }));
+    this.resetBoard(current.enemyIds);
+    this.message = "練習モード — " + current.title;
+    this.notify();
+  }
+
+  private isCombatActive(): boolean {
+    return this.mode === "battle" || this.mode === "practice";
+  }
+
+  private practiceActionAllowed(
+    action: PracticeAction
+  ): boolean {
+    if (this.mode !== "practice") return true;
+    const current = getPracticeStage(this.practiceStage);
+    if (current.allowedActions.includes(action)) return true;
+    this.message = `${current.title}では${action}を使いません`;
+    this.notify();
+    return false;
+  }
+
   public update(realDeltaSeconds: number): void {
-    if (this.mode !== "battle" || this.paused) {
+    if (!this.isCombatActive() || this.paused) {
       this.clock.discardPendingTime();
       return;
     }
@@ -457,8 +504,10 @@ export class GameWorld {
   }
 
   private step(delta: number): void {
-    if (this.mode !== "battle" || this.paused) return;
+    if (!this.isCombatActive() || this.paused) return;
     const deltaMs = delta * 1000;
+    // P0-1: the canonical world-stop variant freezes simulation and ordinary
+    // battle input for the short card-hit interval.
     if (this.hitstopRemainingMs > 0) {
       this.hitstopRemainingMs = Math.max(0, this.hitstopRemainingMs - deltaMs);
       return;
@@ -512,11 +561,23 @@ export class GameWorld {
     const allEnemiesDefeated =
       this.enemies.length > 0 &&
       this.enemies.every(enemy => enemy.state === "deleted");
-    if (this.playerHp <= 0) {
-      this.finishRun(allEnemiesDefeated ? "draw" : "defeat");
-      return;
+    if (this.mode === "practice") {
+      if (this.playerHp <= 0) {
+        this.enterPracticeStage(this.practiceStage);
+        return;
+      }
+      if (allEnemiesDefeated && !this.practiceCleared) {
+        this.practiceCleared = true;
+        this.message = "段階クリア — 次の段階へ進めます";
+        this.notify();
+      }
+    } else {
+      if (this.playerHp <= 0) {
+        this.finishRun(allEnemiesDefeated ? "draw" : "defeat");
+        return;
+      }
+      if (allEnemiesDefeated) this.finishWave();
     }
-    if (allEnemiesDefeated) this.finishWave();
     this.notifyTimer += delta;
     if (this.notifyTimer > 0.08) {
       this.notifyTimer = 0;
@@ -657,8 +718,7 @@ export class GameWorld {
       if (
         !enemy.warningShown &&
         now >= enemy.warningAt &&
-        now < enemy.windupUntil &&
-        now >= this.playerBlindUntil
+        now < enemy.windupUntil
       ) {
         enemy.lockedTargets.forEach(target =>
           this.onEvent({ type: "warning", at: target, enabled: true })
@@ -964,6 +1024,9 @@ export class GameWorld {
     targets: GridPosition[]
   ): void {
     if (!action) return;
+
+    // P1-1: every enemy projectile inherits the exact tile set shown by its warning.
+    enemy.lockedTargets = targets.map(target => ({ ...target }));
 
     const lockedTarget = this.firstLockedTarget(targets);
     const lockedRow = targets[0]?.row ?? lockedTarget.row;
@@ -1537,6 +1600,10 @@ export class GameWorld {
       damage: Math.max(1, Math.ceil(projectile.damage / 2)),
       sourceId: enemy.id,
       sourceActionId: "mirror-reflect-stance",
+      lockedTargets: [0, 1, 2].map(col => ({
+        col,
+        row: projectile.position.row,
+      })),
       speedCellsPerSecond: COMBAT_BALANCE.projectile.defaultSpeedCellsPerSecond,
     });
     enemy.lastMirrorCardId = projectile.sourceCardId;
@@ -1557,6 +1624,7 @@ export class GameWorld {
       sourceId: enemy.id,
       sourceActionId: action.id,
       continuesAfterHit: action.continuesAfterHit,
+      lockedTargets: enemy.lockedTargets.map(target => ({ ...target })),
       activeAt: this.gameTimeMs + delayMs,
       ...options,
     });
@@ -1571,8 +1639,9 @@ export class GameWorld {
     const hits = targets.some(target => sameTile(target, this.playerGrid));
     if (!hits) return;
     const hitCount = Math.max(1, action.hitCount ?? 1);
-    for (let index = 0; index < hitCount; index += 1)
-      this.applyPlayerHit(action.damage, enemy.id, "direct", index > 0);
+    // P1-2: one enemy action is one damage event; multi-hit damage must share
+    // the normal invulnerability window with every other incoming action.
+    this.applyPlayerHit(action.damage * hitCount, enemy.id, "direct");
   }
 
   private findEnemyMinePlacement(): GridPosition {
@@ -1653,13 +1722,15 @@ export class GameWorld {
   }
 
   private move(dx: number, dy: number): void {
-    if (this.mode !== "battle" || this.paused) return;
-    if (this.gameTimeMs < this.playerControlLockedUntil) return;
-    if (this.gameTimeMs < this.playerStunnedUntil) return;
+    if (!this.isCombatActive() || this.paused) return;
     if (dx === 0 && dy === 0) {
       this.notify();
       return;
     }
+    if (this.hitstopRemainingMs > 0) return;
+    if (!this.practiceActionAllowed("move")) return;
+    if (this.gameTimeMs < this.playerControlLockedUntil) return;
+    if (this.gameTimeMs < this.playerStunnedUntil) return;
     const next = this.panelSystem.resolveMovement(
       this.playerGrid,
       { col: dx, row: dy },
@@ -1692,14 +1763,16 @@ export class GameWorld {
       this.overdrivePrompt = null;
     }
     if (
-      this.mode !== "battle" ||
+      !this.isCombatActive() ||
       this.paused ||
+      this.hitstopRemainingMs > 0 ||
       this.isCharging ||
       now < this.nextFireAt ||
       now < this.playerControlLockedUntil ||
       now < this.playerStunnedUntil
     )
       return;
+    if (!this.practiceActionAllowed("normal-shot")) return;
     const target = this.frontTarget();
     const distance = target ? target.grid.col - this.playerGrid.col : 99;
     const interval =
@@ -1727,22 +1800,29 @@ export class GameWorld {
   }
   private startCharge(): void {
     if (
-      this.mode === "battle" &&
+      this.isCombatActive() &&
       !this.paused &&
+      this.hitstopRemainingMs <= 0 &&
       this.gameTimeMs >= this.playerControlLockedUntil &&
-      this.gameTimeMs >= this.playerStunnedUntil
+      this.gameTimeMs >= this.playerStunnedUntil &&
+      this.practiceActionAllowed("charge-shot")
     )
       this.isCharging = true;
   }
   private releaseCharge(): void {
     if (
-      this.mode !== "battle" ||
+      !this.isCombatActive() ||
       this.paused ||
       !this.isCharging ||
       this.gameTimeMs < this.playerControlLockedUntil ||
       this.gameTimeMs < this.playerStunnedUntil
     )
       return;
+    if (this.hitstopRemainingMs > 0) {
+      this.cancelCharge();
+      return;
+    }
+    if (!this.practiceActionAllowed("charge-shot")) return;
     const charge = this.charging;
     this.isCharging = false;
     this.charging = 0;
@@ -1831,13 +1911,15 @@ export class GameWorld {
 
   private useSkill(): void {
     if (
-      this.mode !== "battle" ||
+      !this.isCombatActive() ||
       this.paused ||
+      this.hitstopRemainingMs > 0 ||
       this.queue.length === 0 ||
       this.gameTimeMs < this.playerControlLockedUntil ||
       this.gameTimeMs < this.playerStunnedUntil
     )
       return;
+    if (!this.practiceActionAllowed("card")) return;
     const card = this.queue.shift();
     if (!card) return;
     this.cardsUsed += card.chainCardIds?.length ?? 1;
@@ -2595,6 +2677,12 @@ export class GameWorld {
     projectile: ProjectileState,
     positions: GridPosition[]
   ): { targetIds: string[]; objectId: string | null; stop: boolean } {
+    const playerTargetPositions =
+      projectile.owner === "enemy" && (projectile.lockedTargets?.length ?? 0) > 0
+        ? positions.filter(position =>
+            projectile.lockedTargets?.some(target => sameTile(target, position))
+          )
+        : positions;
     const targetIds =
       projectile.owner === "player"
         ? this.enemies
@@ -2604,7 +2692,7 @@ export class GameWorld {
                 positions.some(position => sameTile(position, enemy.grid))
             )
             .map(enemy => enemy.id)
-        : positions.some(position => sameTile(position, this.playerGrid))
+        : playerTargetPositions.some(position => sameTile(position, this.playerGrid))
           ? ["player"]
           : [];
     const object = positions
@@ -3873,6 +3961,7 @@ export class GameWorld {
     component: Exclude<keyof ScoreBreakdown, "total">,
     amount: number
   ): void {
+    if (this.mode === "practice") return;
     this.scoreBreakdown[component] = Math.max(
       0,
       this.scoreBreakdown[component] + Math.max(0, amount)
@@ -3922,7 +4011,7 @@ export class GameWorld {
     return summary;
   }
 
-  private resetBoard(): void {
+  private resetBoard(practiceEnemyIds?: readonly EnemyId[]): void {
     this.clearEnemyWarnings();
     this.panelSystem.reset();
     this.objectSystem.reset();
@@ -3937,7 +4026,7 @@ export class GameWorld {
     this.playerBlindUntil = 0;
     this.objectNextTriggerAt.clear();
     this.objectTriggerCount.clear();
-    this.enemies = this.makeEnemies(this.wave);
+    this.enemies = this.makeEnemies(this.wave, practiceEnemyIds);
     this.syncBoardOccupancy();
   }
 
@@ -3992,7 +4081,9 @@ export class GameWorld {
   }
 
   private deckSeed(): number {
-    return this.wave === 1 ? 12345 : this.wave * 1009 + 17;
+    // P1-4: ordinary runs vary by run seed; demo and test query seeds remain reproducible.
+    const waveOffset = this.wave === 1 ? 0 : this.wave * 1009 + 17;
+    return (this.runSeed + waveOffset) >>> 0;
   }
 
   private beginCustom(message: string): void {
@@ -4009,14 +4100,10 @@ export class GameWorld {
     this.notify();
   }
   private openCustom(): void {
-    if (this.mode !== "battle" || this.paused) return;
+    if (this.mode !== "battle" || this.paused || this.hitstopRemainingMs > 0) return;
+    // P1-5: a full gauge is an explicit CUSTOM action; beginCustom cancels any held charge.
     if (this.gameTimeMs < this.playerStunnedUntil) {
       this.message = "麻痺中 — 移動と攻撃はできません";
-      this.notify();
-      return;
-    }
-    if (this.isCharging) {
-      this.message = "チャージを解除してからカード選択を開いてください";
       this.notify();
       return;
     }
@@ -4091,11 +4178,16 @@ export class GameWorld {
         : this.queue.length > 0
           ? `ウェーブ 0${this.wave} — 接続開始`
           : `ウェーブ 0${this.wave} — カードなしで戦闘開始`;
-    const now = this.gameTimeMs;
-    this.enemies.forEach((enemy, index) => {
-      if (enemy.state !== "deleted")
-        enemy.nextAttackAt = now + 1050 + index * 510;
-    });
+    if (!this.waveBattleStarted) {
+      // P0-2: only the first confirmation of a Wave establishes its opening
+      // stagger. Resuming from custom must leave windups and cooldowns intact.
+      const now = this.gameTimeMs;
+      this.enemies.forEach((enemy, index) => {
+        if (enemy.state !== "deleted")
+          enemy.nextAttackAt = now + 1050 + index * 510;
+      });
+      this.waveBattleStarted = true;
+    }
     this.notify();
   }
   private finishWave(): void {
@@ -4117,7 +4209,9 @@ export class GameWorld {
       this.dreamAuraUntil = 0;
       this.overdrivePrompt = null;
       const beforeRecovery = this.playerHp;
-      this.healPlayer(Math.ceil(this.playerMaxHp * 0.15));
+      this.healPlayer(
+        Math.ceil(this.playerMaxHp * COMBAT_BALANCE.wave.recoveryRatio)
+      );
       this.lastWaveRecovery = Math.max(0, this.playerHp - beforeRecovery);
       this.message =
         "ウェーブ 0" +
@@ -4134,7 +4228,10 @@ export class GameWorld {
   }
   private nextWave(): void {
     if (this.mode !== "intermission") return;
+    // P1-3: temporary effects and the unspent queue are Wave-scoped; corruption
+    // is the only combat progression intentionally retained by resetWave().
     this.wave += 1;
+    this.waveBattleStarted = false;
     this.waveStartedElapsed = this.elapsed;
     this.waveDamageTaken = 0;
     this.lastDefeatAt = null;
@@ -4186,6 +4283,8 @@ export class GameWorld {
     this.hitstopRemainingMs = 0;
     this.mode = "custom";
     this.paused = false;
+    this.runSeed = createRunSeed();
+    this.waveBattleStarted = false;
     this.playerHp = PLAYER_MAX_HP;
     this.playerMaxHp = PLAYER_MAX_HP;
     this.playerGrid = { col: 1, row: 1 };
@@ -4230,6 +4329,7 @@ export class GameWorld {
     this.outcome = null;
     this.personalBestDelta = 0;
     this.practiceStage = 1;
+    this.practiceCleared = false;
     this.selected = [];
     this.focusedCard = null;
     this.selectionError = null;
@@ -4303,7 +4403,10 @@ export class GameWorld {
       enemy.lockedTargets = [];
     });
   }
-  private makeEnemies(wave: number): Enemy[] {
+  private makeEnemies(
+    wave: number,
+    practiceEnemyIds?: readonly EnemyId[]
+  ): Enemy[] {
     const now = this.gameTimeMs;
     const scale = wave === FINAL_WAVE ? 1 : 1 + (wave - 1) * 0.18;
     const factory = (spawn: EncounterSpawn): Enemy => {
@@ -4366,6 +4469,16 @@ export class GameWorld {
         nextTerrainDamageAt: 0,
       };
     };
+
+    if (practiceEnemyIds) {
+      const practiceSpawns: EncounterSpawn[] = practiceEnemyIds.map(
+        (enemyId, index) => ({
+          enemyId,
+          grid: { col: 4 + (index % 2), row: index % 3 },
+        })
+      );
+      return practiceSpawns.map(factory);
+    }
 
     if (wave < FINAL_WAVE) {
       const encounterWave = Math.min(3, Math.max(1, wave)) as 1 | 2 | 3;
@@ -4467,7 +4580,9 @@ export class GameWorld {
         }) => {
           const warningActive =
             _warningShown && enemy.warningStage !== null;
-          const progress = warningActive
+          // P1-9: board warning events remain active while blind; hide only HUD details.
+          const warningVisible = warningActive && now >= this.playerBlindUntil;
+          const progress = warningVisible
             ? getWarningProgress(now, _warningStartedAt, _w)
             : 0;
           return {
@@ -4485,12 +4600,12 @@ export class GameWorld {
             counterWindowRemaining: _cws
               ? Math.max(0, (_cws.endAt - now) / 1000)
               : 0,
-            warningStage: warningActive ? enemy.warningStage : null,
+            warningStage: warningVisible ? enemy.warningStage : null,
             warningProgress: progress,
-            warningRemainingMs: warningActive
+            warningRemainingMs: warningVisible
               ? getWarningRemainingMs(now, _w)
               : 0,
-            warningTargets: warningActive
+            warningTargets: warningVisible
               ? _l.map(target => ({ ...target }))
               : [],
           };
@@ -4549,6 +4664,8 @@ export class GameWorld {
         this.mode === "practice" ? practice.lesson : undefined,
       practiceStageObjective:
         this.mode === "practice" ? practice.objective : undefined,
+      practiceCleared:
+        this.mode === "practice" ? this.practiceCleared : undefined,
     });
   }
 }

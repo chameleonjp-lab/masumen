@@ -7,12 +7,12 @@ import type { BattleEvent, BattleSnapshot, Card, GridPosition } from "./types";
 
 type ProjectileEvent = Extract<BattleEvent, { type: "projectile" }>;
 
-function installWindowStub(): void {
+function installWindowStub(search = "?seed=12345"): void {
   const storage = new Map<string, string>();
   Object.defineProperty(globalThis, "window", {
     configurable: true,
     value: {
-      location: { search: "" },
+      location: { search },
       localStorage: {
         getItem: (key: string) => storage.get(key) ?? null,
         setItem: (key: string, value: string) => storage.set(key, value),
@@ -32,9 +32,14 @@ function queueCardForTest(world: GameWorld, id: string): void {
   const internal = world as unknown as {
     mode: BattleSnapshot["mode"];
     queue: Card[];
+    hitstopRemainingMs: number;
   };
   internal.mode = "battle";
   internal.queue = [card];
+  // Card-focused tests call several independent cards back-to-back. The
+  // production path blocks that input during hitstop, so clear the visual
+  // lock between these isolated fixtures.
+  internal.hitstopRemainingMs = 0;
 }
 
 function placeMeleeTarget(world: GameWorld): { hp: number } {
@@ -113,6 +118,28 @@ describe("GameWorldの現行Wave基準", () => {
       5
     );
     expect(latest?.customHand.every(card => card.selectedCode)).toBe(true);
+  });
+
+  it("reproduces explicit run seeds and varies ordinary run seeds", () => {
+    installWindowStub("?seed=777");
+    const seeded = new GameWorld(() => undefined, () => undefined);
+    const seededHand = (seeded as unknown as { customHand: Card[] }).customHand.map(
+      card => card.id
+    );
+
+    installWindowStub("?seed=777");
+    const repeated = new GameWorld(() => undefined, () => undefined);
+    const repeatedHand = (repeated as unknown as { customHand: Card[] }).customHand.map(
+      card => card.id
+    );
+    expect(repeatedHand).toEqual(seededHand);
+
+    installWindowStub("");
+    const ordinary = new GameWorld(() => undefined, () => undefined);
+    const secondOrdinary = new GameWorld(() => undefined, () => undefined);
+    const ordinarySeed = (ordinary as unknown as { runSeed: number }).runSeed;
+    const secondOrdinarySeed = (secondOrdinary as unknown as { runSeed: number }).runSeed;
+    expect(secondOrdinarySeed).not.toBe(ordinarySeed);
   });
 
   it("selects and deselects a card with one tap", () => {
@@ -264,7 +291,7 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.mode).toBe("custom");
   });
 
-  it("does not open custom before full or while charge is held", () => {
+  it("does not open custom before full and cancels charge when opening", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(
       snapshot => {
@@ -281,9 +308,80 @@ describe("GameWorldの現行Wave基準", () => {
     advanceAtFixedRate(world, 8);
     world.controller.startCharge();
     world.controller.openCustom();
+    expect(latest?.mode).toBe("custom");
+    expect((world as unknown as { isCharging: boolean }).isCharging).toBe(false);
+  });
+
+  it("does not allow battle input or another card during hitstop", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      mode: BattleSnapshot["mode"];
+      queue: Card[];
+      gameTimeMs: number;
+    };
+    const rapid = CARD_CATALOG.find(card => card.id === "rapid");
+    if (!rapid) throw new Error("ヒットストップ検査用カードがありません");
+    internal.mode = "battle";
+    internal.queue = [{ ...rapid }, { ...rapid }];
+    world.controller.useSkill();
+    const frozenTime = internal.gameTimeMs;
+    const frozenGrid = { ...latest?.playerGrid };
+
+    world.controller.useSkill();
+    world.controller.move(0, -1);
+
+    expect(internal.queue).toHaveLength(1);
+    expect(latest?.playerGrid).toEqual(frozenGrid);
+    world.update(0.03);
+    expect(internal.gameTimeMs).toBe(frozenTime);
+  });
+
+  it("preserves enemy attack timers when custom resumes", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      customSystem: { fill: () => void };
+      notify: () => void;
+      enemies: Array<{
+        id: string;
+        state: string;
+        nextAttackAt: number;
+        windupUntil: number;
+        recoverUntil: number;
+        lockedTargets: GridPosition[];
+      }>;
+    };
+    world.controller.confirmCustom();
+    advanceAtFixedRate(world, 1.2);
+    const before = internal.enemies.map(enemy => ({
+      id: enemy.id,
+      state: enemy.state,
+      nextAttackAt: enemy.nextAttackAt,
+      windupUntil: enemy.windupUntil,
+      recoverUntil: enemy.recoverUntil,
+      lockedTargets: enemy.lockedTargets.map(target => ({ ...target })),
+    }));
+
+    internal.customSystem.fill();
+    internal.notify();
+    world.controller.openCustom();
+    expect(latest?.mode).toBe("custom");
+    world.controller.confirmCustom();
+
     expect(latest?.mode).toBe("battle");
-    expect(latest?.message).toContain("チャージ");
-    world.controller.cancelCharge();
+    expect(internal.enemies.map(enemy => ({
+      id: enemy.id,
+      state: enemy.state,
+      nextAttackAt: enemy.nextAttackAt,
+      windupUntil: enemy.windupUntil,
+      recoverUntil: enemy.recoverUntil,
+      lockedTargets: enemy.lockedTargets,
+    }))).toEqual(before);
   });
 
   it("does not advance the gauge while paused or during hitstop", () => {
@@ -812,6 +910,32 @@ describe("GameWorldの現行Wave基準", () => {
     expect(bulwark?.counterWindowRemaining).toBeGreaterThan(0);
   });
 
+  it("keeps a card counterable when hitstop overlaps the counter window", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      enemies: Array<{ id: string; grid: GridPosition }>;
+      syncBoardOccupancy: () => void;
+    };
+    world.controller.confirmCustom();
+    const bulwark = internal.enemies.find(enemy => enemy.id === "bulwark");
+    if (!bulwark) throw new Error("カウンター検査用の敵が配置されていません");
+    bulwark.grid = { col: 3, row: 1 };
+    internal.syncBoardOccupancy();
+
+    advanceAtFixedRate(world, 1.95);
+    const rapid = CARD_CATALOG.find(card => card.id === "rapid");
+    if (!rapid) throw new Error("カウンター検査用カードがありません");
+    (world as unknown as { queue: Card[] }).queue = [{ ...rapid }];
+    world.controller.useSkill();
+    advanceAtFixedRate(world, 0.3);
+
+    expect(latest?.counters).toBe(1);
+    expect(latest?.sync).toBe(true);
+  });
+
   it("publishes staged warning progress and freezes it while paused", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(snapshot => {
@@ -850,6 +974,29 @@ describe("GameWorldの現行Wave基準", () => {
     expect(cleared?.warningTargets).toEqual([]);
   });
 
+  it("keeps warning tiles active while blind and hides only the HUD warning", () => {
+    let latest: BattleSnapshot | undefined;
+    const events: BattleEvent[] = [];
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, event => events.push(event));
+    const internal = world as unknown as {
+      playerBlindUntil: number;
+    };
+    world.controller.confirmCustom();
+    internal.playerBlindUntil = 10000;
+    advanceAtFixedRate(world, 1.2);
+    world.controller.move(0, 0);
+
+    expect(
+      events.some(event => event.type === "warning" && event.enabled)
+    ).toBe(true);
+    const warningEnemy = latest?.enemies.find(enemy => enemy.state === "windup");
+    expect(warningEnemy?.warningStage).toBeNull();
+    expect(warningEnemy?.warningTargets).toEqual([]);
+    expect(latest?.playerBlindRemaining).toBeGreaterThan(0);
+  });
+
   it("keeps projectile and melee resolution on the warning target snapshot", () => {
     const world = new GameWorld(() => undefined, () => undefined);
     const internal = world as unknown as {
@@ -870,6 +1017,10 @@ describe("GameWorldの現行Wave基準", () => {
       findHomingTarget: (
         projectile: BattleSnapshot["projectiles"][number]
       ) => GridPosition | null;
+      resolveProjectileCollision: (
+        projectile: BattleSnapshot["projectiles"][number],
+        positions: GridPosition[]
+      ) => { targetIds: string[] };
     };
     const scanner = internal.enemies.find(enemy => enemy.id === "scanner");
     const signalLock = getEnemyDefinition("scanner")?.actions.find(
@@ -891,7 +1042,17 @@ describe("GameWorldの現行Wave基準", () => {
     const projectile = internal.projectileSystem.snapshot()[0];
     if (!projectile) throw new Error("固定対象の追尾弾が生成されていません");
     expect(projectile.target).toEqual(warningTarget);
+    expect(projectile.lockedTargets).toEqual([warningTarget]);
     expect(internal.findHomingTarget(projectile)).toEqual(warningTarget);
+
+    internal.playerGrid = { col: 2, row: 1 };
+    expect(
+      internal.resolveProjectileCollision(projectile, [{ col: 2, row: 1 }]).targetIds
+    ).toEqual([]);
+    internal.playerGrid = warningTarget;
+    expect(
+      internal.resolveProjectileCollision(projectile, [warningTarget]).targetIds
+    ).toEqual(["player"]);
 
     internal.playerHp = 220;
     internal.playerGrid = warningTarget;
@@ -903,6 +1064,36 @@ describe("GameWorldの現行Wave基準", () => {
     internal.playerGrid = { col: 2, row: 1 };
     internal.executeEnemyAction(scanner, crossSlash, 0, meleeTargets);
     expect(internal.playerHp).toBeLessThan(220);
+  });
+
+  it("respects damage invulnerability for every hit in one enemy melee action", () => {
+    const world = new GameWorld(() => undefined, () => undefined);
+    const action = getEnemyDefinition("prism-hunter")?.actions.find(
+      candidate => candidate.id === "prism-triple-cut"
+    );
+    if (!action) throw new Error("多段近接検査用の敵行動がありません");
+    const internal = world as unknown as {
+      gameTimeMs: number;
+      playerGrid: GridPosition;
+      playerHp: number;
+      playerDamageInvulnerableUntil: number;
+      resolveEnemyMelee: (
+        enemy: { id: string },
+        action: typeof action,
+        targets: readonly GridPosition[]
+      ) => void;
+    };
+    internal.playerGrid = { col: 1, row: 1 };
+    internal.playerHp = 220;
+    internal.playerDamageInvulnerableUntil = 1;
+
+    internal.resolveEnemyMelee(
+      { id: "prism-hunter" },
+      action,
+      [{ col: 1, row: 1 }]
+    );
+
+    expect(internal.playerHp).toBe(220);
   });
 
   it("keeps landing and object placement on the warning target snapshot", () => {
@@ -1057,6 +1248,37 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.mode).toBe("custom");
     expect(latest?.wave).toBe(1);
     expect(latest?.elapsed).toBe(0);
+    expect(latest?.highScore).toBe(0);
+  });
+
+  it("runs the practice battle clock and keeps practice outside scores", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      gameTimeMs: number;
+      enemies: Array<{ state: string }>;
+    };
+
+    world.controller.startPractice();
+    const startTime = internal.gameTimeMs;
+    world.controller.move(1, 0);
+    world.controller.fire();
+    expect(latest?.projectiles.length).toBeGreaterThan(0);
+    advanceAtFixedRate(world, 0.5);
+
+    expect(latest?.mode).toBe("practice");
+    expect(internal.gameTimeMs).toBeGreaterThan(startTime);
+    expect(latest?.playerGrid).toEqual({ col: 2, row: 1 });
+    internal.enemies.forEach(enemy => {
+      enemy.state = "deleted";
+    });
+    world.update(1 / 60);
+
+    expect(latest?.mode).toBe("practice");
+    expect(latest?.practiceCleared).toBe(true);
+    expect(latest?.score).toBe(0);
     expect(latest?.highScore).toBe(0);
   });
 

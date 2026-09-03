@@ -2,11 +2,12 @@ import { getPracticeStage, PRACTICE_STAGES } from "@/game/data/practice";
 
 interface TutorialProps {
   stage: number;
+  cleared: boolean;
   onNext: () => void;
   onExit: () => void;
 }
 
-export default function Tutorial({ stage, onNext, onExit }: TutorialProps) {
+export default function Tutorial({ stage, cleared, onNext, onExit }: TutorialProps) {
   const current = getPracticeStage(stage);
   const finished = current.stage >= PRACTICE_STAGES.length;
 
@@ -25,7 +26,7 @@ export default function Tutorial({ stage, onNext, onExit }: TutorialProps) {
       <div className="practice-objective">
         <span>この段階の目標</span>
         <strong>{current.objective}</strong>
-        <small>{current.actionHint}</small>
+        <small>{cleared ? "段階クリア — 次の段階へ進めます" : current.actionHint}</small>
       </div>
       <ol className="practice-stages">
         {PRACTICE_STAGES.map(item => (

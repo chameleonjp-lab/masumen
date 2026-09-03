@@ -1639,7 +1639,7 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     const pulse = 1 + Math.sin(performance.now() / 150) * 0.035;
     player.ring.scaling.setAll((latest.sync ? pulse * 1.2 : pulse) * (1 + playerReactionStrength * 0.24));
     (player.ring.material as StandardMaterial).emissiveColor = playerRingColor;
-    player.ring.isVisible = latest.mode === "battle";
+    player.ring.isVisible = latest.mode === "battle" || latest.mode === "practice";
 
     const activeEnemyIds = new Set(latest.enemies.map(enemy => enemy.id));
     for (const [id, unit] of Array.from(units.entries())) {

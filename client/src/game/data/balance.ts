@@ -15,6 +15,9 @@ export const COMBAT_BALANCE = {
     fullChargeMs: 850,
     speedCellsPerSecond: 16,
   },
+  wave: {
+    recoveryRatio: 0.15,
+  },
   playerHit: {
     controlLockMs: 180,
     invulnerableMs: 350,
