@@ -28,6 +28,7 @@ if (visualEntries.join(",") !== audioEntries.join(","))
 
 const scene = await read("client/src/game/scene.ts");
 const gameCanvas = await read("client/src/components/GameCanvas.tsx");
+const engine = await read("client/src/game/engine.ts");
 const index = await read("client/index.html");
 const viteConfig = await read("vite.config.ts");
 for (const required of [
@@ -51,6 +52,10 @@ if (/console\.(log|debug)\s*\(/.test(scene))
   throw new Error("Scene must not ship debug console output");
 if (!gameCanvas.includes("}).catch(() => {"))
   throw new Error("Game startup must expose a rejected-scene recovery path");
+if (!engine.includes("try") || !engine.includes("catch") || !engine.includes("return null"))
+  throw new Error("Game startup must recover from a synchronous WebGL engine failure");
+if (!gameCanvas.includes("createGameEngine(canvas)") || !gameCanvas.includes("if (!engine)"))
+  throw new Error("GameCanvas must expose synchronous engine failure to the startup UI");
 for (const required of [
   'className="startup-error"',
   'role="alert"',

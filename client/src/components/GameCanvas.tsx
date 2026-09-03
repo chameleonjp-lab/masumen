@@ -6,9 +6,9 @@ import {
   type PointerEvent as ReactPointerEvent,
   type SyntheticEvent,
 } from "react";
-import { Engine } from "@babylonjs/core/Engines/engine";
 import { ASSET_URLS } from "@/game/assets";
 import { validateSelection } from "@/game/deck";
+import { createGameEngine } from "@/game/engine";
 import { cardPreviewTiles, nearestEnemyPosition } from "@/game/data/cardCombatData";
 import { createGameScene } from "@/game/scene";
 import type { BattleSnapshot, GameHandle, GridPosition } from "@/game/types";
@@ -333,11 +333,14 @@ export default function GameCanvas() {
     startedRef.current = true;
     let disposed = false;
     let handle: GameHandle | null = null;
-    const engine = new Engine(canvas, true, {
-      preserveDrawingBuffer: true,
-      stencil: true,
-      adaptToDeviceRatio: true,
-    });
+    const engine = createGameEngine(canvas);
+    if (!engine) {
+      setBootError(true);
+      startedRef.current = false;
+      return () => {
+        startedRef.current = false;
+      };
+    }
     createGameScene(engine, canvas, {
       onSnapshot: nextSnapshot => {
         if (!disposed) {
