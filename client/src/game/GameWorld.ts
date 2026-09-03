@@ -1615,10 +1615,22 @@ export class GameWorld {
     options: Partial<Parameters<ProjectileSystem["spawn"]>[0]>,
     delayMs = 0
   ): void {
+    /**
+     * P1-1 行攻撃の発射行ずれを修正する。
+     * 再現: 予兆中に敵がプレイヤーと別の行にいる状態で、横一列砲撃を発動する。
+     * 期待仕様: 予兆で固定した行を弾が通り、固定対象行のプレイヤーだけが判定対象になる。
+     * 現状コード位置: `targetsForAction` はプレイヤーの行を固定するが、弾の初期位置は敵の現在行を使う。
+     * 修正方針: `target: "row"` の弾だけ、固定対象行を発射位置へ反映する。ほかの攻撃の出発位置は変えない。
+     * 追加テスト: `GameWorld.test.ts` で敵と警告対象を別行に置き、弾の発射行を固定する。
+     */
+    const rowLockedPosition =
+      action.target === "row" && enemy.lockedTargets[0]
+        ? { ...enemy.grid, row: enemy.lockedTargets[0].row }
+        : { ...enemy.grid };
     const projectile = this.spawnProjectile({
       owner: "enemy",
       motion: action.motion ?? "straight",
-      position: { ...enemy.grid },
+      position: rowLockedPosition,
       target: { ...this.playerGrid },
       damage: action.damage,
       sourceId: enemy.id,

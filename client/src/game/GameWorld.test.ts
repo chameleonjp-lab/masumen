@@ -1066,6 +1066,38 @@ describe("GameWorldの現行Wave基準", () => {
     expect(internal.playerHp).toBeLessThan(220);
   });
 
+  it("starts a locked row projectile on the warning row", () => {
+    const world = new GameWorld(() => undefined, () => undefined);
+    const internal = world as unknown as {
+      playerGrid: GridPosition;
+      enemies: Array<{ id: string; grid: GridPosition }>;
+      targetsForAction: (enemy: unknown, action: unknown) => GridPosition[];
+      executeEnemyAction: (
+        enemy: unknown,
+        action: unknown,
+        now: number,
+        targets: GridPosition[]
+      ) => void;
+      projectileSystem: {
+        snapshot: () => BattleSnapshot["projectiles"];
+      };
+    };
+    const bulwark = internal.enemies.find(enemy => enemy.id === "bulwark");
+    const cannon = getEnemyDefinition("bulwark")?.actions.find(
+      action => action.id === "bulwark-lane-cannon"
+    );
+    if (!bulwark || !cannon) throw new Error("行攻撃検査用の敵行動がありません");
+
+    internal.playerGrid = { col: 1, row: 1 };
+    bulwark.grid = { col: 4, row: 0 };
+    const warningTargets = internal.targetsForAction(bulwark, cannon);
+    internal.executeEnemyAction(bulwark, cannon, 0, warningTargets);
+
+    const projectile = internal.projectileSystem.snapshot()[0];
+    expect(projectile?.position.row).toBe(1);
+    expect(projectile?.lockedTargets).toEqual(warningTargets);
+  });
+
   it("respects damage invulnerability for every hit in one enemy melee action", () => {
     const world = new GameWorld(() => undefined, () => undefined);
     const action = getEnemyDefinition("prism-hunter")?.actions.find(
