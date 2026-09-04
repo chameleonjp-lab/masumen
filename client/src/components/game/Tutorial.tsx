@@ -49,7 +49,12 @@ export default function Tutorial({ stage, cleared, onNext, onExit }: TutorialPro
         <button type="button" onClick={onExit}>
           通常モードへ戻る
         </button>
-        <button type="button" className="engage-button" onClick={onNext}>
+        <button
+          type="button"
+          className="engage-button"
+          disabled={!cleared}
+          onClick={onNext}
+        >
           {finished ? "練習を終了" : "次の段階へ"} <span>↗</span>
         </button>
       </div>

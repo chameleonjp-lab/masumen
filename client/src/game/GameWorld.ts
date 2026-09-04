@@ -445,6 +445,17 @@ export class GameWorld {
 
   private nextPracticeStage(): void {
     if (this.mode !== "practice") return;
+    // P0-3 follow-up: practice stages must be earned through their live battle.
+    // 再現: 練習画面で敵を倒さず「次の段階へ」を押す。
+    // 期待: 現在段階に留まり、戦闘を完了した時だけ進める。
+    // 位置: GameWorld.nextPracticeStage / Tutorial の段階遷移。
+    // 方針: practiceCleared を唯一の遷移条件にし、段階スキップを防ぐ。
+    // テスト: GameWorld.test.ts の未クリア遷移・7段階ルート検査。
+    if (!this.practiceCleared) {
+      this.message = "段階をクリアすると次へ進めます";
+      this.notify();
+      return;
+    }
     if (this.practiceStage < PRACTICE_STAGES.length) {
       this.enterPracticeStage(this.practiceStage + 1);
     } else {
