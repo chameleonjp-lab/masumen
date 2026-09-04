@@ -1268,8 +1268,17 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.score).toBe(0);
     expect(latest?.highScore).toBe(0);
 
-    for (let stage = 0; stage < 6; stage += 1)
+    const internal = world as unknown as {
+      enemies: Array<{ state: string }>;
+    };
+    for (let stage = 0; stage < 6; stage += 1) {
+      internal.enemies.forEach(enemy => {
+        enemy.state = "deleted";
+      });
+      world.update(1 / 60);
+      expect(latest?.practiceCleared).toBe(true);
       world.controller.nextPracticeStage();
+    }
 
     expect(latest?.practiceStage).toBe(7);
     expect(latest?.practiceStageTitle).toContain("精神状態");
@@ -1281,6 +1290,20 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.wave).toBe(1);
     expect(latest?.elapsed).toBe(0);
     expect(latest?.highScore).toBe(0);
+  });
+
+  it("does not advance practice before the current stage is cleared", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+
+    world.controller.startPractice();
+    world.controller.nextPracticeStage();
+
+    expect(latest?.mode).toBe("practice");
+    expect(latest?.practiceStage).toBe(1);
+    expect(latest?.practiceCleared).toBe(false);
   });
 
   it("runs the practice battle clock and keeps practice outside scores", () => {
