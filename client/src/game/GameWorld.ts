@@ -2894,7 +2894,18 @@ export class GameWorld {
   ): void {
     const now = this.gameTimeMs;
     const terrainDamage = source === "terrain";
-    if (!terrainDamage) {
+    if (terrainDamage) {
+      /**
+       * 地形ダメージが直前の被弾無効時間を無視する問題を修正する。
+       * 再現: 敵弾が命中した同じ固定更新で、溶岩または毒の周期ダメージが発生する。
+       * 期待仕様: 直前の被弾から350ミリ秒以内なら、地形ダメージも追加で減らさない。
+       * 現状コード位置: `applyPlayerHit()` の地形分岐は防御処理と被弾無効判定を丸ごと回避していた。
+       * 修正方針: 地形ダメージは既存の被弾無効時間だけ共有し、地形側から新しい無効時間は開始しない。
+       * 追加テスト: `GameWorld.test.ts` で直接被弾直後の地形ダメージがHPを二重に減らさないことを確認する。
+       */
+      if (!ignoreDamageInvulnerability && now < this.playerDamageInvulnerableUntil)
+        return;
+    } else {
       if (this.pendingRepair) {
         this.pendingRepair = null;
         this.message = "応急修復失敗 — 準備中に被弾";
