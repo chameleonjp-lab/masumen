@@ -751,6 +751,24 @@ describe("GameWorldの現行Wave基準", () => {
     expect(repairLatest?.playerHp).toBe(95);
   });
 
+  it("does not let terrain damage bypass a recent direct hit's invulnerability", () => {
+    const world = new GameWorld(() => undefined, () => undefined);
+    const internal = world as unknown as {
+      playerHp: number;
+      applyPlayerHit: (
+        damage: number,
+        enemyId?: string,
+        source?: "direct" | "terrain"
+      ) => void;
+    };
+
+    internal.playerHp = 100;
+    internal.applyPlayerHit(10, "bulwark", "direct");
+    internal.applyPlayerHit(5, undefined, "terrain");
+
+    expect(internal.playerHp).toBe(90);
+  });
+
   it("reaches full charge at the configured 850ms and keeps the shot in flight", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(
