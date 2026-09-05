@@ -6,6 +6,7 @@ import {
   currentEnemyAction,
   prepareEnemyAttack,
   resolveEnemyTargets,
+  updateEnemyWarning,
   type EnemyRuleState,
 } from "./EnemySystem";
 import type { GridPosition } from "../types";
@@ -121,6 +122,30 @@ describe("EnemySystem", () => {
       startAt: 1000 + action.startupMs + 280 - action.counterWindowMs,
       endAt: 1000 + action.startupMs + 280 - 20,
     });
+  });
+
+  it("starts and advances a warning without emitting board events", () => {
+    const enemy = {
+      warningAt: 1000,
+      windupUntil: 2000,
+      warningShown: false,
+      warningStartedAt: 0,
+      warningStage: null,
+    };
+
+    expect(updateEnemyWarning(enemy, 999)).toEqual({
+      started: false,
+      stage: null,
+    });
+    expect(updateEnemyWarning(enemy, 1000)).toEqual({
+      started: true,
+      stage: "telegraph",
+    });
+    expect(updateEnemyWarning(enemy, 1680)).toEqual({
+      started: false,
+      stage: "urgent",
+    });
+    expect(enemy.warningStartedAt).toBe(1000);
   });
 
   it("locks row, column, and cross targets from the current player tile", () => {

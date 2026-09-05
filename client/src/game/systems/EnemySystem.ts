@@ -11,8 +11,10 @@ import type {
   EnemyMovementMode,
   GridPosition,
   PanelTerrain,
+  EnemyWarningStage,
 } from "../types";
 import { createCounterWindow, type CounterWindow } from "./CounterSystem";
+import { warningProgress, warningStage } from "./WarningSystem";
 
 /**
  * P1-10 GameWorld神クラスの初回分割。
@@ -76,6 +78,19 @@ export interface EnemyAttackPreparation {
   windupUntil: number;
   counterWindowState: CounterWindow;
   warningAt: number;
+}
+
+export interface EnemyWarningRuleState {
+  warningAt: number;
+  windupUntil: number;
+  warningShown: boolean;
+  warningStartedAt: number;
+  warningStage: EnemyWarningStage | null;
+}
+
+export interface EnemyWarningUpdate {
+  started: boolean;
+  stage: EnemyWarningStage | null;
 }
 
 function sameTile(a: GridPosition, b: GridPosition): boolean {
@@ -225,6 +240,29 @@ export function prepareEnemyAttack(
     ),
     warningAt: context.now + (action.warningDelayMs ?? 0),
   };
+}
+
+export function updateEnemyWarning(
+  enemy: EnemyWarningRuleState,
+  now: number
+): EnemyWarningUpdate {
+  let started = false;
+  if (
+    !enemy.warningShown &&
+    now >= enemy.warningAt &&
+    now < enemy.windupUntil
+  ) {
+    enemy.warningShown = true;
+    enemy.warningStartedAt = now;
+    enemy.warningStage = "telegraph";
+    started = true;
+  }
+  if (enemy.warningShown) {
+    enemy.warningStage = warningStage(
+      warningProgress(now, enemy.warningStartedAt, enemy.windupUntil)
+    );
+  }
+  return { started, stage: enemy.warningStage };
 }
 
 export function resolveEnemyTargets(
