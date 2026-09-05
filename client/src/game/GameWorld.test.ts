@@ -312,6 +312,29 @@ describe("GameWorldの現行Wave基準", () => {
     expect((world as unknown as { isCharging: boolean }).isCharging).toBe(false);
   });
 
+  it("opens a full custom while the player is stunned without clearing stun", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      customSystem: { fill: () => void };
+      gameTimeMs: number;
+      playerStunnedUntil: number;
+    };
+
+    world.controller.confirmCustom();
+    internal.customSystem.fill();
+    internal.playerStunnedUntil = internal.gameTimeMs + 500;
+
+    world.controller.openCustom();
+
+    expect(latest?.mode).toBe("custom");
+    world.controller.confirmCustom();
+    expect(latest?.mode).toBe("battle");
+    expect(internal.playerStunnedUntil).toBeGreaterThan(internal.gameTimeMs);
+  });
+
   it("does not allow battle input or another card during hitstop", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(snapshot => {

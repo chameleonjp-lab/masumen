@@ -4135,12 +4135,14 @@ export class GameWorld {
   }
   private openCustom(): void {
     if (this.mode !== "battle" || this.paused || this.hitstopRemainingMs > 0) return;
-    // P1-5: a full gauge is an explicit CUSTOM action; beginCustom cancels any held charge.
-    if (this.gameTimeMs < this.playerStunnedUntil) {
-      this.message = "麻痺中 — 移動と攻撃はできません";
-      this.notify();
-      return;
-    }
+    /**
+     * ゲームプレイレビュー: 満タンのカスタムは麻痺中でも開ける。
+     * 再現手順: 戦闘中にゲージを満タンにし、プレイヤーが麻痺している間にCUSTOMを押す。
+     * 期待仕様: カスタム画面へ遷移し、カスタム開始で麻痺の残り時間は解除しない。
+     * 現状コード位置: GameWorld.openCustom() の入力制限。
+     * 修正方針: 戦闘を一時停止するカスタム操作を、麻痺による移動・攻撃制限から分離する。
+     * 追加テスト: 満タン・麻痺中のopenCustomがcustomへ遷移し、麻痺の残り時間を保つことを固定する。
+     */
     if (!this.customSystem.isFull()) {
       this.message = "カスタムゲージが満タンになるまで開けません";
       this.notify();
