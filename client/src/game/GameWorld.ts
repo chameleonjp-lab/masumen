@@ -36,6 +36,12 @@ import { CustomSystem } from "./systems/CustomSystem";
 import { EmotionSystem } from "./systems/EmotionSystem";
 import { ProjectileSystem } from "./systems/ProjectileSystem";
 import {
+  applyEnemyPhase,
+  availableEnemyActions as getAvailableEnemyActions,
+  chooseEnemyAction as selectEnemyAction,
+  currentEnemyAction as getCurrentEnemyAction,
+} from "./systems/EnemySystem";
+import {
   warningProgress as getWarningProgress,
   warningRemainingMs as getWarningRemainingMs,
   warningStage as getWarningStage,
@@ -603,43 +609,11 @@ export class GameWorld {
       this.strikeEnemy(enemy, 7, undefined, false);
     }
   }
-  private currentEnemyAction(enemy: Enemy): EnemyActionDefinition | undefined {
-    return getEnemyDefinition(enemy.definitionId)?.actions.find(
-      action => action.id === enemy.actionId
-    );
-  }
-
-  private phaseForEnemy(enemy: Enemy): EnemyPhaseDefinition | undefined {
-    const phases = getEnemyDefinition(enemy.definitionId)?.phases;
-    if (!phases || phases.length === 0) return undefined;
-    const ratio = enemy.maxHp > 0 ? enemy.hp / enemy.maxHp : 0;
-    return [...phases]
-      .sort((a, b) => a.maxHpRatio - b.maxHpRatio)
-      .find(phase => ratio <= phase.maxHpRatio) ?? phases[0];
-  }
 
   private refreshEnemyPhase(enemy: Enemy): EnemyPhaseDefinition | undefined {
-    const definition = getEnemyDefinition(enemy.definitionId);
-    const phase = this.phaseForEnemy(enemy);
-    if (!definition || !phase) {
-      enemy.bossPhase = 0;
-      enemy.bossPhaseLabel = null;
-      enemy.defense = enemy.baseDefense;
-      enemy.movement = enemy.baseMovement;
-      enemy.weaknessElement =
-        definition?.weakness ?? definition?.element ?? "none";
-      return undefined;
-    }
-
-    const changed = enemy.bossPhase !== phase.phase;
-    enemy.bossPhase = phase.phase;
-    enemy.bossPhaseLabel = phase.label;
-    enemy.defense = phase.defense ?? enemy.baseDefense;
-    enemy.movement = phase.movement ?? enemy.baseMovement;
-    enemy.weaknessElement =
-      phase.weaknessElement ?? definition.weakness ?? definition.element;
+    const { phase, changed } = applyEnemyPhase(enemy);
+    if (!phase) return undefined;
     if (changed) {
-      enemy.actionIndex = 0;
       this.message = enemy.name + " — " + phase.label;
       this.onEvent({
         type: "player-reaction",
@@ -649,62 +623,6 @@ export class GameWorld {
       });
     }
     return phase;
-  }
-
-  private availableEnemyActions(enemy: Enemy): EnemyActionDefinition[] {
-    const definition = getEnemyDefinition(enemy.definitionId);
-    if (!definition) return [];
-    const phase = this.phaseForEnemy(enemy);
-    if (!phase) return [...definition.actions];
-    const actions = phase.actionIds
-      .map(actionId =>
-        definition.actions.find(action => action.id === actionId)
-      )
-      .filter((action): action is EnemyActionDefinition => Boolean(action));
-    return actions.length > 0 ? actions : [...definition.actions];
-  }
-
-  private chooseEnemyAction(
-    enemy: Enemy,
-    actions: readonly EnemyActionDefinition[]
-  ): EnemyActionDefinition | undefined {
-    if (actions.length === 0) return undefined;
-    const phase = this.phaseForEnemy(enemy);
-    let action =
-      actions[enemy.actionIndex % actions.length] ?? actions[0];
-    const panel = this.panelSystem.get(this.playerGrid);
-    const preferredElement =
-      panel?.terrain === "grass"
-        ? "fire"
-        : panel?.terrain === "ice"
-          ? "electric"
-          : null;
-
-    if (
-      (enemy.definitionId === "weather-core" ||
-        enemy.definitionId === "climate-engine") &&
-      preferredElement
-    ) {
-      action =
-        actions.find(candidate => candidate.element === preferredElement) ??
-        action;
-    }
-    if (
-      enemy.definitionId === "climate-engine" &&
-      phase?.phase === 2 &&
-      (enemy.cycle + 1) % 3 === 0
-    ) {
-      action =
-        actions.find(candidate => candidate.id === "climate-dual-storm") ??
-        action;
-    }
-    if (actions.length > 1 && action.id === enemy.actionId) {
-      const nextIndex = (actions.indexOf(action) + 1) % actions.length;
-      action = actions[nextIndex] ?? action;
-    }
-    const selectedIndex = Math.max(0, actions.indexOf(action));
-    enemy.actionIndex = (selectedIndex + 1) % actions.length;
-    return action;
   }
 
   private updateEnemy(enemy: Enemy, now: number): void {
@@ -724,7 +642,7 @@ export class GameWorld {
     }
 
     this.refreshEnemyPhase(enemy);
-    const action = this.currentEnemyAction(enemy);
+    const action = getCurrentEnemyAction(enemy);
     if (enemy.state === "windup") {
       if (
         !enemy.warningShown &&
@@ -788,9 +706,10 @@ export class GameWorld {
   private prepareAttack(enemy: Enemy, now: number): void {
     const definition = getEnemyDefinition(enemy.definitionId);
     const phase = this.refreshEnemyPhase(enemy);
-    const action = this.chooseEnemyAction(
+    const action = selectEnemyAction(
       enemy,
-      this.availableEnemyActions(enemy)
+      getAvailableEnemyActions(enemy),
+      { playerTerrain: this.panelSystem.get(this.playerGrid)?.terrain }
     );
     if (!definition || !action) return;
 
