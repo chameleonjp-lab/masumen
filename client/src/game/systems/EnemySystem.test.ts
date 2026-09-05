@@ -4,12 +4,12 @@ import {
   availableEnemyActions,
   chooseEnemyAction,
   currentEnemyAction,
+  resolveEnemyTargets,
   type EnemyRuleState,
 } from "./EnemySystem";
+import type { GridPosition } from "../types";
 
-function makeEnemy(
-  overrides: Partial<EnemyRuleState> = {}
-): EnemyRuleState {
+function makeEnemy(overrides: Partial<EnemyRuleState> = {}): EnemyRuleState {
   return {
     definitionId: "bulwark",
     hp: 150,
@@ -70,9 +70,9 @@ describe("EnemySystem", () => {
     const enemy = makeEnemy({ definitionId: "weather-core" });
     const actions = availableEnemyActions(enemy);
 
-    expect(chooseEnemyAction(enemy, actions, { playerTerrain: "grass" })?.id).toBe(
-      "weather-firefront"
-    );
+    expect(
+      chooseEnemyAction(enemy, actions, { playerTerrain: "grass" })?.id
+    ).toBe("weather-firefront");
     expect(
       chooseEnemyAction(enemy, actions, { playerTerrain: "ice" })?.id
     ).toBe("weather-electric-pulse");
@@ -96,5 +96,90 @@ describe("EnemySystem", () => {
     });
 
     expect(currentEnemyAction(enemy)?.name).toBe("近距離盾打ち");
+  });
+
+  it("locks row, column, and cross targets from the current player tile", () => {
+    const enemy = { grid: { col: 4, row: 1 }, cycle: 0 };
+    const player = { col: 2, row: 1 };
+    const context = {
+      player,
+      playerTiles: [
+        { col: 0, row: 0 },
+        { col: 1, row: 0 },
+        { col: 2, row: 0 },
+        { col: 0, row: 1 },
+        { col: 1, row: 1 },
+        { col: 2, row: 1 },
+        { col: 0, row: 2 },
+        { col: 1, row: 2 },
+        { col: 2, row: 2 },
+      ],
+      isInside: (position: GridPosition) =>
+        position.col >= 0 &&
+        position.col < 6 &&
+        position.row >= 0 &&
+        position.row < 3,
+      findSupportTarget: () => enemy.grid,
+      findHopperLanding: () => player,
+      findObjectPlacement: () => player,
+      findMinePlacement: () => player,
+    };
+
+    expect(
+      resolveEnemyTargets(enemy, { id: "row", target: "row" }, context)
+    ).toEqual([
+      { col: 0, row: 1 },
+      { col: 1, row: 1 },
+      { col: 2, row: 1 },
+    ]);
+    expect(
+      resolveEnemyTargets(enemy, { id: "column", target: "column" }, context)
+    ).toEqual([
+      { col: 2, row: 0 },
+      { col: 2, row: 1 },
+      { col: 2, row: 2 },
+    ]);
+    expect(
+      resolveEnemyTargets(enemy, { id: "cross", target: "cross" }, context)
+    ).toEqual([
+      { col: 2, row: 1 },
+      { col: 1, row: 1 },
+      { col: 3, row: 1 },
+      { col: 2, row: 0 },
+      { col: 2, row: 2 },
+    ]);
+  });
+
+  it("uses the dedicated locked tile for special enemy actions", () => {
+    const player = { col: 1, row: 1 };
+    const specialTile = { col: 4, row: 0 };
+    const context = {
+      player,
+      playerTiles: [],
+      isInside: () => true,
+      findSupportTarget: () => ({ col: 5, row: 2 }),
+      findHopperLanding: () => specialTile,
+      findObjectPlacement: () => ({ col: 3, row: 2 }),
+      findMinePlacement: () => ({ col: 5, row: 1 }),
+    };
+    const enemy = { grid: { col: 5, row: 2 }, cycle: 0 };
+
+    expect(
+      resolveEnemyTargets(
+        enemy,
+        { id: "hopper-jump-land", target: "landing" },
+        context
+      )
+    ).toEqual([specialTile]);
+    expect(
+      resolveEnemyTargets(
+        enemy,
+        { id: "hopper-bomb-drop", target: "player" },
+        context
+      )
+    ).toEqual([{ col: 3, row: 2 }]);
+    expect(
+      resolveEnemyTargets(enemy, { id: "mine", target: "mine" }, context)
+    ).toEqual([{ col: 5, row: 1 }]);
   });
 });
