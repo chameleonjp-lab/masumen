@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 38776)
-Total output lines: 4626
-
 /** Signal Relay Tactical core: Japanese battle-chip cards resolve through shared target shapes, status effects, and counter windows. */
 import { validateSelection, CARD_CATALOG } from "./deck";
 import { FixedStepClock } from "./core/FixedStepClock";
@@ -1881,7 +1878,988 @@ export class GameWorld {
     if (card.properties?.includes("剣")) this.nextSwordMultiplier = 1;
     const resolution = this.cardTargets(card);
     this.applyPlayerCardEffect(card, power);
-    const attackTiles = this.dispat…8776 tokens truncated…        });
+    const attackTiles = this.dispatchCardAttack(card, power);
+    const displayTiles =
+      attackTiles.length > 0 ? attackTiles : resolution.tiles;
+    this.onEvent({ type: "attack", charged: card.tier === "mega" });
+    this.emitCardEvents(card, displayTiles);
+    const hitstopDuration = card.tier === "mega" ? 105 : 55;
+    this.hitstopRemainingMs = Math.max(
+      this.hitstopRemainingMs,
+      hitstopDuration
+    );
+    this.onEvent({
+      type: "hitstop",
+      duration: hitstopDuration,
+      tier: card.tier,
+    });
+    let consumedEmotion: "synchronized" | "enraged" | null = null;
+    if (card.power > 0 && card.chainTechniqueId !== "full-repair") {
+      consumedEmotion = this.emotionSystem.consumePower(usedSync);
+      if (usedSync) this.sync = false;
+    }
+    const multiplierLabel =
+      usedSync || consumedEmotion === "synchronized"
+        ? " — フルシンクロ×2"
+        : consumedEmotion === "enraged"
+          ? " — 激昂×2"
+          : "";
+    this.message = `${card.name} を送信${multiplierLabel}`;
+    this.notify();
+  }
+
+  private dispatchCardAttack(card: Card, power: number): GridPosition[] {
+    if (card.id === "overload-forced-repair" || card.id === "overload-collapse-field")
+      return [];
+    if (card.chainTechniqueId)
+      return this.dispatchChainTechnique(card, power);
+    if (card.power <= 0) return [];
+
+    const action = getCardCombatProfile(card.id).actionId;
+    const scaleDamage = (base: number): number =>
+      Math.max(0, Math.round((base * power) / Math.max(1, card.power)));
+    const origin = { ...this.playerGrid };
+    const right = { col: 1, row: 0 };
+    const enemies = this.enemies
+      .filter(enemy => enemy.state !== "deleted")
+      .map(enemy => enemy.grid);
+    const preview = cardPreviewTiles(
+      card,
+      origin,
+      enemies,
+      this.panelSystem.snapshot()
+    );
+    this.applyElementalPanelInteraction(card.element, preview);
+    const spawn = (
+      options: Parameters<ProjectileSystem["spawn"]>[0],
+      delayMs = 0
+    ): void => {
+      const activeAt = this.gameTimeMs + delayMs + (options.activeAt ?? 0);
+      this.spawnProjectile({ ...options, activeAt });
+    };
+    const straight = (
+      damage: number,
+      options: Partial<Parameters<ProjectileSystem["spawn"]>[0]> = {},
+      delayMs = 0
+    ): GridPosition[] => {
+      spawn({
+        owner: "player",
+        motion: "straight",
+        position: origin,
+        direction: right,
+        damage: scaleDamage(damage),
+        sourceCardId: card.id,
+        ...options,
+      }, delayMs);
+      return preview;
+    };
+    const nearestTarget = nearestEnemyPosition(origin, enemies);
+    const columnTarget = nearestTarget ?? {
+      col: Math.min(5, origin.col + 2),
+      row: origin.row,
+    };
+    const pointTarget = nearestTarget ?? {
+      col: Math.min(5, Math.max(3, origin.col + 2)),
+      row: origin.row,
+    };
+
+    if (action === "meteor") {
+      const landingPanels = this.panelSystem
+        .snapshot()
+        .filter(panel => panel.owner === "enemy")
+        .map(panel => ({ col: panel.col, row: panel.row }));
+      const targets = landingPanels.length > 0
+        ? landingPanels
+        : [3, 4, 5].flatMap(col => [0, 1, 2].map(row => ({ col, row })));
+      for (let index = 0; index < COMBAT_BALANCE.upper.meteorCount; index += 1) {
+        const target = targets[index % targets.length];
+        spawn({
+          owner: "player",
+          motion: "thrown",
+          position: origin,
+          target,
+          damage: scaleDamage(COMBAT_BALANCE.upper.meteorDamage),
+          sourceCardId: card.id,
+          flightMs: COMBAT_BALANCE.upper.meteorFlightMs,
+          stopOnObject: false,
+        }, index * COMBAT_BALANCE.upper.meteorIntervalMs);
+      }
+      return preview;
+    }
+    if (action === "overdrive") {
+      this.beginOverdrive(pointTarget, power);
+      return [pointTarget];
+    }
+    if (["slash", "sweep", "dashslash", "gridcut", "moonblade"].includes(action))
+      return this.dispatchMeleeCard(card, power);
+    if (action === "dream" || action === "sanctuary") return [];
+
+    if (action === "overload-limit-cannon") {
+      const lostHp = Math.max(0, this.playerMaxHp - this.playerHp);
+      return straight(Math.min(COMBAT_BALANCE.overload.limitCannonMaxDamage, Math.max(1, lostHp * 2)));
+    }
+    if (action === "overload-contamination")
+      return straight(COMBAT_BALANCE.overload.contaminationDamage, { splashRadius: 1, stopOnObject: false });
+    if (action === "rapid") {
+      for (let index = 0; index < 3; index += 1) straight(12, {}, index * 90);
+      return preview;
+    }
+    if (action === "lance") {
+      straight(60, { motion: "piercing", stopOnObject: false });
+      return preview;
+    }
+    if (action === "seeker") {
+      straight(45);
+      return preview;
+    }
+    if (action === "triplet") {
+      for (let index = 0; index < 3; index += 1) straight(20, {}, index * 160);
+      return preview;
+    }
+    if (action === "wide" || action === "frost") {
+      straight(action === "wide" ? 40 : 35, { motion: "wave", rowSpan: true, stopOnObject: false });
+      if (action === "frost") this.freezeEmptyEnemyPanels();
+      return preview;
+    }
+    if (action === "column" || action === "fireline" || action === "thunderline") {
+      const targetColumn = action === "fireline" ? Math.min(5, origin.col + 2) : columnTarget.col;
+      spawn({
+        owner: "player",
+        motion: "thrown",
+        position: origin,
+        target: { col: targetColumn, row: origin.row },
+        damage: scaleDamage(action === "column" ? 55 : 40),
+        sourceCardId: card.id,
+        rowSpan: true,
+        flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+      });
+      return columnAtPreview(targetColumn);
+    }
+    if (action === "cross") {
+      straight(40);
+      straight(20, { splashRadius: 1, splashShape: "cross", stopOnObject: false });
+      return preview;
+    }
+    if (action === "fan") {
+      for (const direction of [{ col: 1, row: 0 }, { col: 1, row: -1 }, { col: 1, row: 1 }])
+        spawn({ owner: "player", motion: "straight", position: origin, direction, damage: scaleDamage(30), sourceCardId: card.id });
+      return preview;
+    }
+    if (action === "ember") {
+      straight(50);
+      return preview;
+    }
+    if (action === "icewall") {
+      spawn({
+        owner: "player",
+        motion: "thrown",
+        position: origin,
+        target: pointTarget,
+        damage: scaleDamage(40),
+        sourceCardId: card.id,
+        flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+        stopOnObject: false,
+        affectsObjects: false,
+      });
+      return [pointTarget];
+    }
+    if (action === "volt") {
+      spawn({ owner: "player", motion: "homing", position: origin, direction: right, damage: scaleDamage(45), sourceCardId: card.id, speedCellsPerSecond: 8 });
+      return preview;
+    }
+    if (action === "root") {
+      straight(45);
+      return preview;
+    }
+    if (action === "web") {
+      const topLeft = { col: Math.max(3, Math.min(4, pointTarget.col)), row: Math.max(0, Math.min(1, pointTarget.row)) };
+      spawn({
+        owner: "player",
+        motion: "thrown",
+        position: origin,
+        target: topLeft,
+        damage: scaleDamage(25),
+        sourceCardId: card.id,
+        splashRadius: 1,
+        splashShape: "two-by-two",
+        flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+      });
+      return preview;
+    }
+    if (card.family === "射撃" || card.family === "属性" || card.family === "範囲" || card.family === "高出力") {
+      straight(power, { motion: card.family === "範囲" ? "wave" : "straight", rowSpan: card.family === "範囲" });
+      return preview;
+    }
+    return [];
+  }
+  private dispatchChainTechnique(
+    card: Card,
+    power: number
+  ): GridPosition[] {
+    const technique = CHAIN_TECHNIQUES.find(
+      candidate => candidate.id === card.chainTechniqueId
+    );
+    if (!technique) return [];
+    this.usedChainTechniques.push(technique.id);
+
+    const origin = { ...this.playerGrid };
+    const activeEnemies = this.enemies.filter(
+      enemy => enemy.state !== "deleted"
+    );
+    const enemyPositions = activeEnemies.map(enemy => ({ ...enemy.grid }));
+    const target = this.cardPointTarget();
+    const sourceCard = (id: string): Card | undefined => this.cardForSource(id);
+    const scale = (damage: number): number =>
+      Math.max(0, Math.round(damage * Math.max(1, power)));
+
+    if (technique.id === "rapid-barrage") {
+      for (let index = 0; index < COMBAT_BALANCE.chain.rapidCount; index += 1) {
+        this.spawnProjectile({
+          owner: "player",
+          motion: "straight",
+          position: origin,
+          direction: { col: 1, row: 0 },
+          damage: scale(COMBAT_BALANCE.chain.rapidDamage),
+          sourceCardId: "rapid",
+          activeAt:
+            this.gameTimeMs + index * COMBAT_BALANCE.chain.rapidIntervalMs,
+          speedCellsPerSecond: COMBAT_BALANCE.normalShot.speedCellsPerSecond,
+        });
+      }
+      return cardPreviewTiles(
+        sourceCard("rapid"),
+        origin,
+        enemyPositions,
+        this.panelSystem.snapshot()
+      );
+    }
+
+    if (technique.id === "triple-moon") {
+      const firstPlan = createMeleePlan(origin, target, 0, 1, {
+        dash: true,
+        timing: {
+          startupMs: COMBAT_BALANCE.chain.tripleMoonStartupMs,
+          activeMs: COMBAT_BALANCE.chain.tripleMoonActiveMs,
+          recoveryMs: COMBAT_BALANCE.chain.tripleMoonRecoveryMs,
+        },
+        canEnter: position => this.canEnterTemporaryMeleePosition(position),
+      });
+      const meleeOrigin = firstPlan.dashTo ?? origin;
+      const stageCards = ["slash", "sweep", "moonblade"];
+      const stageDamage = [80, 100, 140];
+      const stages: PendingMeleeStage[] = stageCards.map((cardId, index) => {
+        const stageCard = sourceCard(cardId);
+        const stageOrigin = { ...meleeOrigin };
+        const stageTiles =
+          cardId === "sweep"
+            ? columnAtPreview(stageOrigin.col + 1)
+            : createMeleePlan(
+                stageOrigin,
+                target,
+                0,
+                cardId === "moonblade" ? 2 : 1,
+                { dash: false }
+              ).tiles;
+        return {
+          activeAt:
+            this.gameTimeMs +
+            COMBAT_BALANCE.chain.tripleMoonStartupMs +
+            index * COMBAT_BALANCE.chain.tripleMoonStageGapMs,
+          tiles: stageTiles,
+          damage: scale(stageDamage[index] ?? 0),
+          resolved: false,
+          card: stageCard,
+        };
+      });
+      const recoveryAt =
+        Math.max(...stages.map(stage => stage.activeAt)) +
+        COMBAT_BALANCE.chain.tripleMoonActiveMs +
+        COMBAT_BALANCE.chain.tripleMoonRecoveryMs;
+      this.pendingMelee.push({
+        card: sourceCard("slash") ?? card,
+        stages,
+        dashTo: firstPlan.dashTo,
+        returnTo: firstPlan.returnTo,
+        recoveryAt,
+        dashApplied: false,
+      });
+      this.playerControlLockedUntil = Math.max(
+        this.playerControlLockedUntil,
+        recoveryAt
+      );
+      return uniqueTiles(stages.flatMap(stage => stage.tiles));
+    }
+
+    if (technique.id === "fire-requiem") {
+      const ember = sourceCard("ember");
+      const firelineTarget = {
+        col: Math.min(5, origin.col + 2),
+        row: target.row,
+      };
+      this.spawnProjectile({
+        owner: "player",
+        motion: "straight",
+        position: origin,
+        direction: { col: 1, row: 0 },
+        damage: scale(50),
+        sourceCardId: "ember",
+        activeAt: this.gameTimeMs,
+      });
+      this.spawnProjectile({
+        owner: "player",
+        motion: "thrown",
+        position: origin,
+        target: firelineTarget,
+        damage: scale(40),
+        sourceCardId: "fireline",
+        activeAt: this.gameTimeMs + COMBAT_BALANCE.chain.fireChainStepGapMs,
+        rowSpan: true,
+        flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+      });
+      this.pendingChainEffects.push({
+        at:
+          this.gameTimeMs +
+          COMBAT_BALANCE.chain.fireChainStepGapMs * 2,
+        kind: "place-bomb",
+        panel: { ...target },
+        sourceCardId: "timer",
+        damage: scale(90),
+      });
+      return uniqueTiles([
+        ...cardPreviewTiles(ember, origin, enemyPositions),
+        ...columnAtPreview(firelineTarget.col),
+        ...this.areaAround(target),
+      ]);
+    }
+
+    if (technique.id === "tree-prison") {
+      const enemyIds = activeEnemies.map(enemy => enemy.id);
+      activeEnemies.forEach(enemy =>
+        this.applyStatus(
+          enemy,
+          "root",
+          COMBAT_BALANCE.chain.treePrisonDurationMs
+        )
+      );
+      this.pendingChainEffects.push({
+        at: this.gameTimeMs + COMBAT_BALANCE.chain.treePrisonDurationMs,
+        kind: "tree-prison",
+        enemyIds,
+        sourceCardId: "web",
+        damage: scale(COMBAT_BALANCE.chain.treePrisonDamage),
+      });
+      return [3, 4, 5].flatMap(col =>
+        [0, 1, 2].map(row => ({ col, row }))
+      );
+    }
+
+    if (technique.id === "ground-collapse") {
+      const enemyPanels = this.panelSystem.snapshot().filter(
+        panel => panel.owner === "enemy"
+      );
+      enemyPanels.forEach(panel => {
+        this.panelSystem.crack(panel);
+        if (panel.occupantId === null && panel.objectId === null)
+          this.panelSystem.setTerrain(
+            panel,
+            "hole",
+            this.gameTimeMs,
+            COMBAT_BALANCE.chain.groundCollapseHoleMs
+          );
+      });
+      return enemyPanels.map(panel => ({ col: panel.col, row: panel.row }));
+    }
+
+    if (technique.id === "magnetic-encircle") {
+      activeEnemies.forEach(enemy => {
+        this.strikeEnemy(
+          enemy,
+          scale(COMBAT_BALANCE.chain.lightningMagneticDamage),
+          sourceCard("volt"),
+          false,
+          0,
+          "electric"
+        );
+        if (enemy.state !== "deleted")
+          this.applyStatus(
+            enemy,
+            "stun",
+            COMBAT_BALANCE.chain.lightningMagneticStunMs
+          );
+      });
+      this.barrier = Math.min(
+        220,
+        this.barrier + scale(COMBAT_BALANCE.chain.lightningMagneticBarrier)
+      );
+      this.electromagneticBarrierActive = true;
+      return activeEnemies.length > 0
+        ? activeEnemies.map(enemy => ({ ...enemy.grid }))
+        : [3, 4, 5].flatMap(col =>
+            [0, 1, 2].map(row => ({ col, row }))
+          );
+    }
+
+    if (technique.id === "layered-defense") {
+      this.placeFieldObject(
+        "cube",
+        { col: origin.col + 1, row: origin.row },
+        100,
+        null,
+        "damage",
+        {
+          sourceCardId: "block",
+          collision: "solid",
+          fallback: false,
+        }
+      );
+      this.barrier = Math.min(
+        220,
+        this.barrier + scale(COMBAT_BALANCE.chain.layeredDefenseBarrier)
+      );
+      this.pendingDefense = "substitute";
+      this.pendingDefenseUntil = 0;
+      return uniqueTiles([
+        { ...origin },
+        { col: origin.col + 1, row: origin.row },
+      ]);
+    }
+
+    if (technique.id === "full-repair") {
+      this.healPlayer(COMBAT_BALANCE.chain.fullRepairHeal);
+      this.pendingRepair = null;
+      this.pendingDefense = null;
+      this.pendingDefenseUntil = 0;
+      this.enemies.forEach(enemy => {
+        enemy.burnUntil = 0;
+        enemy.nextBurnAt = 0;
+        enemy.slowUntil = 0;
+        enemy.rootUntil = 0;
+      });
+      this.paintPlayerTerritory(COMBAT_BALANCE.chain.fullRepairSanctuaryMs);
+      return this.panelSystem
+        .snapshot()
+        .filter(panel => panel.owner === "player")
+        .map(panel => ({ col: panel.col, row: panel.row }));
+    }
+
+    return [];
+  }
+
+  private emitCardEvents(card: Card, tiles: GridPosition[]): void {
+    const ids = card.chainCardIds ?? [card.id];
+    const origin = { ...this.playerGrid };
+    const enemies = this.enemies
+      .filter(enemy => enemy.state !== "deleted")
+      .map(enemy => enemy.grid);
+    const panels = this.panelSystem.snapshot();
+    ids.forEach(cardId => {
+      const source = this.cardForSource(cardId);
+      if (!source) return;
+      const sourcePreview = cardPreviewTiles(source, origin, enemies, panels);
+      const sourceTiles =
+        card.chainTechniqueId === undefined
+          ? tiles
+          : sourcePreview.length > 0
+            ? sourcePreview
+            : tiles;
+      this.onEvent({
+        type: "card",
+        cardId: source.id,
+        at: { ...(sourceTiles[0] ?? origin) },
+        tiles: sourceTiles,
+        family: source.family,
+        tier: card.tier,
+        target: source.target,
+        status: source.status,
+      });
+    });
+  }
+
+  private updatePendingChainEffects(now: number): void {
+    const ready = this.pendingChainEffects.filter(effect => now >= effect.at);
+    if (ready.length === 0) return;
+    this.pendingChainEffects = this.pendingChainEffects.filter(
+      effect => now < effect.at
+    );
+    ready.forEach(effect => {
+      if (effect.kind === "place-bomb") {
+        this.placeFieldObject(
+          "bomb",
+          effect.panel ?? this.closestEmptyEnemyPanel(),
+          50,
+          2000,
+          "timer",
+          {
+            effectId: "timed-bomb",
+            damage: effect.damage,
+            sourceCardId: effect.sourceCardId,
+            collision: "passable",
+            pushable: true,
+          }
+        );
+        return;
+      }
+      effect.enemyIds?.forEach(enemyId => {
+        const enemy = this.enemies.find(
+          candidate =>
+            candidate.id === enemyId && candidate.state !== "deleted"
+        );
+        if (enemy)
+          this.strikeEnemy(
+            enemy,
+            effect.damage,
+            this.cardForSource(effect.sourceCardId),
+            false,
+            0,
+            "wood"
+          );
+      });
+    });
+  }
+
+  private beginOverdrive(target: GridPosition, power: number): void {
+    const targetEnemy = this.enemies.find(
+      enemy => enemy.state !== "deleted" && sameTile(enemy.grid, target)
+    );
+    this.transferPlayerToCardTarget();
+    this.nextSwordMultiplier = 1;
+    this.overdrivePrompt = {
+      enemyId: targetEnemy?.id ?? null,
+      target: { ...target },
+      step: 0,
+      expiresAt: this.gameTimeMs + COMBAT_BALANCE.upper.overdriveInputWindowMs,
+      damageMultiplier: power / 70 >= 2 ? 2 : 1,
+    };
+    this.message = "超過駆動 — 1/3の入力を受け付け中";
+  }
+
+  private updateOverdrivePrompt(now: number): void {
+    if (!this.overdrivePrompt || now <= this.overdrivePrompt.expiresAt) return;
+    const step = this.overdrivePrompt.step;
+    this.overdrivePrompt = null;
+    this.message = `超過駆動 — ${step}/${COMBAT_BALANCE.upper.overdriveStepCount}で終了`;
+  }
+
+  private resolveOverdriveInput(): void {
+    const prompt = this.overdrivePrompt;
+    if (!prompt || this.gameTimeMs > prompt.expiresAt) return;
+    const enemy = prompt.enemyId
+      ? this.enemies.find(candidate => candidate.id === prompt.enemyId)
+      : undefined;
+    if (enemy && enemy.state !== "deleted")
+      this.strikeEnemy(
+        enemy,
+        Math.round(
+          COMBAT_BALANCE.upper.overdriveDamagePerStep *
+            prompt.damageMultiplier
+        ),
+        this.cardForSource("overdrive"),
+        false
+      );
+    const nextStep = prompt.step + 1;
+    if (nextStep >= COMBAT_BALANCE.upper.overdriveStepCount) {
+      this.areaAround(prompt.target).forEach(tile => this.panelSystem.crack(tile));
+      this.overdrivePrompt = null;
+      this.message = "超過駆動 — 3段入力完了、周囲を亀裂化";
+    } else {
+      this.overdrivePrompt = {
+        ...prompt,
+        step: nextStep,
+        expiresAt:
+          this.gameTimeMs + COMBAT_BALANCE.upper.overdriveInputWindowMs,
+      };
+      this.message = `超過駆動 — ${nextStep + 1}/${COMBAT_BALANCE.upper.overdriveStepCount}の入力を受け付け中`;
+    }
+    this.notify();
+  }
+
+  private canEnterTemporaryMeleePosition(position: GridPosition): boolean {
+    const panel = this.panelSystem.get(position);
+    return Boolean(
+      panel &&
+        panel.terrain !== "hole" &&
+        panel.occupantId === null &&
+        !this.objectSystem.isSolidAt(position)
+    );
+  }
+
+  private dispatchMeleeCard(card: Card, power: number): GridPosition[] {
+    const action = getCardCombatProfile(card.id).actionId;
+    const target =
+      action === "dashslash"
+        ? (this.closestEnemy()?.grid ?? null)
+        : action === "gridcut"
+          ? this.cardPointTarget()
+          : (this.frontTarget()?.grid ?? null);
+    const startupMs = action === "moonblade" ? 380 : action === "gridcut" ? 120 : 90;
+    const activeMs = action === "moonblade" ? 110 : 80;
+    const recoveryMs = action === "moonblade" ? 420 : 180;
+    const plan = createMeleePlan(this.playerGrid, target, power, getMeleeRange(card), {
+      dash: action === "dashslash",
+      timing: { startupMs, activeMs, recoveryMs },
+      canEnter: position => this.canEnterTemporaryMeleePosition(position),
+    });
+    const scaleDamage = (base: number): number =>
+      Math.max(0, Math.round((base * power) / Math.max(1, card.power)));
+    const stages: PendingMeleeStage[] =
+      action === "sweep"
+        ? [{ activeAt: this.gameTimeMs + startupMs, tiles: columnAtPreview(this.playerGrid.col + 1), damage: scaleDamage(70), resolved: false }]
+        : action === "gridcut"
+          ? (() => {
+              const point = target ?? { col: Math.min(5, this.playerGrid.col + 2), row: this.playerGrid.row };
+              return [
+                {
+                  activeAt: this.gameTimeMs + startupMs,
+                  tiles: Array.from({ length: 3 }, (_, index) => ({ col: point.col - 1 + index, row: point.row }))
+                    .filter(position => position.col >= 0 && position.col < 6),
+                  damage: scaleDamage(50),
+                  resolved: false,
+                },
+                {
+                  activeAt: this.gameTimeMs + startupMs + 140,
+                  tiles: columnAtPreview(point.col),
+                  damage: scaleDamage(50),
+                  resolved: false,
+                },
+              ];
+            })()
+          : [{
+              activeAt: this.gameTimeMs + startupMs,
+              tiles: plan.tiles,
+              damage: scaleDamage(action === "slash" ? 80 : action === "dashslash" ? 100 : 140),
+              resolved: false,
+            }];
+    const recoveryAt = Math.max(...stages.map(stage => stage.activeAt)) + activeMs + recoveryMs;
+    this.pendingMelee.push({ card, stages, dashTo: plan.dashTo, returnTo: plan.returnTo, recoveryAt, dashApplied: false });
+    this.playerControlLockedUntil = Math.max(this.playerControlLockedUntil, recoveryAt);
+    return stages.flatMap(stage => stage.tiles).filter((tile, index, all) =>
+      all.findIndex(candidate => sameTile(candidate, tile)) === index
+    );
+  }
+  private updateMeleeAttacks(now: number): void {
+    for (const attack of this.pendingMelee) {
+      const firstStage = attack.stages[0];
+      if (!attack.dashApplied && attack.dashTo && firstStage && now >= firstStage.activeAt) {
+        const previous = { ...this.playerGrid };
+        this.panelSystem.vacate(previous, now);
+        this.playerGrid = { ...attack.dashTo };
+        this.panelSystem.occupy(this.playerGrid, "player");
+        attack.dashApplied = true;
+      }
+      for (const stage of attack.stages) {
+        if (stage.resolved || now < stage.activeAt) continue;
+        this.enemies
+          .filter(enemy => enemy.state !== "deleted" && stage.tiles.some(tile => sameTile(tile, enemy.grid)))
+          .forEach(enemy =>
+            this.strikeEnemy(
+              enemy,
+              stage.damage,
+              stage.card ?? attack.card,
+              false
+            )
+          );
+        stage.resolved = true;
+      }
+    }
+    this.pendingMelee = this.pendingMelee.filter(attack => {
+      if (now < attack.recoveryAt) return true;
+      if (attack.dashTo && sameTile(attack.dashTo, this.playerGrid)) {
+        this.panelSystem.vacate(this.playerGrid, now);
+        const safe = this.panelSystem.findNearestSafePosition(
+          attack.returnTo ?? this.playerGrid,
+          "player",
+          position => this.objectSystem.isSolidAt(position)
+        );
+        this.playerGrid = safe ?? attack.returnTo ?? this.playerGrid;
+        this.panelSystem.occupy(this.playerGrid, "player");
+      }
+      return false;
+    });
+  }
+  private spawnProjectile(
+    spawn: Parameters<ProjectileSystem["spawn"]>[0]
+  ): ProjectileState {
+    const projectile = this.projectileSystem.spawn(spawn, this.gameTimeMs);
+    const to = spawn.target ?? {
+      col:
+        projectile.direction.col < 0
+          ? 0
+          : projectile.direction.col > 0
+            ? 5
+            : projectile.position.col,
+      row:
+        projectile.direction.row < 0
+          ? 0
+          : projectile.direction.row > 0
+            ? 2
+            : projectile.position.row,
+    };
+    this.onEvent({
+      type: "projectile",
+      id: projectile.id,
+      motion: projectile.motion,
+      from: { ...projectile.origin },
+      to: { ...to },
+      side: projectile.owner,
+      charged: projectile.charged,
+    });
+    return projectile;
+  }
+  private resolutionTilesFor(
+    shape: TargetShape,
+    origin: GridPosition
+  ): GridPosition[] {
+    if (shape === "column")
+      return [0, 1, 2].map(row => ({ col: Math.min(5, origin.col + 2), row }));
+    if (shape === "enemy-field")
+      return [3, 4, 5].flatMap(col => [0, 1, 2].map(row => ({ col, row })));
+    return [3, 4, 5].map(col => ({ col, row: origin.row }));
+  }
+  private resolveProjectileCollision(
+    projectile: ProjectileState,
+    positions: GridPosition[]
+  ): { targetIds: string[]; objectId: string | null; stop: boolean } {
+    const playerTargetPositions =
+      projectile.owner === "enemy" && (projectile.lockedTargets?.length ?? 0) > 0
+        ? positions.filter(position =>
+            projectile.lockedTargets?.some(target => sameTile(target, position))
+          )
+        : positions;
+    const targetIds =
+      projectile.owner === "player"
+        ? this.enemies
+            .filter(
+              enemy =>
+                enemy.state !== "deleted" &&
+                positions.some(position => sameTile(position, enemy.grid))
+            )
+            .map(enemy => enemy.id)
+        : playerTargetPositions.some(position => sameTile(position, this.playerGrid))
+          ? ["player"]
+          : [];
+    const object = positions
+      .map(position => this.objectSystem.getAt(position))
+      .find(candidate => candidate !== undefined);
+    return {
+      targetIds,
+      objectId: object?.id ?? null,
+      stop: object?.collision === "solid",
+    };
+  }
+  private findHomingTarget(projectile: ProjectileState): GridPosition | null {
+    if (projectile.owner === "enemy")
+      return projectile.target ? { ...projectile.target } : null;
+    return (
+      this.enemies
+        .filter(enemy => enemy.state !== "deleted")
+        .sort(
+          (a, b) =>
+            Math.abs(a.grid.col - projectile.position.col) +
+            Math.abs(a.grid.row - projectile.position.row) -
+            (Math.abs(b.grid.col - projectile.position.col) +
+              Math.abs(b.grid.row - projectile.position.row))
+        )[0]?.grid ?? null
+    );
+  }
+  private applyProjectileResolution(
+    projectile: ProjectileState,
+    targetIds: string[],
+    objectId: string | null
+  ): void {
+    if (projectile.sourceCardId === "meteor")
+      this.panelSystem.crack(projectile.position);
+    if (objectId && projectile.affectsObjects) {
+      const objectResult = this.objectSystem.damage(
+        objectId,
+        projectile.damage
+      );
+      if (objectResult.destroyed && objectResult.object) {
+        this.panelSystem.detachObject(
+          objectResult.object.panel,
+          objectResult.object.id
+        );
+        this.objectNextTriggerAt.delete(objectResult.object.id);
+        this.objectTriggerCount.delete(objectResult.object.id);
+        this.onEvent({
+          type: "impact",
+          at: { ...objectResult.object.panel },
+          side: projectile.owner,
+          damage: projectile.damage,
+        });
+      }
+    }
+    if (projectile.owner === "player") {
+      const card = projectile.sourceCardId
+        ? [...CARD_CATALOG, ...OVERLOAD_CARDS].find(
+            candidate => candidate.id === projectile.sourceCardId
+          )
+        : undefined;
+      targetIds
+        .map(id => this.enemies.find(enemy => enemy.id === id))
+        .filter((enemy): enemy is Enemy => Boolean(enemy))
+        .forEach(enemy => {
+          const frontalShot =
+            projectile.motion === "straight" &&
+            projectile.direction.col > 0 &&
+            projectile.direction.row === 0;
+          const shouldReflect =
+            enemy.definitionId === "mirror-node" &&
+            enemy.defense === "reflect" &&
+            frontalShot &&
+            !card?.properties?.includes("破砕") &&
+            ["idle", "startup", "counter-window"].includes(enemy.actionPhase);
+          if (shouldReflect) {
+            this.reflectPlayerProjectile(enemy, projectile);
+            return;
+          }
+          this.strikeEnemy(enemy, projectile.damage, card, projectile.charged);
+        });
+      return;
+    }
+    if (targetIds.includes("player")) {
+      const sourceEnemy = projectile.sourceId
+        ? this.enemies.find(enemy => enemy.id === projectile.sourceId)
+        : undefined;
+      const action = sourceEnemy
+        ? getEnemyDefinition(sourceEnemy.definitionId)?.actions.find(
+            candidate => candidate.id === projectile.sourceActionId
+          )
+        : undefined;
+      this.applyPlayerHit(projectile.damage, projectile.sourceId ?? undefined);
+      if (projectile.sourceActionId === "scanner-signal-lock") {
+        this.playerBlindUntil = Math.max(this.playerBlindUntil, this.gameTimeMs + 900);
+        this.message = "追尾信号弾 — 目隠し";
+      }
+      if (projectile.sourceActionId === "sentinel-chain-bolt") {
+        this.playerStunnedUntil = Math.max(this.playerStunnedUntil, this.gameTimeMs + 500);
+        this.message = "連鎖電撃 — 麻痺";
+      }
+      if (action?.status === "stun") {
+        this.playerStunnedUntil = Math.max(
+          this.playerStunnedUntil,
+          this.gameTimeMs + (action.statusDurationMs ?? 0)
+        );
+        this.message = action.name + " — 麻痺";
+      }
+      if (action?.status === "root") {
+        this.playerControlLockedUntil = Math.max(
+          this.playerControlLockedUntil,
+          this.gameTimeMs + (action.statusDurationMs ?? 0)
+        );
+        this.message = action.name + " — 拘束";
+      }
+    }
+  }
+  private activateSubstitute(): void {
+    const previous = { ...this.playerGrid };
+    this.panelSystem.vacate(previous, this.gameTimeMs);
+    const candidates = [
+      { col: previous.col + 1, row: previous.row },
+      { col: previous.col - 1, row: previous.row },
+      { col: previous.col, row: previous.row + 1 },
+      { col: previous.col, row: previous.row - 1 },
+    ];
+    const destination = candidates.find(position => {
+      const panel = this.panelSystem.get(position);
+      return panel?.owner === "player" && panel.terrain !== "hole" && panel.occupantId === null && panel.objectId === null;
+    });
+    if (!destination) {
+      this.panelSystem.occupy(previous, "player");
+      return;
+    }
+    this.playerGrid = destination;
+    this.panelSystem.occupy(this.playerGrid, "player");
+    this.placeFieldObject(
+      "field-device",
+      previous,
+      1,
+      2000,
+      "none",
+      { effectId: "decoy", collision: "passable", fallback: false }
+    );
+    this.message = "身代わり膜 — 囮を残して退避";
+    this.onEvent({
+      type: "player-reaction",
+      at: { ...this.playerGrid },
+      kind: "dodge",
+    });
+  }
+
+  private triggerElectromagneticBurst(enemyId?: string): void {
+    const targets = this.enemies.filter(
+      enemy =>
+        enemy.state !== "deleted" &&
+        Math.abs(enemy.grid.col - this.playerGrid.col) <= 1 &&
+        Math.abs(enemy.grid.row - this.playerGrid.row) <= 1
+    );
+    targets.forEach(enemy => {
+      this.strikeEnemy(enemy, 40, undefined, false, 0, "electric");
+      if (enemy.state !== "deleted") this.applyStatus(enemy, "stun", 500);
+    });
+    this.message = "電磁防壁 — 周囲へ放電";
+    this.onEvent({
+      type: "impact",
+      at: { ...this.playerGrid },
+      side: "player",
+      enemyId,
+      damage: 40,
+    });
+  }
+  private applyPlayerHit(
+    damage: number,
+    enemyId?: string,
+    source: "direct" | "terrain" = "direct",
+    ignoreDamageInvulnerability = false
+  ): void {
+    const now = this.gameTimeMs;
+    const terrainDamage = source === "terrain";
+    if (terrainDamage) {
+      /**
+       * 地形ダメージが直前の被弾無効時間を無視する問題を修正する。
+       * 再現: 敵弾が命中した同じ固定更新で、溶岩または毒の周期ダメージが発生する。
+       * 期待仕様: 直前の被弾から350ミリ秒以内なら、地形ダメージも追加で減らさない。
+       * 現状コード位置: `applyPlayerHit()` の地形分岐は防御処理と被弾無効判定を丸ごと回避していた。
+       * 修正方針: 地形ダメージは既存の被弾無効時間だけ共有し、地形側から新しい無効時間は開始しない。
+       * 追加テスト: `GameWorld.test.ts` で直接被弾直後の地形ダメージがHPを二重に減らさないことを確認する。
+       */
+      if (!ignoreDamageInvulnerability && now < this.playerDamageInvulnerableUntil)
+        return;
+    } else {
+      if (this.pendingRepair) {
+        this.pendingRepair = null;
+        this.message = "応急修復失敗 — 準備中に被弾";
+      }
+      if (this.pendingDefense === "premonition" && now >= this.pendingDefenseUntil) {
+        this.pendingDefense = null;
+        this.pendingDefenseUntil = 0;
+      }
+      if (this.pendingDefense === "substitute") {
+        this.pendingDefense = null;
+        this.pendingDefenseUntil = 0;
+        this.activateSubstitute();
+        return;
+      }
+      if (
+        this.pendingDefense === "return" ||
+        (this.pendingDefense === "premonition" && now < this.pendingDefenseUntil)
+      ) {
+        const defense = this.pendingDefense;
+        const counterDamage = defense === "return" ? 80 : 120;
+        this.pendingDefense = null;
+        this.pendingDefenseUntil = 0;
+        const sourceEnemy = enemyId
+          ? this.enemies.find(enemy => enemy.id === enemyId)
+          : undefined;
+        if (sourceEnemy && sourceEnemy.state !== "deleted")
+          this.strikeEnemy(sourceEnemy, counterDamage, undefined, false);
+        this.message = defense === "return" ? "返し手裏剣 — 攻撃を反射" : "予知反撃 — 攻撃を反射";
+        this.onEvent({
+          type: "player-reaction",
+          at: { ...this.playerGrid },
+          kind: "counter",
+          enemyId,
+          damage: counterDamage,
+        });
         return;
       }
       if (now < this.dreamAuraUntil) {
