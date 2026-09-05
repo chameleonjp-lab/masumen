@@ -1,3 +1,5 @@
+> この文書は旧仕様の監査履歴です。本文の操作や判定は現行仕様ではありません。現在のゲームプレイ仕様は`docs/COMBAT_REBUILD_PLAN.md`と`client/src/game/data/balance.ts`を正本とします。
+
 # カード挙動・対象マス監査
 
 ## 共通ルール
