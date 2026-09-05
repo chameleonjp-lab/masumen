@@ -40,6 +40,7 @@ import {
   availableEnemyActions as getAvailableEnemyActions,
   chooseEnemyAction as selectEnemyAction,
   currentEnemyAction as getCurrentEnemyAction,
+  resolveEnemyTargets,
 } from "./systems/EnemySystem";
 import {
   warningProgress as getWarningProgress,
@@ -759,81 +760,15 @@ export class GameWorld {
     enemy: Enemy,
     action: EnemyActionDefinition
   ): GridPosition[] {
-    const player = { ...this.playerGrid };
-    if (action.target === "support") {
-      return [{ ...this.findEnemySupportTarget(enemy).grid }];
-    }
-    if (action.id === "hopper-jump-land") {
-      return [{ ...this.findHopperLanding() }];
-    }
-    if (
-      action.id === "hopper-bomb-drop" ||
-      action.id === "bastion-obstacle-deploy" ||
-      action.id === "arbiter-stake-field"
-    ) {
-      return [{ ...this.findEnemyObjectPlacement(enemy) }];
-    }
-    switch (action.target) {
-      case "row":
-        return [0, 1, 2].map(col => ({ col, row: player.row }));
-      case "column":
-        return [0, 1, 2].map(row => ({ col: player.col, row }));
-      case "player":
-      case "adjacent":
-      case "mine":
-        return [action.target === "mine" ? this.findEnemyMinePlacement() : player];
-      case "cross":
-        return uniqueTiles([
-          player,
-          { col: player.col - 1, row: player.row },
-          { col: player.col + 1, row: player.row },
-          { col: player.col, row: player.row - 1 },
-          { col: player.col, row: player.row + 1 },
-        ]).filter(tile => this.panelSystem.isInside(tile));
-      case "spread":
-        return uniqueTiles([
-          player,
-          { col: player.col, row: player.row - 1 },
-          { col: player.col, row: player.row + 1 },
-        ]).filter(tile => this.panelSystem.isInside(tile));
-      case "alternating":
-        return playerTiles().filter(
-          tile => (tile.col + tile.row + enemy.cycle) % 2 === 0
-        );
-      case "all-rows":
-        return playerTiles().concat(
-          [3, 4, 5].flatMap(col =>
-            [0, 1, 2].map(row => ({ col, row }))
-          )
-        );
-      case "outer":
-        return [
-          { col: 0, row: 0 },
-          { col: 1, row: 0 },
-          { col: 2, row: 0 },
-          { col: 3, row: 0 },
-          { col: 4, row: 0 },
-          { col: 5, row: 0 },
-          { col: 5, row: 1 },
-          { col: 5, row: 2 },
-          { col: 4, row: 2 },
-          { col: 3, row: 2 },
-          { col: 2, row: 2 },
-          { col: 1, row: 2 },
-          { col: 0, row: 2 },
-          { col: 0, row: 1 },
-        ];
-      case "landing":
-        return [player];
-      case "mirror":
-        return [{ ...enemy.grid }];
-      case "player-territory":
-        return [0, 1, 2].flatMap(col =>
-          [0, 1, 2].map(row => ({ col, row }))
-        );
-      default:
-        return [player];
-    }
+    return resolveEnemyTargets(enemy, action, {
+      player: this.playerGrid,
+      playerTiles: playerTiles(),
+      isInside: position => this.panelSystem.isInside(position),
+      findSupportTarget: () => this.findEnemySupportTarget(enemy).grid,
+      findHopperLanding: () => this.findHopperLanding(),
+      findObjectPlacement: () => this.findEnemyObjectPlacement(enemy),
+      findMinePlacement: () => this.findEnemyMinePlacement(),
+    });
   }
 
   private movePursuitEnemy(enemy: Enemy): void {
