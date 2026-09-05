@@ -4,6 +4,7 @@ import {
   availableEnemyActions,
   chooseEnemyAction,
   currentEnemyAction,
+  prepareEnemyAttack,
   resolveEnemyTargets,
   type EnemyRuleState,
 } from "./EnemySystem";
@@ -96,6 +97,30 @@ describe("EnemySystem", () => {
     });
 
     expect(currentEnemyAction(enemy)?.name).toBe("近距離盾打ち");
+  });
+
+  it("prepares one attack with slow, warning, and counter timing", () => {
+    const enemy = makeEnemy();
+    const actions = availableEnemyActions(enemy);
+    const action = actions[0];
+    if (!action) throw new Error("攻撃準備検査用の敵行動がありません");
+
+    const prepared = prepareEnemyAttack(enemy, {
+      actions,
+      now: 1000,
+      slowExtraMs: 280,
+      counterEndMarginMs: 20,
+    });
+
+    expect(prepared?.action.id).toBe(action.id);
+    expect(enemy.actionId).toBe(action.id);
+    expect(enemy.cycle).toBe(1);
+    expect(prepared?.windupUntil).toBe(1000 + action.startupMs + 280);
+    expect(prepared?.warningAt).toBe(1000 + (action.warningDelayMs ?? 0));
+    expect(prepared?.counterWindowState).toEqual({
+      startAt: 1000 + action.startupMs + 280 - action.counterWindowMs,
+      endAt: 1000 + action.startupMs + 280 - 20,
+    });
   });
 
   it("locks row, column, and cross targets from the current player tile", () => {
