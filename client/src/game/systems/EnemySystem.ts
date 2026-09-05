@@ -12,6 +12,7 @@ import type {
   GridPosition,
   PanelTerrain,
 } from "../types";
+import { createCounterWindow, type CounterWindow } from "./CounterSystem";
 
 /**
  * P1-10 GameWorld神クラスの初回分割。
@@ -20,10 +21,10 @@ import type {
  * カード処理・描画用スナップショットまで同時に確認する必要がある。
  * 期待仕様: 敵の段階・行動選択ルールを独立してテストでき、既存の戦闘結果は変えない。
  * 現状コード位置: これまでは GameWorld.ts の phaseForEnemy / chooseEnemyAction などに集中していた。
- * 修正方針: 敵の段階・行動選択・警告対象マスを systems/EnemySystem.ts へ移し、
+ * 修正方針: 敵の段階・行動選択・攻撃準備・警告対象マスを systems/EnemySystem.ts へ移し、
  * GameWorld には盤面参照を渡す配線と、既存の戦闘状態機械・イベント処理を残す。
  * 追加テスト: EnemySystem.test.ts で段階遷移、行動ローテーション、地形優先、
- * 複合行動、行・列・十字・特殊対象マスを固定する。
+ * 複合行動、攻撃準備の速度補正・予兆・カウンター時刻、行・列・十字・特殊対象マスを固定する。
  */
 
 export interface EnemyRuleState {
@@ -60,6 +61,21 @@ export interface EnemyTargetContext {
   findHopperLanding: () => GridPosition;
   findObjectPlacement: () => GridPosition;
   findMinePlacement: () => GridPosition;
+}
+
+export interface EnemyAttackPreparationContext {
+  actions: readonly EnemyActionDefinition[];
+  now: number;
+  slowExtraMs: number;
+  counterEndMarginMs: number;
+  playerTerrain?: PanelTerrain | null;
+}
+
+export interface EnemyAttackPreparation {
+  action: EnemyActionDefinition;
+  windupUntil: number;
+  counterWindowState: CounterWindow;
+  warningAt: number;
 }
 
 function sameTile(a: GridPosition, b: GridPosition): boolean {
@@ -183,6 +199,32 @@ export function chooseEnemyAction(
   const selectedIndex = Math.max(0, actions.indexOf(action));
   enemy.actionIndex = (selectedIndex + 1) % actions.length;
   return action;
+}
+
+export function prepareEnemyAttack(
+  enemy: EnemyRuleState,
+  context: EnemyAttackPreparationContext
+): EnemyAttackPreparation | undefined {
+  const action = chooseEnemyAction(enemy, context.actions, {
+    playerTerrain: context.playerTerrain,
+  });
+  if (!action) return undefined;
+
+  enemy.cycle += 1;
+  enemy.actionId = action.id;
+  const windupUntil =
+    context.now + action.startupMs + Math.max(0, context.slowExtraMs);
+  return {
+    action,
+    windupUntil,
+    counterWindowState: createCounterWindow(
+      context.now,
+      windupUntil,
+      action.counterWindowMs,
+      context.counterEndMarginMs
+    ),
+    warningAt: context.now + (action.warningDelayMs ?? 0),
+  };
 }
 
 export function resolveEnemyTargets(

@@ -28,7 +28,6 @@ import { ObjectSystem } from "./systems/ObjectSystem";
 import { PanelSystem } from "./systems/PanelSystem";
 import { createMeleePlan, getMeleeRange } from "./systems/AttackSystem";
 import {
-  createCounterWindow,
   isCounterWindowOpen,
   type CounterWindow,
 } from "./systems/CounterSystem";
@@ -38,8 +37,8 @@ import { ProjectileSystem } from "./systems/ProjectileSystem";
 import {
   applyEnemyPhase,
   availableEnemyActions as getAvailableEnemyActions,
-  chooseEnemyAction as selectEnemyAction,
   currentEnemyAction as getCurrentEnemyAction,
+  prepareEnemyAttack,
   resolveEnemyTargets,
 } from "./systems/EnemySystem";
 import {
@@ -707,14 +706,16 @@ export class GameWorld {
   private prepareAttack(enemy: Enemy, now: number): void {
     const definition = getEnemyDefinition(enemy.definitionId);
     const phase = this.refreshEnemyPhase(enemy);
-    const action = selectEnemyAction(
-      enemy,
-      getAvailableEnemyActions(enemy),
-      { playerTerrain: this.panelSystem.get(this.playerGrid)?.terrain }
-    );
-    if (!definition || !action) return;
+    const preparation = prepareEnemyAttack(enemy, {
+      actions: getAvailableEnemyActions(enemy),
+      now,
+      slowExtraMs: now < enemy.slowUntil ? 280 : 0,
+      counterEndMarginMs: COMBAT_BALANCE.counter.endMarginMs,
+      playerTerrain: this.panelSystem.get(this.playerGrid)?.terrain,
+    });
+    if (!definition || !preparation) return;
 
-    enemy.cycle += 1;
+    const action = preparation.action;
     enemy.actionId = action.id;
     enemy.actionName = action.name;
     enemy.pattern = action.pattern;
@@ -736,20 +737,14 @@ export class GameWorld {
     enemy.lockedTargets = this.targetsForAction(enemy, action);
     enemy.state = "windup";
     enemy.actionPhase = "startup";
-    const slowExtra = now < enemy.slowUntil ? 280 : 0;
-    enemy.windupUntil = now + action.startupMs + slowExtra;
+    enemy.windupUntil = preparation.windupUntil;
     enemy.activeUntil = enemy.windupUntil;
     enemy.recoverUntil = 0;
     enemy.attackStartedAt = now;
-    enemy.counterWindowState = createCounterWindow(
-      now,
-      enemy.windupUntil,
-      action.counterWindowMs,
-      COMBAT_BALANCE.counter.endMarginMs
-    );
+    enemy.counterWindowState = preparation.counterWindowState;
     enemy.counterStartAt = enemy.counterWindowState.startAt;
     enemy.counterEndAt = enemy.counterWindowState.endAt;
-    enemy.warningAt = now + (action.warningDelayMs ?? 0);
+    enemy.warningAt = preparation.warningAt;
     enemy.warningShown = false;
     enemy.warningStage = null;
     enemy.warningStartedAt = 0;
