@@ -40,11 +40,11 @@ import {
   currentEnemyAction as getCurrentEnemyAction,
   prepareEnemyAttack,
   resolveEnemyTargets,
+  updateEnemyWarning,
 } from "./systems/EnemySystem";
 import {
   warningProgress as getWarningProgress,
   warningRemainingMs as getWarningRemainingMs,
-  warningStage as getWarningStage,
 } from "./systems/WarningSystem";
 import {
   calculateScoreTotal,
@@ -644,21 +644,10 @@ export class GameWorld {
     this.refreshEnemyPhase(enemy);
     const action = getCurrentEnemyAction(enemy);
     if (enemy.state === "windup") {
-      if (
-        !enemy.warningShown &&
-        now >= enemy.warningAt &&
-        now < enemy.windupUntil
-      ) {
+      const warningUpdate = updateEnemyWarning(enemy, now);
+      if (warningUpdate.started) {
         enemy.lockedTargets.forEach(target =>
           this.onEvent({ type: "warning", at: target, enabled: true })
-        );
-        enemy.warningShown = true;
-        enemy.warningStartedAt = now;
-        enemy.warningStage = "telegraph";
-      }
-      if (enemy.warningShown) {
-        enemy.warningStage = getWarningStage(
-          getWarningProgress(now, enemy.warningStartedAt, enemy.windupUntil)
         );
       }
       enemy.actionPhase = isCounterWindowOpen(now, enemy.counterWindowState)
