@@ -3,10 +3,12 @@ import {
   applyEnemyPhase,
   availableEnemyActions,
   chooseEnemyAction,
+  chooseEnemyReposition,
   currentEnemyAction,
   prepareEnemyAttack,
   resolveEnemyTargets,
   updateEnemyWarning,
+  type EnemyRepositionRuleState,
   type EnemyRuleState,
 } from "./EnemySystem";
 import type { GridPosition } from "../types";
@@ -26,6 +28,17 @@ function makeEnemy(overrides: Partial<EnemyRuleState> = {}): EnemyRuleState {
     weaknessElement: "none",
     baseDefense: "none",
     baseMovement: "stationary",
+    ...overrides,
+  };
+}
+
+function makeMovementEnemy(
+  overrides: Partial<EnemyRepositionRuleState> = {}
+): EnemyRepositionRuleState {
+  return {
+    grid: { col: 4, row: 1 },
+    movement: "ground",
+    cycle: 0,
     ...overrides,
   };
 }
@@ -146,6 +159,102 @@ describe("EnemySystem", () => {
       stage: "urgent",
     });
     expect(enemy.warningStartedAt).toBe(1000);
+  });
+
+  it("keeps stationary enemies in place and aligns row-based movement", () => {
+    const canOccupy = () => true;
+    const resolveMovement = () => null;
+
+    expect(
+      chooseEnemyReposition(makeMovementEnemy({ movement: "stationary" }), {
+        player: { col: 1, row: 2 },
+        canOccupy,
+        resolveMovement,
+      })
+    ).toBeNull();
+    expect(
+      chooseEnemyReposition(makeMovementEnemy({ movement: "row-align" }), {
+        player: { col: 1, row: 2 },
+        canOccupy,
+        resolveMovement,
+      })
+    ).toEqual({ col: 4, row: 2 });
+  });
+
+  it("uses the pursuit cycle to choose an enemy-front row", () => {
+    const enemy = makeMovementEnemy({
+      movement: "pursuit",
+      cycle: 1,
+    });
+    const occupied: GridPosition[] = [];
+
+    expect(
+      chooseEnemyReposition(enemy, {
+        player: { col: 1, row: 0 },
+        canOccupy: position => {
+          occupied.push(position);
+          return true;
+        },
+        resolveMovement: () => null,
+      })
+    ).toEqual({ col: 3, row: 2 });
+    expect(occupied).toEqual([{ col: 3, row: 2 }]);
+  });
+
+  it("advances around the outer route and skips blocked destinations", () => {
+    const enemy = makeMovementEnemy({
+      movement: "outer",
+      grid: { col: 3, row: 0 },
+    });
+    const checked: GridPosition[] = [];
+
+    expect(
+      chooseEnemyReposition(enemy, {
+        player: { col: 1, row: 1 },
+        canOccupy: position => {
+          checked.push(position);
+          return position.col === 5 && position.row === 0;
+        },
+        resolveMovement: () => null,
+      })
+    ).toEqual({ col: 5, row: 0 });
+    expect(checked.slice(0, 2)).toEqual([
+      { col: 4, row: 0 },
+      { col: 5, row: 0 },
+    ]);
+  });
+
+  it("uses PanelSystem movement resolution for ground and flying enemies", () => {
+    const calls: Array<{ flying: boolean; direction: GridPosition }> = [];
+    const resolveMovement = (
+      start: GridPosition,
+      direction: GridPosition,
+      flying: boolean
+    ) => {
+      calls.push({ flying, direction });
+      return direction.row === 1
+        ? { col: start.col, row: start.row + 1 }
+        : null;
+    };
+
+    expect(
+      chooseEnemyReposition(makeMovementEnemy(), {
+        player: { col: 1, row: 1 },
+        canOccupy: () => true,
+        resolveMovement,
+      })
+    ).toEqual({ col: 4, row: 2 });
+    expect(calls[0]?.flying).toBe(false);
+
+    calls.length = 0;
+    expect(
+      chooseEnemyReposition(makeMovementEnemy({ movement: "flying" }), {
+        player: { col: 1, row: 1 },
+        canOccupy: () => true,
+        resolveMovement,
+      })
+    ).toEqual({ col: 4, row: 2 });
+    expect(calls[0]?.flying).toBe(true);
   });
 
   it("locks row, column, and cross targets from the current player tile", () => {
