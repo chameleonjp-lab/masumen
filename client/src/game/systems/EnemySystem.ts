@@ -82,6 +82,37 @@ export interface EnemyAttackPreparation {
   warningAt: number;
 }
 
+export interface EnemyAttackStartRuleState extends EnemyRuleState {
+  state: EnemyState;
+  actionPhase: EnemyActionPhase;
+  actionName: string | null;
+  pattern: string;
+  attackDamage: number;
+  windupMs: number;
+  cooldownMs: number;
+  counterWindowMs: number;
+  lockedTargets: GridPosition[];
+  windupUntil: number;
+  activeUntil: number;
+  recoverUntil: number;
+  attackStartedAt: number;
+  counterWindowState: CounterWindow | null;
+  counterStartAt: number | null;
+  counterEndAt: number | null;
+  warningAt: number;
+  warningShown: boolean;
+  warningStage: EnemyWarningStage | null;
+  warningStartedAt: number;
+  rootUntil: number;
+}
+
+export interface EnemyAttackStartContext extends EnemyAttackPreparationContext {
+  phase?: EnemyPhaseDefinition;
+  movePursuit: () => void;
+  resolveTargets: (action: EnemyActionDefinition) => readonly GridPosition[];
+  definitions?: Readonly<Record<EnemyId, EnemyDefinition>>;
+}
+
 export interface EnemyWarningRuleState {
   warningAt: number;
   windupUntil: number;
@@ -296,6 +327,62 @@ export function prepareEnemyAttack(
     ),
     warningAt: context.now + (action.warningDelayMs ?? 0),
   };
+}
+
+/**
+ * P1-10 implementation slice: enemy attack preparation state.
+ * 再現手順: 敵の攻撃準備で行動情報、移動、対象固定、予兆時刻の更新を別々に変更する。
+ * 期待仕様: 行動選択後に既存順序のまま、踏み込み、対象固定、予兆・回復境界を登録する。
+ * 現状コード位置: 変更前は GameWorld.ts の prepareAttack() に集中していた。
+ * 修正方針: EnemySystem が準備状態の登録を担当し、盤面移動と対象解決だけを注入関数へ委譲する。
+ * 追加テスト: slow補正、pursuit移動と対象解決の順序、固定対象、各時刻境界を単体検査する。
+ */
+export function startEnemyAttack(
+  enemy: EnemyAttackStartRuleState,
+  context: EnemyAttackStartContext
+): EnemyAttackPreparation | undefined {
+  const definition = definitionFor(
+    enemy.definitionId,
+    context.definitions ?? ENEMY_DEFINITIONS
+  );
+  if (!definition) return undefined;
+
+  const preparation = prepareEnemyAttack(enemy, context);
+  if (!preparation) return undefined;
+
+  const { action } = preparation;
+  enemy.actionName = action.name;
+  enemy.pattern = action.pattern;
+  enemy.attackDamage = action.damage;
+  enemy.windupMs = action.startupMs;
+  enemy.cooldownMs = action.cooldownMs;
+  enemy.counterWindowMs = action.counterWindowMs;
+  enemy.weaknessElement =
+    action.weaknessElement ??
+    context.phase?.weaknessElement ??
+    definition.weakness ??
+    definition.element;
+
+  if (enemy.movement === "pursuit" && context.now >= enemy.rootUntil)
+    context.movePursuit();
+
+  enemy.lockedTargets = context.resolveTargets(action).map(target => ({
+    ...target,
+  }));
+  enemy.state = "windup";
+  enemy.actionPhase = "startup";
+  enemy.windupUntil = preparation.windupUntil;
+  enemy.activeUntil = enemy.windupUntil;
+  enemy.recoverUntil = 0;
+  enemy.attackStartedAt = context.now;
+  enemy.counterWindowState = preparation.counterWindowState;
+  enemy.counterStartAt = preparation.counterWindowState.startAt;
+  enemy.counterEndAt = preparation.counterWindowState.endAt;
+  enemy.warningAt = preparation.warningAt;
+  enemy.warningShown = false;
+  enemy.warningStage = null;
+  enemy.warningStartedAt = 0;
+  return preparation;
 }
 
 export function updateEnemyWarning(
