@@ -93,6 +93,39 @@ export interface EnemyWarningUpdate {
   stage: EnemyWarningStage | null;
 }
 
+export interface EnemyRepositionRuleState {
+  grid: GridPosition;
+  movement: EnemyMovementMode;
+  cycle: number;
+}
+
+export interface EnemyRepositionContext {
+  player: GridPosition;
+  canOccupy: (position: GridPosition) => boolean;
+  resolveMovement: (
+    start: GridPosition,
+    direction: GridPosition,
+    flying: boolean
+  ) => GridPosition | null;
+}
+
+const OUTER_ROUTE: readonly GridPosition[] = [
+  { col: 3, row: 0 },
+  { col: 4, row: 0 },
+  { col: 5, row: 0 },
+  { col: 5, row: 1 },
+  { col: 5, row: 2 },
+  { col: 4, row: 2 },
+  { col: 3, row: 2 },
+];
+
+const REPOSITION_DIRECTIONS: readonly GridPosition[] = [
+  { col: 0, row: 1 },
+  { col: 0, row: -1 },
+  { col: -1, row: 0 },
+  { col: 1, row: 0 },
+];
+
 function sameTile(a: GridPosition, b: GridPosition): boolean {
   return a.col === b.col && a.row === b.row;
 }
@@ -263,6 +296,54 @@ export function updateEnemyWarning(
     );
   }
   return { started, stage: enemy.warningStage };
+}
+
+/**
+ * P1-10 implementation slice: enemy reposition rules.
+ * 再現手順: 敵の回復後に移動モード、進行ルート、占有状態をまたいで変更する。
+ * 期待仕様: stationary / outer / row-align / pursuit / ground / flying の移動先を
+ * 既存順序で選び、盤面への反映は GameWorld が担当する。
+ * 現状コード位置: 変更前は GameWorld.ts の reposition() と補助メソッドに分散。
+ * 修正方針: 移動先選択だけを EnemySystem に移し、PanelSystem と占有判定は呼び出し側から注入する。
+ * 追加テスト: 各移動モード、外周ルートのブロック、cycle 行選択、飛行フラグを固定する。
+ */
+export function chooseEnemyReposition(
+  enemy: EnemyRepositionRuleState,
+  context: EnemyRepositionContext
+): GridPosition | null {
+  if (enemy.movement === "stationary") return null;
+
+  if (enemy.movement === "outer") {
+    let index = OUTER_ROUTE.findIndex(tile => sameTile(tile, enemy.grid));
+    if (index < 0) index = 0;
+    for (let offset = 1; offset <= OUTER_ROUTE.length; offset += 1) {
+      const destination = OUTER_ROUTE[(index + offset) % OUTER_ROUTE.length];
+      if (destination && context.canOccupy(destination))
+        return { ...destination };
+    }
+    return null;
+  }
+
+  if (enemy.movement === "row-align") {
+    const destination = { col: enemy.grid.col, row: context.player.row };
+    return context.canOccupy(destination) ? destination : null;
+  }
+
+  if (enemy.movement === "pursuit") {
+    const destination = {
+      col: 3,
+      row: (context.player.row + enemy.cycle + 1) % 3,
+    };
+    return context.canOccupy(destination) ? destination : null;
+  }
+
+  const flying = enemy.movement === "flying";
+  for (const direction of REPOSITION_DIRECTIONS) {
+    const destination = context.resolveMovement(enemy.grid, direction, flying);
+    if (destination && !sameTile(destination, enemy.grid))
+      return { ...destination };
+  }
+  return null;
 }
 
 export function resolveEnemyTargets(

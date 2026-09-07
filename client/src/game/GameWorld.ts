@@ -37,6 +37,7 @@ import { ProjectileSystem } from "./systems/ProjectileSystem";
 import {
   applyEnemyPhase,
   availableEnemyActions as getAvailableEnemyActions,
+  chooseEnemyReposition,
   currentEnemyAction as getCurrentEnemyAction,
   prepareEnemyAttack,
   resolveEnemyTargets,
@@ -755,6 +756,14 @@ export class GameWorld {
     });
   }
 
+  private reposition(enemy: Enemy): void {
+    const destination = this.enemyRepositionTarget(enemy);
+    if (!destination) return;
+    if (enemy.movement === "outer" || enemy.movement === "row-align")
+      enemy.actionPhase = "moving";
+    enemy.grid = destination;
+  }
+
   private movePursuitEnemy(enemy: Enemy): void {
     const target = { col: 3, row: this.playerGrid.row };
     if (!this.canEnemyOccupy(enemy, target)) return;
@@ -762,74 +771,25 @@ export class GameWorld {
     enemy.grid = target;
   }
 
-  private moveOuterEnemy(enemy: Enemy): void {
-    const route: GridPosition[] = [
-      { col: 3, row: 0 },
-      { col: 4, row: 0 },
-      { col: 5, row: 0 },
-      { col: 5, row: 1 },
-      { col: 5, row: 2 },
-      { col: 4, row: 2 },
-      { col: 3, row: 2 },
-    ];
-    let index = route.findIndex(tile => sameTile(tile, enemy.grid));
-    if (index < 0) index = 0;
-    for (let offset = 1; offset <= route.length; offset += 1) {
-      const destination = route[(index + offset) % route.length];
-      if (destination && this.canEnemyOccupy(enemy, destination)) {
-        enemy.actionPhase = "moving";
-        enemy.grid = destination;
-        return;
-      }
-    }
-  }
-
-  private reposition(enemy: Enemy): void {
-    if (enemy.movement === "stationary") return;
-    if (enemy.movement === "outer") {
-      this.moveOuterEnemy(enemy);
-      return;
-    }
-    if (enemy.movement === "row-align") {
-      const target = { col: enemy.grid.col, row: this.playerGrid.row };
-      if (this.canEnemyOccupy(enemy, target)) {
-        enemy.actionPhase = "moving";
-        enemy.grid = target;
-        return;
-      }
-    }
-    if (enemy.movement === "pursuit") {
-      const target = {
-        col: 3,
-        row: (this.playerGrid.row + enemy.cycle + 1) % 3,
-      };
-      if (this.canEnemyOccupy(enemy, target)) enemy.grid = target;
-      return;
-    }
-    const flying = enemy.movement === "flying";
-    const directions = [
-      { col: 0, row: 1 },
-      { col: 0, row: -1 },
-      { col: -1, row: 0 },
-      { col: 1, row: 0 },
-    ];
-    for (const direction of directions) {
-      const destination = this.panelSystem.resolveMovement(
-        enemy.grid,
-        direction,
-        "enemy",
-        position =>
-          this.objectSystem.isSolidAt(position) ||
-          this.enemies.some(
-            other => other.id !== enemy.id && sameTile(other.grid, position)
-          ),
-        flying
-      );
-      if (destination && !sameTile(destination, enemy.grid)) {
-        enemy.grid = destination;
-        return;
-      }
-    }
+  private enemyRepositionTarget(enemy: Enemy): GridPosition | null {
+    return chooseEnemyReposition(enemy, {
+      player: this.playerGrid,
+      canOccupy: position => this.canEnemyOccupy(enemy, position),
+      resolveMovement: (start, direction, flying) =>
+        this.panelSystem.resolveMovement(
+          start,
+          direction,
+          "enemy",
+          position =>
+            this.objectSystem.isSolidAt(position) ||
+            this.enemies.some(
+              other =>
+                other.id !== enemy.id &&
+                sameTile(other.grid, position)
+            ),
+          flying
+        ),
+    });
   }
 
   private canEnemyOccupy(enemy: Enemy, position: GridPosition): boolean {
