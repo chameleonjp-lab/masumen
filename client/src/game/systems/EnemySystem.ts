@@ -142,6 +142,17 @@ export interface EnemyProjectilePlan {
   options: EnemyProjectileSpawnOptions;
 }
 
+export interface EnemyActionCompletionRuleState {
+  state: EnemyState;
+  actionPhase: EnemyActionPhase;
+  lockedTargets: GridPosition[];
+  activeUntil: number;
+  recoverUntil: number;
+  warningShown: boolean;
+  warningStage: EnemyWarningStage | null;
+  warningStartedAt: number;
+}
+
 export interface EnemyWarningRuleState {
   warningAt: number;
   windupUntil: number;
@@ -668,6 +679,30 @@ export function planEnemyProjectiles(
       target: { ...context.lockedTarget },
     }),
   ];
+}
+
+/**
+ * P1-10 implementation slice: enemy action completion transition.
+ * 再現手順: 敵弾の発射や近接判定を終えた後の発動時間、回復時間、予兆解除を
+ * GameWorld の状態更新と個別に変更する。
+ * 期待仕様: どの敵行動でも同じ順序で対象と予兆を解除し、発動時間から回復へ遷移する。
+ * 現状コード位置: 変更前は GameWorld.ts の updateEnemy() に、行動実行直後の状態遷移があった。
+ * 修正方針: 行動定義の activeMs / recoveryMs と現在時刻から、敵の回復境界を EnemySystem で登録する。
+ * 追加テスト: 定義された発動・回復時間、既定時間、対象解除、予兆解除を単体検査する。
+ */
+export function completeEnemyAction(
+  enemy: EnemyActionCompletionRuleState,
+  action: Pick<EnemyActionDefinition, "activeMs" | "recoveryMs"> | undefined,
+  now: number
+): void {
+  enemy.lockedTargets = [];
+  enemy.state = "recover";
+  enemy.actionPhase = "active";
+  enemy.activeUntil = now + (action?.activeMs ?? 100);
+  enemy.recoverUntil = enemy.activeUntil + (action?.recoveryMs ?? 430);
+  enemy.warningShown = false;
+  enemy.warningStage = null;
+  enemy.warningStartedAt = 0;
 }
 
 export function updateEnemyWarning(

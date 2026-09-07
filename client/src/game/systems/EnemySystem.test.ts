@@ -4,6 +4,7 @@ import {
   availableEnemyActions,
   chooseEnemyAction,
   chooseEnemyReposition,
+  completeEnemyAction,
   currentEnemyAction,
   planEnemyProjectiles,
   prepareEnemyAttack,
@@ -12,6 +13,7 @@ import {
   updateEnemyLifecycle,
   updateEnemyWarning,
   type EnemyAttackStartRuleState,
+  type EnemyActionCompletionRuleState,
   type EnemyProjectilePlanContext,
   type EnemyLifecycleRuleState,
   type EnemyRepositionRuleState,
@@ -109,6 +111,22 @@ function makeProjectileContext(
       position.col < 6 &&
       position.row >= 0 &&
       position.row < 3,
+    ...overrides,
+  };
+}
+
+function makeActionCompletionEnemy(
+  overrides: Partial<EnemyActionCompletionRuleState> = {}
+): EnemyActionCompletionRuleState {
+  return {
+    state: "windup",
+    actionPhase: "counter-window",
+    lockedTargets: [{ col: 2, row: 1 }],
+    activeUntil: 0,
+    recoverUntil: 0,
+    warningShown: true,
+    warningStage: "urgent",
+    warningStartedAt: 1000,
     ...overrides,
   };
 }
@@ -402,6 +420,30 @@ describe("EnemySystem", () => {
     expect(
       planEnemyProjectiles(mimic, makeProjectileContext())
     ).toBeUndefined();
+  });
+
+  it("moves an executed enemy action into active and recovery windows", () => {
+    const enemy = makeActionCompletionEnemy();
+
+    completeEnemyAction(enemy, { activeMs: 160, recoveryMs: 600 }, 2000);
+
+    expect(enemy.state).toBe("recover");
+    expect(enemy.actionPhase).toBe("active");
+    expect(enemy.activeUntil).toBe(2160);
+    expect(enemy.recoverUntil).toBe(2760);
+    expect(enemy.lockedTargets).toEqual([]);
+    expect(enemy.warningShown).toBe(false);
+    expect(enemy.warningStage).toBeNull();
+    expect(enemy.warningStartedAt).toBe(0);
+  });
+
+  it("uses the existing fallback timings when action metadata is absent", () => {
+    const enemy = makeActionCompletionEnemy();
+
+    completeEnemyAction(enemy, undefined, 400);
+
+    expect(enemy.activeUntil).toBe(500);
+    expect(enemy.recoverUntil).toBe(930);
   });
 
   it("starts and advances a warning without emitting board events", () => {
