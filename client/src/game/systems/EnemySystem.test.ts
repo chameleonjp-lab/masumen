@@ -5,12 +5,14 @@ import {
   chooseEnemyAction,
   chooseEnemyReposition,
   currentEnemyAction,
+  planEnemyProjectiles,
   prepareEnemyAttack,
   resolveEnemyTargets,
   startEnemyAttack,
   updateEnemyLifecycle,
   updateEnemyWarning,
   type EnemyAttackStartRuleState,
+  type EnemyProjectilePlanContext,
   type EnemyLifecycleRuleState,
   type EnemyRepositionRuleState,
   type EnemyRuleState,
@@ -88,6 +90,25 @@ function makeAttackStartEnemy(
     warningStage: null,
     warningStartedAt: 0,
     rootUntil: 0,
+    ...overrides,
+  };
+}
+
+function makeProjectileContext(
+  overrides: Partial<EnemyProjectilePlanContext> = {}
+): EnemyProjectilePlanContext {
+  return {
+    now: 2000,
+    targets: [{ col: 2, row: 1 }],
+    lockedTarget: { col: 2, row: 1 },
+    lockedRow: 1,
+    lockedColumn: 2,
+    thrownFlightMs: 260,
+    isInside: position =>
+      position.col >= 0 &&
+      position.col < 6 &&
+      position.row >= 0 &&
+      position.row < 3,
     ...overrides,
   };
 }
@@ -235,6 +256,152 @@ describe("EnemySystem", () => {
     expect(enemy.warningShown).toBe(false);
     expect(enemy.warningStage).toBeNull();
     expect(enemy.warningStartedAt).toBe(0);
+  });
+
+  it("plans a locked-row projectile with the same target tile as the warning", () => {
+    const action = availableEnemyActions(makeEnemy()).find(
+      candidate => candidate.id === "bulwark-lane-cannon"
+    );
+    if (!action) throw new Error("行砲撃の検査用行動がありません");
+
+    expect(
+      planEnemyProjectiles(
+        action,
+        makeProjectileContext({
+          targets: [
+            { col: 0, row: 2 },
+            { col: 1, row: 2 },
+            { col: 2, row: 2 },
+          ],
+          lockedTarget: { col: 0, row: 2 },
+          lockedRow: 2,
+          lockedColumn: 0,
+        })
+      )
+    ).toEqual([
+      {
+        delayMs: 0,
+        options: {
+          motion: "straight",
+          direction: { col: -1, row: 0 },
+          target: { col: 0, row: 2 },
+        },
+      },
+    ]);
+  });
+
+  it("plans only in-bounds mortar shells and preserves their stagger", () => {
+    const action = availableEnemyActions(
+      makeEnemy({ definitionId: "mortar" })
+    ).find(candidate => candidate.id === "mortar-triple-shell");
+    if (!action) throw new Error("三点砲撃の検査用行動がありません");
+
+    const plans = planEnemyProjectiles(
+      { ...action, projectileCount: 2, projectileIntervalMs: 90 },
+      makeProjectileContext({
+        targets: [
+          { col: -1, row: 1 },
+          { col: 2, row: 0 },
+          { col: 5, row: 2 },
+        ],
+      })
+    );
+
+    expect(plans).toEqual([
+      {
+        delayMs: 0,
+        options: {
+          motion: "thrown",
+          target: { col: 2, row: 0 },
+          flightMs: 260,
+        },
+      },
+      {
+        delayMs: 90,
+        options: {
+          motion: "thrown",
+          target: { col: 5, row: 2 },
+          flightMs: 260,
+        },
+      },
+    ]);
+
+    expect(
+      planEnemyProjectiles(
+        { ...action, projectileCount: 3 },
+        makeProjectileContext({ targets: [{ col: -1, row: 1 }] })
+      )
+    ).toEqual([]);
+  });
+
+  it("plans orbit projectiles with continuous collision and a fixed lifetime", () => {
+    const action = availableEnemyActions(
+      makeEnemy({ definitionId: "boomer-arc" })
+    ).find(candidate => candidate.id === "boomer-arc-outbound");
+    if (!action) throw new Error("周回弾の検査用行動がありません");
+
+    expect(planEnemyProjectiles(action, makeProjectileContext())).toEqual([
+      {
+        delayMs: 0,
+        options: {
+          motion: "orbit",
+          position: { col: 5, row: 0 },
+          direction: { col: -1, row: 0 },
+          target: null,
+          continuesAfterHit: true,
+          stopOnObject: false,
+          expiresAt: 6200,
+          speedCellsPerSecond: 8,
+        },
+      },
+    ]);
+  });
+
+  it("plans weather volleys and leaves custom mimic damage to GameWorld", () => {
+    const action = availableEnemyActions(
+      makeEnemy({ definitionId: "climate-engine", hp: 160, maxHp: 400 })
+    ).find(candidate => candidate.id === "climate-dual-storm");
+    if (!action) throw new Error("複合気象の検査用行動がありません");
+
+    expect(
+      planEnemyProjectiles(
+        action,
+        makeProjectileContext({
+          lockedTarget: { col: 2, row: 0 },
+          lockedRow: 0,
+          lockedColumn: 2,
+        })
+      )
+    ).toEqual([
+      {
+        delayMs: 0,
+        options: {
+          motion: "wave",
+          direction: { col: -1, row: 0 },
+          target: { col: 0, row: 0 },
+          rowSpan: true,
+          stopOnObject: false,
+        },
+      },
+      {
+        delayMs: 180,
+        options: {
+          motion: "wave",
+          direction: { col: -1, row: 0 },
+          target: { col: 0, row: 0 },
+          rowSpan: true,
+          stopOnObject: false,
+        },
+      },
+    ]);
+
+    const mimic = availableEnemyActions(
+      makeEnemy({ definitionId: "mirror-node" })
+    ).find(candidate => candidate.id === "mirror-mimic-shot");
+    if (!mimic) throw new Error("模倣射撃の検査用行動がありません");
+    expect(
+      planEnemyProjectiles(mimic, makeProjectileContext())
+    ).toBeUndefined();
   });
 
   it("starts and advances a warning without emitting board events", () => {

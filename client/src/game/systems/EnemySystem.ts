@@ -16,6 +16,7 @@ import type {
   EnemyWarningStage,
 } from "../types";
 import { createCounterWindow, type CounterWindow } from "./CounterSystem";
+import type { ProjectileSpawn } from "./ProjectileSystem";
 import { warningProgress, warningStage } from "./WarningSystem";
 
 /**
@@ -111,6 +112,34 @@ export interface EnemyAttackStartContext extends EnemyAttackPreparationContext {
   movePursuit: () => void;
   resolveTargets: (action: EnemyActionDefinition) => readonly GridPosition[];
   definitions?: Readonly<Record<EnemyId, EnemyDefinition>>;
+}
+
+export interface EnemyProjectilePlanContext {
+  now: number;
+  targets: readonly GridPosition[];
+  lockedTarget: GridPosition;
+  lockedRow: number;
+  lockedColumn: number;
+  thrownFlightMs: number;
+  isInside: (position: GridPosition) => boolean;
+}
+
+export interface EnemyProjectileSpawnOptions {
+  motion: ProjectileSpawn["motion"];
+  position?: GridPosition;
+  direction?: GridPosition;
+  target?: GridPosition | null;
+  continuesAfterHit?: boolean;
+  expiresAt?: number;
+  speedCellsPerSecond?: number;
+  flightMs?: number;
+  rowSpan?: boolean;
+  stopOnObject?: boolean;
+}
+
+export interface EnemyProjectilePlan {
+  delayMs: number;
+  options: EnemyProjectileSpawnOptions;
 }
 
 export interface EnemyWarningRuleState {
@@ -383,6 +412,262 @@ export function startEnemyAttack(
   enemy.warningStage = null;
   enemy.warningStartedAt = 0;
   return preparation;
+}
+
+/**
+ * P1-10 implementation slice: enemy projectile emission planning.
+ * 再現手順: 敵弾の発射行、複数弾の遅延、飛行方式、周回寿命を GameWorld の
+ * 行動分岐で個別に変更する。
+ * 期待仕様: 予兆で固定した対象を使う敵弾の計画を一箇所で決め、GameWorld は
+ * 既存 ProjectileSystem へ発射する配線だけを担当する。
+ * 現状コード位置: 変更前は GameWorld.ts の executeEnemyAction() に、敵ごとの
+ * 直進・投擲・追尾・波・周回の分岐が混在していた。
+ * 修正方針: 副作用を持たない発射オプションと遅延だけを EnemySystem で組み立て、
+ * 地形変更・模倣ダメージ・設置物などの固有副作用は既存の GameWorld に残す。
+ * 追加テスト: 固定行、三点砲撃の範囲と遅延、周回弾の継続衝突・寿命、複合気象、
+ * 模倣射撃のダメージ分岐を固定する。
+ */
+export function planEnemyProjectiles(
+  action: EnemyActionDefinition,
+  context: EnemyProjectilePlanContext
+): EnemyProjectilePlan[] | undefined {
+  const plan = (
+    options: EnemyProjectileSpawnOptions,
+    delayMs = 0
+  ): EnemyProjectilePlan => ({
+    delayMs,
+    options,
+  });
+
+  if (action.id === "mirror-mimic-shot") return undefined;
+
+  if (
+    action.id === "bulwark-lane-cannon" ||
+    action.id === "bastion-lane-cannon"
+  ) {
+    return [
+      plan({
+        motion: "straight",
+        direction: { col: -1, row: 0 },
+        target: { col: 0, row: context.lockedRow },
+      }),
+    ];
+  }
+
+  if (action.id === "scanner-column-scan") {
+    return [
+      plan({
+        motion: "thrown",
+        target: {
+          col: context.lockedColumn,
+          row: context.lockedTarget.row,
+        },
+        rowSpan: true,
+        flightMs: context.thrownFlightMs,
+      }),
+    ];
+  }
+
+  if (action.id === "scanner-signal-lock") {
+    return [
+      plan({
+        motion: "homing",
+        target: { ...context.lockedTarget },
+        speedCellsPerSecond: 9,
+      }),
+    ];
+  }
+
+  if (action.id === "mortar-shell") {
+    return [
+      plan({
+        motion: "thrown",
+        target: { ...context.lockedTarget },
+        flightMs: context.thrownFlightMs,
+      }),
+    ];
+  }
+
+  if (action.id === "mortar-triple-shell") {
+    return context.targets
+      .filter(context.isInside)
+      .slice(0, action.projectileCount ?? 3)
+      .map((target, index) =>
+        plan(
+          {
+            motion: "thrown",
+            target: { ...target },
+            flightMs: context.thrownFlightMs,
+          },
+          index * (action.projectileIntervalMs ?? 110)
+        )
+      );
+  }
+
+  if (action.id === "sentinel-alternating-pulse") {
+    return context.targets.map((target, index) =>
+      plan(
+        {
+          motion: "thrown",
+          target: { ...target },
+          flightMs: context.thrownFlightMs,
+        },
+        index * 35
+      )
+    );
+  }
+
+  if (action.id === "sentinel-chain-bolt") {
+    return [
+      plan({
+        motion: "homing",
+        target: { ...context.lockedTarget },
+        speedCellsPerSecond: 9,
+      }),
+    ];
+  }
+
+  if (
+    action.id === "wave-runner-water-wave" ||
+    action.id === "wave-runner-frost-surge"
+  ) {
+    return [
+      plan({
+        motion: "wave",
+        direction: { col: -1, row: 0 },
+        target: { col: 0, row: context.lockedRow },
+        rowSpan: true,
+        stopOnObject: false,
+      }),
+    ];
+  }
+
+  if (
+    action.id === "boomer-arc-outbound" ||
+    action.id === "boomer-arc-return" ||
+    action.id === "arbiter-orbit-mine"
+  ) {
+    return [
+      plan({
+        motion: "orbit",
+        position: { col: 5, row: 0 },
+        direction: { col: -1, row: 0 },
+        target: null,
+        continuesAfterHit: true,
+        stopOnObject: false,
+        expiresAt: context.now + 4200,
+        speedCellsPerSecond: 8,
+      }),
+    ];
+  }
+
+  if (
+    action.pattern === "weather-core" ||
+    action.pattern === "climate-engine"
+  ) {
+    const plans: EnemyProjectilePlan[] = [];
+    const count = Math.max(1, action.projectileCount ?? 1);
+    for (let index = 0; index < count; index += 1) {
+      const delayMs = index * (action.projectileIntervalMs ?? 0);
+      if (action.motion === "wave") {
+        plans.push(
+          plan(
+            {
+              motion: "wave",
+              direction: { col: -1, row: 0 },
+              target: { col: 0, row: context.lockedRow },
+              rowSpan: true,
+              stopOnObject: false,
+            },
+            delayMs
+          )
+        );
+      } else if (action.motion === "thrown") {
+        plans.push(
+          plan(
+            {
+              motion: "thrown",
+              target: {
+                col: context.lockedColumn,
+                row: context.lockedTarget.row,
+              },
+              rowSpan: true,
+              flightMs: context.thrownFlightMs,
+            },
+            delayMs
+          )
+        );
+      } else if (action.motion === "homing") {
+        plans.push(
+          plan(
+            {
+              motion: "homing",
+              target: { ...context.lockedTarget },
+              speedCellsPerSecond: 8,
+            },
+            delayMs
+          )
+        );
+      } else {
+        plans.push(
+          plan(
+            {
+              motion: "straight",
+              direction: { col: -1, row: 0 },
+              target: { col: 0, row: context.lockedRow },
+            },
+            delayMs
+          )
+        );
+      }
+    }
+    return plans;
+  }
+
+  if (action.id === "support-relay-shot") {
+    return [
+      plan({
+        motion: "straight",
+        direction: { col: -1, row: 0 },
+        target: { col: 0, row: context.lockedRow },
+      }),
+    ];
+  }
+
+  if (action.id === "bastion-open-barrage") {
+    const plans: EnemyProjectilePlan[] = [];
+    for (let index = 0; index < (action.projectileCount ?? 3); index += 1) {
+      plans.push(
+        plan(
+          {
+            motion: "straight",
+            direction: { col: -1, row: 0 },
+            target: { col: 0, row: context.lockedRow },
+          },
+          index * (action.projectileIntervalMs ?? 150)
+        )
+      );
+    }
+    return plans;
+  }
+
+  if (action.id === "arbiter-tracking-shot") {
+    return [
+      plan({
+        motion: "homing",
+        target: { ...context.lockedTarget },
+        speedCellsPerSecond: 8,
+      }),
+    ];
+  }
+
+  if (action.kind !== "projectile") return undefined;
+  return [
+    plan({
+      motion: action.motion ?? "straight",
+      target: { ...context.lockedTarget },
+    }),
+  ];
 }
 
 export function updateEnemyWarning(
