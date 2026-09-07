@@ -41,6 +41,7 @@ import {
   currentEnemyAction as getCurrentEnemyAction,
   prepareEnemyAttack,
   resolveEnemyTargets,
+  updateEnemyLifecycle,
   updateEnemyWarning,
 } from "./systems/EnemySystem";
 import {
@@ -627,20 +628,15 @@ export class GameWorld {
   }
 
   private updateEnemy(enemy: Enemy, now: number): void {
-    if (enemy.state === "deleted") {
-      enemy.actionPhase = "deleted";
+    const stateBeforeUpdate = enemy.state;
+    const lifecycleBoundary = updateEnemyLifecycle(enemy, now, {
+      counterWindowOpen:
+        stateBeforeUpdate === "windup" &&
+        isCounterWindowOpen(now, enemy.counterWindowState),
+      stunnedRecoveryMs: 430,
+    });
+    if (stateBeforeUpdate === "deleted" || stateBeforeUpdate === "stunned")
       return;
-    }
-    if (enemy.state === "stunned") {
-      enemy.actionPhase = "stunned";
-      if (now >= enemy.stunnedUntil) {
-        enemy.state = "recover";
-        enemy.actionPhase = "recovery";
-        enemy.activeUntil = now;
-        enemy.recoverUntil = now + 430;
-      }
-      return;
-    }
 
     this.refreshEnemyPhase(enemy);
     const action = getCurrentEnemyAction(enemy);
@@ -651,10 +647,7 @@ export class GameWorld {
           this.onEvent({ type: "warning", at: target, enabled: true })
         );
       }
-      enemy.actionPhase = isCounterWindowOpen(now, enemy.counterWindowState)
-        ? "counter-window"
-        : "startup";
-      if (now >= enemy.windupUntil) {
+      if (lifecycleBoundary === "execute") {
         const targets = [...enemy.lockedTargets];
         if (enemy.warningShown) this.clearWarnings(enemy);
         this.executeEnemyAction(enemy, action, now, targets);
@@ -672,14 +665,7 @@ export class GameWorld {
     }
 
     if (enemy.state === "recover") {
-      if (now < enemy.activeUntil) {
-        enemy.actionPhase = "active";
-        return;
-      }
-      if (now < enemy.recoverUntil) {
-        enemy.actionPhase = "recovery";
-        return;
-      }
+      if (lifecycleBoundary !== "reposition") return;
       if (now >= enemy.rootUntil) this.reposition(enemy);
       enemy.state = "idle";
       enemy.actionPhase = "idle";
@@ -689,8 +675,7 @@ export class GameWorld {
       return;
     }
 
-    enemy.actionPhase = "idle";
-    if (now >= enemy.nextAttackAt) this.prepareAttack(enemy, now);
+    if (lifecycleBoundary === "prepare") this.prepareAttack(enemy, now);
   }
 
   private prepareAttack(enemy: Enemy, now: number): void {

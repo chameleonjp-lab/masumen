@@ -7,8 +7,10 @@ import {
 } from "../data/enemies";
 import type {
   CardElement,
+  EnemyActionPhase,
   EnemyDefenseMode,
   EnemyMovementMode,
+  EnemyState,
   GridPosition,
   PanelTerrain,
   EnemyWarningStage,
@@ -108,6 +110,27 @@ export interface EnemyRepositionContext {
     flying: boolean
   ) => GridPosition | null;
 }
+
+export interface EnemyLifecycleRuleState {
+  state: EnemyState;
+  actionPhase: EnemyActionPhase;
+  stunnedUntil: number;
+  windupUntil: number;
+  activeUntil: number;
+  recoverUntil: number;
+  nextAttackAt: number;
+}
+
+export interface EnemyLifecycleContext {
+  counterWindowOpen: boolean;
+  stunnedRecoveryMs?: number;
+}
+
+export type EnemyLifecycleBoundary =
+  | "none"
+  | "execute"
+  | "reposition"
+  | "prepare";
 
 const OUTER_ROUTE: readonly GridPosition[] = [
   { col: 3, row: 0 },
@@ -344,6 +367,59 @@ export function chooseEnemyReposition(
       return { ...destination };
   }
   return null;
+}
+
+/**
+ * P1-10 implementation slice: enemy lifecycle boundaries.
+ * 再現手順: 待機・予兆・攻撃後・スタンの時刻境界を変更すると、GameWorldの
+ * 状態更新、攻撃実行、再配置、次攻撃準備をまとめて確認する必要がある。
+ * 期待仕様: 各状態の表示段階と境界だけを既存順序で判定し、副作用はGameWorldが行う。
+ * 現状コード位置: 変更前は GameWorld.ts の updateEnemy() に集中していた。
+ * 修正方針: 状態と時刻から次の境界を EnemySystem で判定し、GameWorld には実行配線を残す。
+ * 追加テスト: 削除・スタン復帰、予兆中の反撃窓、攻撃実行、攻撃後の再配置、次攻撃準備を固定する。
+ */
+export function updateEnemyLifecycle(
+  enemy: EnemyLifecycleRuleState,
+  now: number,
+  context: EnemyLifecycleContext
+): EnemyLifecycleBoundary {
+  if (enemy.state === "deleted") {
+    enemy.actionPhase = "deleted";
+    return "none";
+  }
+
+  if (enemy.state === "stunned") {
+    enemy.actionPhase = "stunned";
+    if (now >= enemy.stunnedUntil) {
+      enemy.state = "recover";
+      enemy.actionPhase = "recovery";
+      enemy.activeUntil = now;
+      enemy.recoverUntil = now + (context.stunnedRecoveryMs ?? 430);
+    }
+    return "none";
+  }
+
+  if (enemy.state === "windup") {
+    enemy.actionPhase = context.counterWindowOpen
+      ? "counter-window"
+      : "startup";
+    return now >= enemy.windupUntil ? "execute" : "none";
+  }
+
+  if (enemy.state === "recover") {
+    if (now < enemy.activeUntil) {
+      enemy.actionPhase = "active";
+      return "none";
+    }
+    if (now < enemy.recoverUntil) {
+      enemy.actionPhase = "recovery";
+      return "none";
+    }
+    return "reposition";
+  }
+
+  enemy.actionPhase = "idle";
+  return now >= enemy.nextAttackAt ? "prepare" : "none";
 }
 
 export function resolveEnemyTargets(

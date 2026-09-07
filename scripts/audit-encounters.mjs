@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 const root = resolve(import.meta.dirname, "..");
 const read = relativePath => readFileSync(resolve(root, relativePath), "utf8");
 const world = read("client/src/game/GameWorld.ts");
+const enemySystem = read("client/src/game/systems/EnemySystem.ts");
 const enemyData = read("client/src/game/data/enemies.ts");
 const encounterData = read("client/src/game/data/encounters.ts");
 
@@ -101,7 +102,9 @@ const phaseCount = (enemyData.match(/phases: \[/g) ?? []).length;
 const hasPhaseFlow =
   world.includes("refreshEnemyPhase") &&
   world.includes("availableEnemyActions") &&
-  world.includes("actionPhase = isCounterWindowOpen") &&
+  world.includes("updateEnemyLifecycle") &&
+  enemySystem.includes("updateEnemyLifecycle") &&
+  enemySystem.includes("actionPhase = context.counterWindowOpen") &&
   world.includes("executeEnemyAction") &&
   world.includes("activeUntil");
 const hasDistinctBehavior =
