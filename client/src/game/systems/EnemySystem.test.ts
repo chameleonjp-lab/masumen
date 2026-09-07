@@ -7,7 +7,9 @@ import {
   currentEnemyAction,
   prepareEnemyAttack,
   resolveEnemyTargets,
+  updateEnemyLifecycle,
   updateEnemyWarning,
+  type EnemyLifecycleRuleState,
   type EnemyRepositionRuleState,
   type EnemyRuleState,
 } from "./EnemySystem";
@@ -39,6 +41,21 @@ function makeMovementEnemy(
     grid: { col: 4, row: 1 },
     movement: "ground",
     cycle: 0,
+    ...overrides,
+  };
+}
+
+function makeLifecycleEnemy(
+  overrides: Partial<EnemyLifecycleRuleState> = {}
+): EnemyLifecycleRuleState {
+  return {
+    state: "idle",
+    actionPhase: "idle",
+    stunnedUntil: 0,
+    windupUntil: 2000,
+    activeUntil: 0,
+    recoverUntil: 0,
+    nextAttackAt: 1000,
     ...overrides,
   };
 }
@@ -255,6 +272,90 @@ describe("EnemySystem", () => {
       })
     ).toEqual({ col: 4, row: 2 });
     expect(calls[0]?.flying).toBe(true);
+  });
+
+  it("keeps deleted and stunned enemies out of active processing", () => {
+    const deleted = makeLifecycleEnemy({ state: "deleted" });
+    expect(
+      updateEnemyLifecycle(deleted, 1000, { counterWindowOpen: false })
+    ).toBe("none");
+    expect(deleted.actionPhase).toBe("deleted");
+
+    const stunned = makeLifecycleEnemy({
+      state: "stunned",
+      actionPhase: "active",
+      stunnedUntil: 1200,
+    });
+    expect(
+      updateEnemyLifecycle(stunned, 1199, { counterWindowOpen: false })
+    ).toBe("none");
+    expect(stunned.state).toBe("stunned");
+    expect(stunned.actionPhase).toBe("stunned");
+
+    expect(
+      updateEnemyLifecycle(stunned, 1200, {
+        counterWindowOpen: false,
+        stunnedRecoveryMs: 430,
+      })
+    ).toBe("none");
+    expect(stunned.state).toBe("recover");
+    expect(stunned.actionPhase).toBe("recovery");
+    expect(stunned.activeUntil).toBe(1200);
+    expect(stunned.recoverUntil).toBe(1630);
+  });
+
+  it("marks windup phases and exposes the execute boundary", () => {
+    const enemy = makeLifecycleEnemy({
+      state: "windup",
+      actionPhase: "idle",
+      windupUntil: 2000,
+    });
+
+    expect(
+      updateEnemyLifecycle(enemy, 1500, { counterWindowOpen: false })
+    ).toBe("none");
+    expect(enemy.actionPhase).toBe("startup");
+
+    expect(updateEnemyLifecycle(enemy, 1600, { counterWindowOpen: true })).toBe(
+      "none"
+    );
+    expect(enemy.actionPhase).toBe("counter-window");
+
+    expect(
+      updateEnemyLifecycle(enemy, 2000, { counterWindowOpen: false })
+    ).toBe("execute");
+    expect(enemy.actionPhase).toBe("startup");
+  });
+
+  it("distinguishes active, recovery, reposition, and prepare boundaries", () => {
+    const enemy = makeLifecycleEnemy({
+      state: "recover",
+      activeUntil: 1200,
+      recoverUntil: 1600,
+    });
+
+    expect(
+      updateEnemyLifecycle(enemy, 1199, { counterWindowOpen: false })
+    ).toBe("none");
+    expect(enemy.actionPhase).toBe("active");
+    expect(
+      updateEnemyLifecycle(enemy, 1500, { counterWindowOpen: false })
+    ).toBe("none");
+    expect(enemy.actionPhase).toBe("recovery");
+    expect(
+      updateEnemyLifecycle(enemy, 1600, { counterWindowOpen: false })
+    ).toBe("reposition");
+    expect(enemy.actionPhase).toBe("recovery");
+
+    enemy.state = "idle";
+    expect(updateEnemyLifecycle(enemy, 999, { counterWindowOpen: false })).toBe(
+      "none"
+    );
+    expect(enemy.actionPhase).toBe("idle");
+    expect(
+      updateEnemyLifecycle(enemy, 1000, { counterWindowOpen: false })
+    ).toBe("prepare");
+    expect(enemy.actionPhase).toBe("idle");
   });
 
   it("locks row, column, and cross targets from the current player tile", () => {
