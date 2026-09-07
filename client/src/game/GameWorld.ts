@@ -39,6 +39,7 @@ import {
   availableEnemyActions as getAvailableEnemyActions,
   chooseEnemyReposition,
   currentEnemyAction as getCurrentEnemyAction,
+  planEnemyProjectiles,
   resolveEnemyTargets,
   startEnemyAttack,
   updateEnemyLifecycle,
@@ -795,16 +796,35 @@ export class GameWorld {
     const lockedColumn = targets[0]?.col ?? lockedTarget.col;
 
     if (
-      action.id === "bulwark-lane-cannon" ||
-      action.id === "bastion-lane-cannon"
+      action.id === "wave-runner-water-wave" ||
+      action.id === "wave-runner-frost-surge" ||
+      action.pattern === "weather-core" ||
+      action.pattern === "climate-engine"
     ) {
-      this.spawnEnemyProjectile(enemy, action, {
-        motion: "straight",
-        direction: { col: -1, row: 0 },
-        target: { col: 0, row: lockedRow },
-      });
+      this.applyEnemyActionTerrain(action, targets);
+    }
+
+    const projectilePlans = planEnemyProjectiles(action, {
+      now,
+      targets,
+      lockedTarget,
+      lockedRow,
+      lockedColumn,
+      thrownFlightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
+      isInside: position => this.panelSystem.isInside(position),
+    });
+    if (projectilePlans) {
+      projectilePlans.forEach(projectilePlan =>
+        this.spawnEnemyProjectile(
+          enemy,
+          action,
+          projectilePlan.options,
+          projectilePlan.delayMs
+        )
+      );
       return;
     }
+
     if (
       action.id === "bulwark-shield-bash" ||
       action.id === "bastion-shield-bash" ||
@@ -834,49 +854,6 @@ export class GameWorld {
       this.resolveEnemyMelee(enemy, action, targets);
       return;
     }
-    if (action.id === "scanner-column-scan") {
-      this.spawnEnemyProjectile(enemy, action, {
-        motion: "thrown",
-        target: { col: lockedColumn, row: lockedTarget.row },
-        rowSpan: true,
-        flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
-      });
-      return;
-    }
-    if (action.id === "scanner-signal-lock") {
-      this.spawnEnemyProjectile(enemy, action, {
-        motion: "homing",
-        target: lockedTarget,
-        speedCellsPerSecond: 9,
-      });
-      return;
-    }
-    if (action.id === "mortar-shell") {
-      this.spawnEnemyProjectile(enemy, action, {
-        motion: "thrown",
-        target: lockedTarget,
-        flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
-      });
-      return;
-    }
-    if (action.id === "mortar-triple-shell") {
-      const shellTargets = targets
-        .filter(target => this.panelSystem.isInside(target))
-        .slice(0, action.projectileCount ?? 3);
-      shellTargets.forEach((target, index) =>
-        this.spawnEnemyProjectile(
-          enemy,
-          action,
-          {
-            target: { ...target },
-            motion: "thrown",
-            flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
-          },
-          index * (action.projectileIntervalMs ?? 110)
-        )
-      );
-      return;
-    }
     if (action.id === "mortar-mine-drop") {
       const panel = lockedTarget;
       this.placeFieldObject(
@@ -896,61 +873,6 @@ export class GameWorld {
         }
       );
       this.message = enemy.name + " — 地雷を設置";
-      return;
-    }
-    if (action.id === "sentinel-alternating-pulse") {
-      targets.forEach((target, index) =>
-        this.spawnEnemyProjectile(
-          enemy,
-          action,
-          {
-            target,
-            motion: "thrown",
-            flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
-          },
-          index * 35
-        )
-      );
-      return;
-    }
-    if (action.id === "sentinel-chain-bolt") {
-      this.spawnEnemyProjectile(enemy, action, {
-        motion: "homing",
-        target: lockedTarget,
-        speedCellsPerSecond: 9,
-      });
-      return;
-    }
-
-    if (
-      action.id === "wave-runner-water-wave" ||
-      action.id === "wave-runner-frost-surge"
-    ) {
-      this.applyEnemyActionTerrain(action, targets);
-      this.spawnEnemyProjectile(enemy, action, {
-        motion: "wave",
-        direction: { col: -1, row: 0 },
-        target: { col: 0, row: lockedRow },
-        rowSpan: true,
-        stopOnObject: false,
-      });
-      return;
-    }
-    if (
-      action.id === "boomer-arc-outbound" ||
-      action.id === "boomer-arc-return" ||
-      action.id === "arbiter-orbit-mine"
-    ) {
-      this.spawnEnemyProjectile(enemy, action, {
-        motion: "orbit",
-        position: { col: 5, row: 0 },
-        direction: { col: -1, row: 0 },
-        target: null,
-        continuesAfterHit: true,
-        stopOnObject: false,
-        expiresAt: now + 4200,
-        speedCellsPerSecond: 8,
-      });
       return;
     }
     if (action.id === "hopper-jump-land") {
@@ -992,76 +914,8 @@ export class GameWorld {
       return;
     }
 
-    if (
-      action.pattern === "weather-core" ||
-      action.pattern === "climate-engine"
-    ) {
-      this.applyEnemyActionTerrain(action, targets);
-      const count = Math.max(1, action.projectileCount ?? 1);
-      for (let index = 0; index < count; index += 1) {
-        const delay = index * (action.projectileIntervalMs ?? 0);
-        if (action.motion === "wave") {
-          this.spawnEnemyProjectile(
-            enemy,
-            action,
-            {
-              motion: "wave",
-              direction: { col: -1, row: 0 },
-              target: { col: 0, row: lockedRow },
-              rowSpan: true,
-              stopOnObject: false,
-            },
-            delay
-          );
-        } else if (action.motion === "thrown") {
-          this.spawnEnemyProjectile(
-            enemy,
-            action,
-            {
-              motion: "thrown",
-              target: { col: lockedColumn, row: lockedTarget.row },
-              rowSpan: true,
-              flightMs: COMBAT_BALANCE.projectile.thrownFlightMs,
-            },
-            delay
-          );
-        } else if (action.motion === "homing") {
-          this.spawnEnemyProjectile(
-            enemy,
-            action,
-            {
-              motion: "homing",
-              target: lockedTarget,
-              speedCellsPerSecond: 8,
-            },
-            delay
-          );
-        } else {
-          this.spawnEnemyProjectile(
-            enemy,
-            action,
-            {
-              motion: "straight",
-              direction: { col: -1, row: 0 },
-              target: { col: 0, row: lockedRow },
-            },
-            delay
-          );
-        }
-      }
-      return;
-    }
-
     if (action.id === "support-relay-heal" || action.id === "support-relay-barrier") {
       this.applyEnemySupport(enemy, action, lockedTarget);
-      return;
-    }
-    if (action.id === "support-relay-shot") {
-      this.spawnEnemyProjectile(enemy, action, {
-        motion: "straight",
-        direction: { col: -1, row: 0 },
-        target: { col: 0, row: lockedRow },
-      });
       return;
     }
     if (action.id === "mirror-reflect-stance") {
@@ -1104,30 +958,6 @@ export class GameWorld {
       this.stealPlayerFront();
       return;
     }
-    if (action.id === "bastion-open-barrage") {
-      for (let index = 0; index < (action.projectileCount ?? 3); index += 1) {
-        this.spawnEnemyProjectile(
-          enemy,
-          action,
-          {
-            motion: "straight",
-            direction: { col: -1, row: 0 },
-            target: { col: 0, row: lockedRow },
-          },
-          index * (action.projectileIntervalMs ?? 150)
-        );
-      }
-      return;
-    }
-
-    if (action.id === "arbiter-tracking-shot") {
-      this.spawnEnemyProjectile(enemy, action, {
-        motion: "homing",
-        target: lockedTarget,
-        speedCellsPerSecond: 8,
-      });
-      return;
-    }
     if (action.id === "arbiter-stake-field") {
       this.placeFieldObject(
         action.objectKind ?? "mine",
@@ -1153,12 +983,6 @@ export class GameWorld {
       return;
     }
 
-    if (action.kind === "projectile") {
-      this.spawnEnemyProjectile(enemy, action, {
-        motion: action.motion ?? "straight",
-        target: lockedTarget,
-      });
-    }
   }
 
   private findEnemyObjectPlacement(enemy: Enemy): GridPosition {
