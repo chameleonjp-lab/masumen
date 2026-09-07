@@ -38,6 +38,7 @@ import {
   applyEnemyPhase,
   availableEnemyActions as getAvailableEnemyActions,
   chooseEnemyReposition,
+  completeEnemyAction,
   currentEnemyAction as getCurrentEnemyAction,
   planEnemyProjectiles,
   resolveEnemyTargets,
@@ -652,15 +653,7 @@ export class GameWorld {
         const targets = [...enemy.lockedTargets];
         if (enemy.warningShown) this.clearWarnings(enemy);
         this.executeEnemyAction(enemy, action, now, targets);
-        enemy.lockedTargets = [];
-        enemy.state = "recover";
-        enemy.actionPhase = "active";
-        enemy.activeUntil = now + (action?.activeMs ?? 100);
-        enemy.recoverUntil =
-          enemy.activeUntil + (action?.recoveryMs ?? 430);
-        enemy.warningShown = false;
-        enemy.warningStage = null;
-        enemy.warningStartedAt = 0;
+        completeEnemyAction(enemy, action, now);
       }
       return;
     }
