@@ -39,8 +39,8 @@ import {
   availableEnemyActions as getAvailableEnemyActions,
   chooseEnemyReposition,
   currentEnemyAction as getCurrentEnemyAction,
-  prepareEnemyAttack,
   resolveEnemyTargets,
+  startEnemyAttack,
   updateEnemyLifecycle,
   updateEnemyWarning,
 } from "./systems/EnemySystem";
@@ -679,51 +679,19 @@ export class GameWorld {
   }
 
   private prepareAttack(enemy: Enemy, now: number): void {
-    const definition = getEnemyDefinition(enemy.definitionId);
     const phase = this.refreshEnemyPhase(enemy);
-    const preparation = prepareEnemyAttack(enemy, {
+    const preparation = startEnemyAttack(enemy, {
       actions: getAvailableEnemyActions(enemy),
       now,
       slowExtraMs: now < enemy.slowUntil ? 280 : 0,
       counterEndMarginMs: COMBAT_BALANCE.counter.endMarginMs,
       playerTerrain: this.panelSystem.get(this.playerGrid)?.terrain,
+      phase,
+      movePursuit: () => this.movePursuitEnemy(enemy),
+      resolveTargets: action => this.targetsForAction(enemy, action),
     });
-    if (!definition || !preparation) return;
-
-    const action = preparation.action;
-    enemy.actionId = action.id;
-    enemy.actionName = action.name;
-    enemy.pattern = action.pattern;
-    enemy.attackDamage = action.damage;
-    enemy.windupMs = action.startupMs;
-    enemy.cooldownMs = action.cooldownMs;
-    enemy.counterWindowMs = action.counterWindowMs;
-    enemy.weaknessElement =
-      action.weaknessElement ??
-      phase?.weaknessElement ??
-      definition.weakness ??
-      definition.element;
-    if (
-      enemy.movement === "pursuit" &&
-      now >= enemy.rootUntil
-    ) {
-      this.movePursuitEnemy(enemy);
-    }
-    enemy.lockedTargets = this.targetsForAction(enemy, action);
-    enemy.state = "windup";
-    enemy.actionPhase = "startup";
-    enemy.windupUntil = preparation.windupUntil;
-    enemy.activeUntil = enemy.windupUntil;
-    enemy.recoverUntil = 0;
-    enemy.attackStartedAt = now;
-    enemy.counterWindowState = preparation.counterWindowState;
-    enemy.counterStartAt = enemy.counterWindowState.startAt;
-    enemy.counterEndAt = enemy.counterWindowState.endAt;
-    enemy.warningAt = preparation.warningAt;
-    enemy.warningShown = false;
-    enemy.warningStage = null;
-    enemy.warningStartedAt = 0;
-    this.message = enemy.name + " — " + action.name;
+    if (preparation)
+      this.message = enemy.name + " — " + preparation.action.name;
   }
 
   private targetsForAction(

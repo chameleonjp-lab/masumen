@@ -7,8 +7,10 @@ import {
   currentEnemyAction,
   prepareEnemyAttack,
   resolveEnemyTargets,
+  startEnemyAttack,
   updateEnemyLifecycle,
   updateEnemyWarning,
+  type EnemyAttackStartRuleState,
   type EnemyLifecycleRuleState,
   type EnemyRepositionRuleState,
   type EnemyRuleState,
@@ -56,6 +58,36 @@ function makeLifecycleEnemy(
     activeUntil: 0,
     recoverUntil: 0,
     nextAttackAt: 1000,
+    ...overrides,
+  };
+}
+
+function makeAttackStartEnemy(
+  overrides: Partial<EnemyAttackStartRuleState> = {}
+): EnemyAttackStartRuleState {
+  return {
+    ...makeEnemy(),
+    state: "idle",
+    actionPhase: "idle",
+    actionName: null,
+    pattern: "none",
+    attackDamage: 0,
+    windupMs: 0,
+    cooldownMs: 0,
+    counterWindowMs: 0,
+    lockedTargets: [],
+    windupUntil: 0,
+    activeUntil: 0,
+    recoverUntil: 0,
+    attackStartedAt: 0,
+    counterWindowState: { startAt: 0, endAt: 0 },
+    counterStartAt: 0,
+    counterEndAt: 0,
+    warningAt: 0,
+    warningShown: false,
+    warningStage: null,
+    warningStartedAt: 0,
+    rootUntil: 0,
     ...overrides,
   };
 }
@@ -152,6 +184,57 @@ describe("EnemySystem", () => {
       startAt: 1000 + action.startupMs + 280 - action.counterWindowMs,
       endAt: 1000 + action.startupMs + 280 - 20,
     });
+  });
+
+  it("commits the enemy attack preparation state after resolving movement and targets", () => {
+    const enemy = makeAttackStartEnemy({ movement: "pursuit" });
+    const actions = availableEnemyActions(enemy);
+    const calls: string[] = [];
+    const action = actions[0];
+    if (!action) throw new Error("攻撃準備検査用の敵行動がありません");
+
+    const prepared = startEnemyAttack(enemy, {
+      actions,
+      now: 1000,
+      slowExtraMs: 280,
+      counterEndMarginMs: 20,
+      phase: undefined,
+      movePursuit: () => calls.push("move"),
+      resolveTargets: selectedAction => {
+        expect(selectedAction.id).toBe(action.id);
+        calls.push("targets");
+        return [
+          { col: 0, row: 1 },
+          { col: 1, row: 1 },
+          { col: 2, row: 1 },
+        ];
+      },
+    });
+
+    expect(prepared?.action.id).toBe(action.id);
+    expect(calls).toEqual(["move", "targets"]);
+    expect(enemy.state).toBe("windup");
+    expect(enemy.actionPhase).toBe("startup");
+    expect(enemy.actionName).toBe(action.name);
+    expect(enemy.pattern).toBe(action.pattern);
+    expect(enemy.attackDamage).toBe(action.damage);
+    expect(enemy.windupMs).toBe(action.startupMs);
+    expect(enemy.cooldownMs).toBe(action.cooldownMs);
+    expect(enemy.counterWindowMs).toBe(action.counterWindowMs);
+    expect(enemy.lockedTargets).toEqual([
+      { col: 0, row: 1 },
+      { col: 1, row: 1 },
+      { col: 2, row: 1 },
+    ]);
+    expect(enemy.windupUntil).toBe(1000 + action.startupMs + 280);
+    expect(enemy.activeUntil).toBe(enemy.windupUntil);
+    expect(enemy.attackStartedAt).toBe(1000);
+    expect(enemy.counterStartAt).toBe(prepared?.counterWindowState.startAt);
+    expect(enemy.counterEndAt).toBe(prepared?.counterWindowState.endAt);
+    expect(enemy.warningAt).toBe(1000 + (action.warningDelayMs ?? 0));
+    expect(enemy.warningShown).toBe(false);
+    expect(enemy.warningStage).toBeNull();
+    expect(enemy.warningStartedAt).toBe(0);
   });
 
   it("starts and advances a warning without emitting board events", () => {
