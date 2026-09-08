@@ -9,6 +9,8 @@ import {
 import { ASSET_URLS } from "@/game/assets";
 import { validateSelection } from "@/game/deck";
 import { createGameEngine } from "@/game/engine";
+import { startGameRuntime, type StartupState } from "@/game/startup";
+import { StartupGate } from "@/components/game/StartupScreen";
 import { cardPreviewTiles, nearestEnemyPosition } from "@/game/data/cardCombatData";
 import { createGameScene } from "@/game/scene";
 import type { BattleSnapshot, GameHandle, GridPosition } from "@/game/types";
@@ -305,8 +307,10 @@ export default function GameCanvas() {
   const [soundVolume, setSoundVolume] = useState(70);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const [folderEditorOpen, setFolderEditorOpen] = useState(false);
-  const [bootError, setBootError] = useState(false);
+  const [startup, setStartup] = useState<StartupState>({ status: "loading", stage: "engine" });
   const [playerName, setPlayerName] = useState(() => readPlayerName());
+  const inputReadyRef = useRef(false);
+  inputReadyRef.current = startup.status === "ready" && Boolean(playerName);
   const [nameDraft, setNameDraft] = useState(() => readPlayerName());
   const [nameError, setNameError] = useState("");
   const [nameShareStatus, setNameShareStatus] = useState("");
@@ -332,57 +336,47 @@ export default function GameCanvas() {
     if (!canvas || startedRef.current) return;
     startedRef.current = true;
     let disposed = false;
-    let handle: GameHandle | null = null;
-    const engine = createGameEngine(canvas);
-    if (!engine) {
-      setBootError(true);
-      startedRef.current = false;
-      return () => {
-        startedRef.current = false;
-      };
-    }
-    createGameScene(engine, canvas, {
-      onSnapshot: nextSnapshot => {
-        if (!disposed) {
-          if (
-            (nextSnapshot.mode !== "battle" && nextSnapshot.mode !== "practice") ||
-            nextSnapshot.paused
-          )
+    const disposeRuntime = startGameRuntime({
+      createEngine: () => createGameEngine(canvas),
+      createScene: engine => createGameScene(engine, canvas, {
+        canAcceptInput: () => inputReadyRef.current,
+        onSnapshot: nextSnapshot => {
+          if (disposed) return;
+          if ((nextSnapshot.mode !== "battle" && nextSnapshot.mode !== "practice") || nextSnapshot.paused)
             stopMoveRepeat();
           setSnapshot(nextSnapshot);
-        }
+        },
+      }),
+      onReady: createdHandle => {
+        controllerRef.current = createdHandle.controller;
+        createdHandle.controller.setSoundEnabled?.(soundEnabled);
+        createdHandle.controller.setSoundVolume?.(soundVolume / 100);
+        createdHandle.controller.setVibrationEnabled?.(vibrationEnabled);
       },
-    }).then(createdHandle => {
-      if (disposed) {
-        createdHandle.dispose();
-        return;
-      }
-      handle = createdHandle;
-      controllerRef.current = createdHandle.controller;
-      createdHandle.controller.setSoundEnabled?.(soundEnabled);
-      createdHandle.controller.setSoundVolume?.(soundVolume / 100);
-      createdHandle.controller.setVibrationEnabled?.(vibrationEnabled);
-      engine.runRenderLoop(() => createdHandle.scene.render());
-    }).catch(() => {
-      if (!disposed) setBootError(true);
+      onState: state => {
+        if (disposed) return;
+        if (state.status === "failed") controllerRef.current = null;
+        setStartup(state);
+      },
+      attachResize: engine => {
+        const onResize = () => engine.resize();
+        window.addEventListener("resize", onResize);
+        window.addEventListener("orientationchange", onResize);
+        window.visualViewport?.addEventListener("resize", onResize);
+        const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(onResize);
+        resizeObserver?.observe(canvas);
+        return () => {
+          window.removeEventListener("resize", onResize);
+          window.removeEventListener("orientationchange", onResize);
+          window.visualViewport?.removeEventListener("resize", onResize);
+          resizeObserver?.disconnect();
+        };
+      },
     });
-    const onResize = () => engine.resize();
-    window.addEventListener("resize", onResize);
-    window.addEventListener("orientationchange", onResize);
-    window.visualViewport?.addEventListener("resize", onResize);
-    const resizeObserver =
-      typeof ResizeObserver === "undefined"
-        ? null
-        : new ResizeObserver(onResize);
-    resizeObserver?.observe(canvas);
     return () => {
       disposed = true;
-      window.removeEventListener("resize", onResize);
-      window.removeEventListener("orientationchange", onResize);
-      window.visualViewport?.removeEventListener("resize", onResize);
-      resizeObserver?.disconnect();
-      handle?.dispose();
-      engine.dispose();
+      inputReadyRef.current = false;
+      disposeRuntime();
       controllerRef.current = null;
       startedRef.current = false;
     };
@@ -598,7 +592,7 @@ export default function GameCanvas() {
         style={{ touchAction: "none" }}
         aria-label="グリッド・シグナル・アリーナの戦闘フィールド"
       />
-      {!playerName && (
+      <StartupGate state={startup} hasName={Boolean(playerName)} nameGate={
         <NameGate
           draft={nameDraft}
           error={nameError}
@@ -610,27 +604,7 @@ export default function GameCanvas() {
           onSubmit={submitPlayerName}
           onShare={shareHome}
         />
-      )}
-      {bootError && (
-        <section
-          className="startup-error"
-          role="alert"
-          aria-live="assertive"
-        >
-          <p className="eyebrow">接続失敗 / 起動停止</p>
-          <h1>戦闘画面を読み込めませんでした</h1>
-          <p>
-            端末の描画準備を確認して、ページを再読み込みしてください。
-          </p>
-          <button
-            type="button"
-            className="engage-button"
-            onClick={() => window.location.reload()}
-          >
-            再読み込み <span>↗</span>
-          </button>
-        </section>
-      )}
+      }>
       <div className="screen-noise" aria-hidden="true" />
       <div className="crisis-frame" aria-hidden="true" />
       <div className="signal-hud">
@@ -1256,6 +1230,7 @@ export default function GameCanvas() {
           <b>カード選択</b> 10秒
         </span>
       </footer>
+      </StartupGate>
     </main>
   );
 }
