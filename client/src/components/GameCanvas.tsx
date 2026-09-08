@@ -18,7 +18,13 @@ import FolderEditor from "@/components/game/FolderEditor";
 import ResultScreen from "@/components/game/ResultScreen";
 import Tutorial from "@/components/game/Tutorial";
 import { createMovementRepeat, type MovementRepeat } from "@/game/movementRepeat";
-import { beginTouchAction, createTouchInputState, endTouchAction, type TouchAction } from "@/game/touchInputGuard";
+import {
+  beginTouchAction,
+  createTouchInputState,
+  endTouchAction,
+  touchActionForPointer,
+  type TouchAction,
+} from "@/game/touchInputGuard";
 import {
   homeShareText,
   LAB_URL,
@@ -389,36 +395,30 @@ export default function GameCanvas() {
     const preventGesture = (event: Event) => {
       if (!isEditableTarget(event.target)) event.preventDefault();
     };
-    const preventMultiTouch = (event: TouchEvent) => {
-      if (event.touches.length > 1) event.preventDefault();
-    };
     root.addEventListener("gesturestart", preventGesture, gestureOptions);
     root.addEventListener("gesturechange", preventGesture, gestureOptions);
     root.addEventListener("gestureend", preventGesture, gestureOptions);
-    root.addEventListener("touchstart", preventMultiTouch, gestureOptions);
-    root.addEventListener("touchmove", preventMultiTouch, gestureOptions);
     return () => {
       root.removeEventListener("gesturestart", preventGesture);
       root.removeEventListener("gesturechange", preventGesture);
       root.removeEventListener("gestureend", preventGesture);
-      root.removeEventListener("touchstart", preventMultiTouch);
-      root.removeEventListener("touchmove", preventMultiTouch);
     };
   }, []);
 
   useEffect(() => {
     const clearTouchState = () => {
       stopMoveRepeat();
-      if (touchInputRef.current.activeAction === "charge") {
+      if (touchInputRef.current.chargePointerId !== null) {
         controllerRef.current?.cancelCharge();
       }
       touchInputRef.current = createTouchInputState();
     };
     const finishNativePointer = (event: PointerEvent, cancelled: boolean) => {
       const current = touchInputRef.current;
-      if (current.activePointerId !== event.pointerId) return;
-      const wasCharge = current.activeAction === "charge";
-      if (current.activeAction === "move") stopMoveRepeat();
+      const action = touchActionForPointer(current, event.pointerId);
+      if (action === null) return;
+      const wasCharge = action === "charge";
+      if (action === "move") stopMoveRepeat();
       touchInputRef.current = endTouchAction(current, event.pointerId);
       if (wasCharge) {
         if (cancelled) controllerRef.current?.cancelCharge();
@@ -550,9 +550,10 @@ export default function GameCanvas() {
       return;
     }
     const current = touchInputRef.current;
-    if (current.activePointerId !== event.pointerId) return;
-    const wasCharge = current.activeAction === "charge";
-    if (current.activeAction === "move") stopMoveRepeat();
+    const action = touchActionForPointer(current, event.pointerId);
+    if (action === null) return;
+    const wasCharge = action === "charge";
+    if (action === "move") stopMoveRepeat();
     touchInputRef.current = endTouchAction(current, event.pointerId);
     if (wasCharge) {
       if (cancelled) controllerRef.current?.cancelCharge();

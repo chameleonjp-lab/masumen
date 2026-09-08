@@ -29,6 +29,7 @@ if (visualEntries.join(",") !== audioEntries.join(","))
 const scene = await read("client/src/game/scene.ts");
 const projectileVisuals = await read("client/src/game/render/projectileVisuals.ts");
 const gameCanvas = await read("client/src/components/GameCanvas.tsx");
+const styles = await read("client/src/index.css");
 const engine = await read("client/src/game/engine.ts");
 const startup = await read("client/src/game/startup.ts");
 const startupUI = await read("client/src/components/game/StartupScreen.tsx");
@@ -76,5 +77,27 @@ for (const required of ["syncProjectileVisuals(snapshot)", "projectileVisuals.cl
   if (!scene.includes(required)) throw new Error(`Projectile lifecycle contract missing: ${required}`);
 if (!gameCanvas.includes("<StartupGate") || !startupUI.includes('state.status !== "ready"'))
   throw new Error("Startup screens must be exclusive");
+
+for (const required of [
+  "beginPointerAction",
+  "touchActionForPointer",
+  'aria-label=\"通常攻撃\"',
+  'aria-label=\"チャージショット\"',
+  'onClick={() => controller?.toggleCard(index)}',
+]) {
+  if (!gameCanvas.includes(required))
+    throw new Error(`Mobile input/card contract missing: ${required}`);
+}
+if (gameCanvas.includes("preventMultiTouch"))
+  throw new Error("Combat touch input must not cancel the second pointer globally");
+for (const required of [
+  ".game-shell .mobile-controls button",
+  "touch-action: none",
+  "@media (pointer: coarse) and (orientation: landscape)",
+  ".dpad.dpad-large button {\n    width: 44px;\n    height: 44px;",
+]) {
+  if (!styles.includes(required))
+    throw new Error(`Mobile layout contract missing: ${required}`);
+}
 
 console.log(`browser contract ok: ${assetEntries.length} bundled assets, ${visualEntries.length} visual/audio recipes, scene cleanup covered`);
