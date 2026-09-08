@@ -12,6 +12,8 @@ import { Mesh } from "@babylonjs/core/Meshes/mesh";
 import { Scene } from "@babylonjs/core/scene";
 import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { GameWorld } from "./GameWorld";
+import { createEnemyVisualMap, updateEnemyPose } from "./render/enemyVisuals";
+import { disposeOwnedVisual, TransientMeshResources, VisualEntityMap } from "./render/visualResources";
 import { createMovementRepeat } from "./movementRepeat";
 import { ASSET_URLS } from "./assets";
 import { CardAudio } from "./cardAudio";
@@ -34,7 +36,8 @@ const EMBER = Color3.FromHexString("#FF5E3B");
 const WARNING_URGENT = Color3.FromHexString("#FFD2A3");
 const GRAPHITE = Color3.FromHexString("#10171F");
 
-interface SceneCallbacks {
+export interface SceneCallbacks {
+  canAcceptInput?: () => boolean;
   onSnapshot?: (snapshot: BattleSnapshot) => void;
 }
 
@@ -120,6 +123,15 @@ function makeUnit(scene: Scene, name: string, url: string, width: number, height
 
 export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement, callbacks: SceneCallbacks = {}): Promise<GameHandle> {
   const scene = new Scene(engine);
+  try {
+    return buildGameScene(scene, engine, canvas, callbacks);
+  } catch (error) {
+    scene.dispose();
+    throw error;
+  }
+}
+
+function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement, callbacks: SceneCallbacks): GameHandle {
   scene.clearColor = Color4.FromHexString("#061017FF");
   scene.ambientColor = Color3.FromHexString("#355060");
 
@@ -142,6 +154,9 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
   };
   adaptCameraToViewport();
   const resizeObserver = engine.onResizeObservable.add(adaptCameraToViewport);
+  scene.onDisposeObservable.add(() => {
+    if (resizeObserver) engine.onResizeObservable.remove(resizeObserver);
+  });
 
   const light = new HemisphericLight("arena-light", new Vector3(-0.3, 1, -0.5), scene);
   light.intensity = 1.5;
@@ -151,6 +166,11 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
   const unlockAudio = () => audio.unlock();
   window.addEventListener("pointerdown", unlockAudio, { passive: true });
   window.addEventListener("keydown", unlockAudio);
+  scene.onDisposeObservable.add(() => {
+    window.removeEventListener("pointerdown", unlockAudio);
+    window.removeEventListener("keydown", unlockAudio);
+    audio.dispose();
+  });
 
   const base = MeshBuilder.CreateBox("arena-base", { width: 9.65, depth: 4.95, height: 0.3 }, scene);
   base.position.y = -0.18;
@@ -301,7 +321,6 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
   }))
     terrainDecorations.set(key(position), makeTerrainDecoration(position));
 
-  const objectMeshes = new Map<string, { root: TransformNode; meshes: Mesh[] }>();
   const makeObjectVisual = (object: FieldObject): { root: TransformNode; meshes: Mesh[] } => {
     const root = new TransformNode(`field-object-${object.id}`, scene);
     root.position = gridToWorld(object.panel);
@@ -353,15 +372,15 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     meshes.push(ring);
     return { root, meshes };
   };
+  const objectMeshes = new VisualEntityMap(
+    (object: FieldObject) => `${object.kind}:${object.owner}:${object.collision}`,
+    makeObjectVisual,
+    visual => disposeOwnedVisual(visual.root),
+  );
   const syncObjectVisuals = (snapshot: BattleSnapshot): void => {
-    const activeIds = new Set(snapshot.objects.map(object => object.id));
-    for (const [id, visual] of Array.from(objectMeshes.entries())) visual.root.setEnabled(activeIds.has(id));
+    objectMeshes.sync(snapshot.objects);
     for (const object of snapshot.objects) {
-      let visual = objectMeshes.get(object.id);
-      if (!visual) {
-        visual = makeObjectVisual(object);
-        objectMeshes.set(object.id, visual);
-      }
+      const visual = objectMeshes.get(object.id)!;
       visual.root.position = gridToWorld(object.panel);
       visual.root.setEnabled(!object.hidden);
       visual.root.scaling.setAll(0.9 + Math.min(0.35, object.hp / 280));
@@ -400,26 +419,22 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
   playerAttack.material = spriteMaterial(scene, "pilot-attack", ASSET_URLS.pilotAttack);
   playerAttack.parent = player.root;
   playerAttack.isVisible = false;
-  const bulwark = makeUnit(scene, "bulwark", ASSET_URLS.shieldDrone, 1.12, 1.42);
-  const scanner = makeUnit(scene, "scanner", ASSET_URLS.sensorOrb, 0.94, 1.06);
-  const razor = makeUnit(scene, "razor", ASSET_URLS.razorScout, 1.02, 1.16);
-  const mortar = makeUnit(scene, "mortar", ASSET_URLS.mortarNode, 1.16, 1.28);
-  const sentinel = makeUnit(scene, "sentinel", ASSET_URLS.voltSentinel, 1.04, 1.12);
-  scanner.root.position.y = 0.34;
-  sentinel.root.position.y = 0.29;
-  const units = new Map([
-    ["bulwark", bulwark],
-    ["scanner", scanner],
-    ["razor", razor],
-    ["mortar", mortar],
-    ["sentinel", sentinel],
-  ]);
+  const units = createEnemyVisualMap(scene);
+  const transientResources = new TransientMeshResources();
+  scene.onDisposeObservable.add(() => {
+    transientResources.clear();
+    objectMeshes.clear();
+    units.clear();
+  });
 
   const beams: ActiveBeam[] = [];
   const effects: TimedEffect[] = [];
   const enemyReactions = new Map<string, EnemyReaction>();
   let playerReaction: PlayerReaction | null = null;
-  const addEffect = (mesh: Mesh, duration: number, startScale = 1, endScale = 2, spin = 0, rise = 0) => effects.push({ mesh, age: 0, duration, startScale, endScale, spin, rise });
+  const addEffect = (mesh: Mesh, duration: number, startScale = 1, endScale = 2, spin = 0, rise = 0) => {
+    transientResources.track(mesh);
+    effects.push({ mesh, age: 0, duration, startScale, endScale, spin, rise });
+  };
   const createWarningEffect = (position: GridPosition) => {
     const tileKey = key(position);
     if (warningEffects.has(tileKey)) return;
@@ -451,6 +466,7 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     coreMaterial.alpha = 0.9;
     core.material = coreMaterial;
     core.isVisible = false;
+    [ring, scan, core].forEach(mesh => transientResources.track(mesh));
     warningEffects.set(tileKey, {
       ring,
       scan,
@@ -463,9 +479,9 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
   const clearWarningEffect = (tileKey: string) => {
     const effect = warningEffects.get(tileKey);
     if (!effect) return;
-    effect.ring.dispose();
-    effect.scan.dispose();
-    effect.core.dispose();
+    transientResources.release(effect.ring);
+    transientResources.release(effect.scan);
+    transientResources.release(effect.core);
     warningEffects.delete(tileKey);
   };
   const updateWarningVisuals = (
@@ -1294,6 +1310,7 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     material.emissiveColor = event.side === "player" ? (event.charged ? EMBER : TEAL) : EMBER;
     beam.material = material;
     beam.position = gridToWorld(event.from).add(new Vector3(0, 0.72, 0));
+    transientResources.track(beam);
     beams.push({
       mesh: beam,
       from: beam.position.clone(),
@@ -1306,6 +1323,20 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
   let latest: BattleSnapshot | null = null;
   let hitstopUntil = 0;
   let attackSpriteUntil = 0;
+  const clearBattleVisuals = () => {
+    transientResources.clear();
+    beams.length = 0;
+    effects.length = 0;
+    warningEffects.clear();
+    warningCounts.clear();
+    warningTiles.clear();
+    enemyReactions.clear();
+    playerReaction = null;
+    hitstopUntil = 0;
+    attackSpriteUntil = 0;
+    units.clear();
+    objectMeshes.clear();
+  };
   let vibrationEnabled = true;
   const vibrate = (pattern: number | number[]) => {
     const canVibrate = (
@@ -1376,7 +1407,11 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
   if (query.has("attackpose")) attackSpriteUntil = Number.MAX_SAFE_INTEGER;
   const world = new GameWorld(
     snapshot => {
+      if (latest && (snapshot.wave !== latest.wave || snapshot.elapsed < latest.elapsed ||
+        snapshot.practiceStage !== latest.practiceStage ||
+        (latest.mode === "result" && snapshot.mode === "custom"))) clearBattleVisuals();
       latest = snapshot;
+      units.sync(snapshot.enemies.filter(enemy => enemy.state !== "deleted"));
       callbacks.onSnapshot?.(snapshot);
     },
     handleEvent,
@@ -1384,6 +1419,10 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
   );
   const sceneController = {
     ...world.controller,
+    restart: () => {
+      clearBattleVisuals();
+      world.controller.restart();
+    },
     setSoundEnabled: (enabled: boolean) => audio.setEnabled(enabled),
     setSoundVolume: (volume: number) => audio.setVolume(volume),
     setVibrationEnabled: (enabled: boolean) => {
@@ -1410,7 +1449,11 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     activeMoveKey = null;
     keyMoveRepeat.stop();
   };
+  const acceptsInput = (event: KeyboardEvent) => callbacks.canAcceptInput?.() !== false && !(
+    event.target instanceof Element && event.target.closest("input, textarea, select, [contenteditable='true']")
+  );
   const keyDown = (event: KeyboardEvent) => {
+    if (!acceptsInput(event)) return;
     if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", " ", "Enter"].includes(event.key)) event.preventDefault();
     const moveKey = event.key.toLowerCase();
     const direction = moveDirections[moveKey];
@@ -1431,6 +1474,10 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
   const keyUp = (event: KeyboardEvent) => {
     if (activeMoveKey === event.key.toLowerCase()) stopKeyMove();
     if (event.key === " ") {
+      if (!acceptsInput(event)) {
+        world.controller.cancelCharge();
+        return;
+      }
       event.preventDefault();
       world.controller.releaseCharge();
     }
@@ -1454,9 +1501,26 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
   });
   document.addEventListener("visibilitychange", handleVisibilityChange);
 
+  scene.onDisposeObservable.add(() => {
+    window.removeEventListener("keydown", keyDown);
+    window.removeEventListener("keyup", keyUp);
+    window.removeEventListener("blur", cancelInterruptedInput);
+    window.removeEventListener("pagehide", cancelInterruptedInput);
+    window.removeEventListener("pointercancel", cancelInterruptedInput);
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    stopKeyMove();
+    (navigator as unknown as { vibrate?: (value: number) => boolean }).vibrate?.(0);
+  });
+  const demoFollowups = new Set<number>();
   let demoInterval: number | undefined;
   let demoTimeout: number | undefined;
   let pauseTimeout: number | undefined;
+  scene.onDisposeObservable.add(() => {
+    if (demoInterval !== undefined) window.clearInterval(demoInterval);
+    if (demoTimeout !== undefined) window.clearTimeout(demoTimeout);
+    if (pauseTimeout !== undefined) window.clearTimeout(pauseTimeout);
+    demoFollowups.forEach(timer => window.clearTimeout(timer));
+  });
   if (query.has("demo")) {
     const demoPicks = query.has("selectall") ? [0, 1, 2, 3, 4] : [0, 1];
     demoTimeout = window.setTimeout(() => {
@@ -1484,14 +1548,16 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
       }
       if (latest.mode === "intermission") {
         world.controller.nextWave();
-        window.setTimeout(() => {
+        const followup = window.setTimeout(() => {
+          demoFollowups.delete(followup);
           demoPicks.forEach(index => {
             world.controller.toggleCard(index);
           });
           world.controller.confirmCustom();
         }, 260);
+        demoFollowups.add(followup);
       }
-      if (latest.mode === "result") world.controller.restart();
+      if (latest.mode === "result") sceneController.restart();
     }, 820);
     if (query.has("pause")) pauseTimeout = window.setTimeout(() => world.controller.togglePause(), 1800);
   }
@@ -1534,7 +1600,7 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
 
   scene.onBeforeRenderObservable.add(() => {
     const rawDelta = Math.max(0, engine.getDeltaTime() / 1000);
-    world.update(rawDelta);
+    if (callbacks.canAcceptInput?.() !== false) world.update(rawDelta);
     const delta = latest?.paused || performance.now() < hitstopUntil ? 0 : Math.min(rawDelta, 0.05);
     if (!latest) return;
     updatePanelVisuals(latest);
@@ -1641,14 +1707,10 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
     (player.ring.material as StandardMaterial).emissiveColor = playerRingColor;
     player.ring.isVisible = latest.mode === "battle" || latest.mode === "practice";
 
-    const activeEnemyIds = new Set(latest.enemies.map(enemy => enemy.id));
-    for (const [id, unit] of Array.from(units.entries())) {
-      if (!activeEnemyIds.has(id)) unit.root.setEnabled(false);
-    }
     for (const enemy of latest.enemies) {
       const unit = units.get(enemy.id);
       if (!unit) continue;
-      unit.root.setEnabled(enemy.state !== "deleted");
+      updateEnemyPose(unit, enemy);
       const y = enemy.id === "scanner" || enemy.id === "sentinel" ? 0.32 : 0;
       const target = gridToWorld(enemy.grid).add(new Vector3(0, y, 0));
       const reaction = enemyReactions.get(enemy.id);
@@ -1662,6 +1724,8 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
         else {
           const beat = Math.sin(Math.min(1, age / 0.42) * Math.PI);
           reactionStrength = reaction.strength * beat;
+          recoil = new Vector3(-0.18 * reactionStrength, 0.04 * reactionStrength, 0);
+          tilt = -0.12 * reactionStrength;
           if (reaction.id === "bulwark") {
             recoil = new Vector3(-0.28 * reactionStrength, 0.03 * reactionStrength, 0);
             tilt = -0.18 * reactionStrength;
@@ -1754,7 +1818,7 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
       beam.mesh.position = Vector3.Lerp(beam.from, beam.to, Math.min(1, beam.progress));
       beam.mesh.scaling.setAll(1 + Math.sin(beam.progress * Math.PI) * 0.4);
       if (beam.progress >= 1) {
-        beam.mesh.dispose();
+        transientResources.release(beam.mesh);
         beams.splice(index, 1);
       }
     }
@@ -1767,7 +1831,7 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
       effect.mesh.position.y += effect.rise * delta;
       (effect.mesh.material as StandardMaterial).alpha = Math.max(0, 0.9 * (1 - ratio));
       if (ratio >= 1) {
-        effect.mesh.dispose();
+        transientResources.release(effect.mesh);
         effects.splice(index, 1);
       }
     }
@@ -1776,25 +1840,6 @@ export async function createGameScene(engine: Engine, canvas: HTMLCanvasElement,
   return {
     scene,
     controller: sceneController,
-    dispose: () => {
-      if (demoInterval) window.clearInterval(demoInterval);
-      if (demoTimeout) window.clearTimeout(demoTimeout);
-      if (pauseTimeout) window.clearTimeout(pauseTimeout);
-      window.removeEventListener("keydown", keyDown);
-      window.removeEventListener("keyup", keyUp);
-      window.removeEventListener("blur", cancelInterruptedInput);
-      window.removeEventListener("pagehide", cancelInterruptedInput);
-      window.removeEventListener("pointercancel", cancelInterruptedInput);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      stopKeyMove();
-      window.removeEventListener("pointerdown", unlockAudio);
-      window.removeEventListener("keydown", unlockAudio);
-      if (resizeObserver) engine.onResizeObservable.remove(resizeObserver);
-      (navigator as unknown as { vibrate?: (value: number) => boolean }).vibrate?.(0);
-      for (const visual of Array.from(objectMeshes.values())) visual.root.dispose(false, true);
-      audio.dispose();
-      glow.dispose();
-      scene.dispose();
-    },
+    dispose: () => { if (!scene.isDisposed) scene.dispose(); },
   };
 }

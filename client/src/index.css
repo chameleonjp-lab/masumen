@@ -705,6 +705,7 @@ select {
 
 
 /* PR17: 起動失敗時に無応答で止まらず、iPhoneから再読み込みできる復旧導線を表示する。 */
+.startup-panel,
 .startup-error {
   position: fixed;
   z-index: 30;
@@ -720,11 +721,13 @@ select {
   box-shadow: 0 24px 100px rgba(0, 0, 0, 0.72);
   clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 20px 100%, 0 calc(100% - 20px));
 }
+.startup-panel h1,
 .startup-error h1 {
   margin: 0;
   font: 700 clamp(25px, 5vw, 42px)/1.05 "Space Grotesk", "Zen Kaku Gothic New", sans-serif;
   letter-spacing: -0.05em;
 }
+.startup-panel > p:not(.eyebrow),
 .startup-error > p:not(.eyebrow) {
   margin: 16px auto 0;
   color: #b4cbc5;
@@ -1305,3 +1308,7 @@ select {
     grid-column: auto;
   }
 }
+
+.startup-panel { border-color: #2ad4d9; }
+.startup-diagnostics { margin-top: 16px; overflow-wrap: anywhere; font-size: 12px; }
+.startup-diagnostics summary { cursor: pointer; }
