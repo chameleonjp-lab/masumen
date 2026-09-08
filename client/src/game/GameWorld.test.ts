@@ -1111,6 +1111,7 @@ describe("GameWorldの現行Wave基準", () => {
     const world = new GameWorld(() => undefined, () => undefined);
     const internal = world as unknown as {
       playerGrid: GridPosition;
+      playerHp: number;
       enemies: Array<{ id: string; grid: GridPosition }>;
       targetsForAction: (enemy: unknown, action: unknown) => GridPosition[];
       executeEnemyAction: (
@@ -1197,10 +1198,12 @@ describe("GameWorldの現行Wave基準", () => {
       throw new Error("着地・設置検査用の敵行動がありません");
 
     internal.playerGrid = { col: 1, row: 1 };
+    internal.playerHp = 220;
     const landingTargets = internal.targetsForAction(hopper, jump);
     const lockedLanding = { ...landingTargets[0] };
     internal.playerGrid = { col: 1, row: 0 };
     internal.executeEnemyAction(hopper, jump, 0, landingTargets);
+    expect(internal.playerHp).toBe(220);
     expect(hopper.grid).toEqual(lockedLanding);
     expect(events).toContainEqual({
       type: "impact",
