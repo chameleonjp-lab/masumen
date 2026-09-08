@@ -27,6 +27,7 @@ if (visualEntries.join(",") !== audioEntries.join(","))
   throw new Error("Visual and audio recipe order/coverage must match");
 
 const scene = await read("client/src/game/scene.ts");
+const projectileVisuals = await read("client/src/game/render/projectileVisuals.ts");
 const gameCanvas = await read("client/src/components/GameCanvas.tsx");
 const engine = await read("client/src/game/engine.ts");
 const startup = await read("client/src/game/startup.ts");
@@ -69,6 +70,10 @@ for (const required of [
 
 for (const required of ["createEnemyVisualMap(scene)", "transientResources.release", "objectMeshes.sync", "clearBattleVisuals()"])
   if (!scene.includes(required)) throw new Error(`Renderer ownership contract missing: ${required}`);
+for (const required of ["projectileRenderPosition", "projectile.travelProgress", "projectile.flightMs", "projectile.target"])
+  if (!projectileVisuals.includes(required)) throw new Error(`Projectile rendering contract missing: ${required}`);
+for (const required of ["syncProjectileVisuals(snapshot)", "projectileVisuals.clear()"])
+  if (!scene.includes(required)) throw new Error(`Projectile lifecycle contract missing: ${required}`);
 if (!gameCanvas.includes("<StartupGate") || !startupUI.includes('state.status !== "ready"'))
   throw new Error("Startup screens must be exclusive");
 

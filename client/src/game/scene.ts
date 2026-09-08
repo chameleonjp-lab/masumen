@@ -14,6 +14,7 @@ import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
 import { GameWorld } from "./GameWorld";
 import { createEnemyVisualMap, updateEnemyPose } from "./render/enemyVisuals";
 import { disposeOwnedVisual, TransientMeshResources, VisualEntityMap } from "./render/visualResources";
+import { projectileRenderPosition, projectileRenderScale, projectileRenderSpan } from "./render/projectileVisuals";
 import { createMovementRepeat } from "./movementRepeat";
 import { ASSET_URLS } from "./assets";
 import { CardAudio } from "./cardAudio";
@@ -39,14 +40,6 @@ const GRAPHITE = Color3.FromHexString("#10171F");
 export interface SceneCallbacks {
   canAcceptInput?: () => boolean;
   onSnapshot?: (snapshot: BattleSnapshot) => void;
-}
-
-interface ActiveBeam {
-  mesh: Mesh;
-  from: Vector3;
-  to: Vector3;
-  progress: number;
-  speed: number;
 }
 
 interface WarningEffect {
@@ -421,19 +414,56 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
   playerAttack.isVisible = false;
   const units = createEnemyVisualMap(scene);
   const transientResources = new TransientMeshResources();
+  const projectileVisuals = new Map<string, Mesh>();
   scene.onDisposeObservable.add(() => {
     transientResources.clear();
     objectMeshes.clear();
     units.clear();
+    projectileVisuals.clear();
   });
 
-  const beams: ActiveBeam[] = [];
   const effects: TimedEffect[] = [];
   const enemyReactions = new Map<string, EnemyReaction>();
   let playerReaction: PlayerReaction | null = null;
   const addEffect = (mesh: Mesh, duration: number, startScale = 1, endScale = 2, spin = 0, rise = 0) => {
     transientResources.track(mesh);
     effects.push({ mesh, age: 0, duration, startScale, endScale, spin, rise });
+  };
+  const createProjectileVisual = (projectile: BattleSnapshot["projectiles"][number]): Mesh => {
+    const mesh = MeshBuilder.CreateSphere(`projectile-${projectile.id}`, { diameter: 0.16, segments: 8 }, scene);
+    const material = new StandardMaterial(`projectile-${projectile.id}-mat`, scene);
+    material.emissiveColor = projectile.owner === "player"
+      ? (projectile.charged ? EMBER : TEAL)
+      : projectile.motion === "reflect" ? OCHRE : EMBER;
+    material.diffuseColor = material.emissiveColor.scale(0.35);
+    material.alpha = projectile.rowSpan ? 0.38 : 0.9;
+    mesh.material = material;
+    mesh.isPickable = false;
+    transientResources.track(mesh);
+    projectileVisuals.set(projectile.id, mesh);
+    return mesh;
+  };
+  const syncProjectileVisuals = (snapshot: BattleSnapshot): void => {
+    const liveIds = new Set(snapshot.projectiles.map(projectile => projectile.id));
+    for (const [id, mesh] of Array.from(projectileVisuals.entries())) {
+      if (liveIds.has(id)) continue;
+      transientResources.release(mesh);
+      projectileVisuals.delete(id);
+    }
+    const gameTimeMs = snapshot.elapsed * 1000;
+    snapshot.projectiles.forEach(projectile => {
+      const mesh = projectileVisuals.get(projectile.id) ?? createProjectileVisual(projectile);
+      const renderPosition = projectileRenderPosition(projectile, gameTimeMs);
+      mesh.position = gridToWorld({ col: renderPosition.col, row: renderPosition.row }).add(new Vector3(0, renderPosition.height, 0));
+      const scale = projectileRenderScale(projectile);
+      mesh.scaling.set(scale.width, scale.height, projectileRenderSpan(projectile));
+      mesh.isVisible = gameTimeMs >= projectile.activeAt && gameTimeMs < projectile.expiresAt;
+      const material = mesh.material as StandardMaterial;
+      material.emissiveColor = projectile.owner === "player"
+        ? (projectile.charged ? EMBER : TEAL)
+        : projectile.motion === "reflect" ? OCHRE : EMBER;
+      material.alpha = projectile.rowSpan ? 0.38 : projectile.motion === "thrown" ? 0.82 : 0.9;
+    });
   };
   const createWarningEffect = (position: GridPosition) => {
     const tileKey = key(position);
@@ -1304,28 +1334,11 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
       }
     }
   };
-  const createBeam = (event: Extract<BattleEvent, { type: "projectile" }>) => {
-    const beam = MeshBuilder.CreateSphere("signal-beam", { diameter: event.charged ? 0.25 : 0.16, segments: 12 }, scene);
-    const material = new StandardMaterial("signal-beam-mat", scene);
-    material.emissiveColor = event.side === "player" ? (event.charged ? EMBER : TEAL) : EMBER;
-    beam.material = material;
-    beam.position = gridToWorld(event.from).add(new Vector3(0, 0.72, 0));
-    transientResources.track(beam);
-    beams.push({
-      mesh: beam,
-      from: beam.position.clone(),
-      to: gridToWorld(event.to).add(new Vector3(0, 0.72, 0)),
-      progress: 0,
-      speed: event.charged ? 3.3 : 4.7,
-    });
-  };
-
   let latest: BattleSnapshot | null = null;
   let hitstopUntil = 0;
   let attackSpriteUntil = 0;
   const clearBattleVisuals = () => {
     transientResources.clear();
-    beams.length = 0;
     effects.length = 0;
     warningEffects.clear();
     warningCounts.clear();
@@ -1336,6 +1349,7 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
     attackSpriteUntil = 0;
     units.clear();
     objectMeshes.clear();
+    projectileVisuals.clear();
   };
   let vibrationEnabled = true;
   const vibrate = (pattern: number | number[]) => {
@@ -1348,7 +1362,6 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
   };
   const handleEvent = (event: BattleEvent) => {
     if (event.type === "attack") attackSpriteUntil = performance.now() + (event.charged ? 360 : 210);
-    if (event.type === "projectile") createBeam(event);
     if (event.type === "card") {
       makeDirectionGuide(event);
       makeCardEffect(event);
@@ -1412,6 +1425,7 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
         (latest.mode === "result" && snapshot.mode === "custom"))) clearBattleVisuals();
       latest = snapshot;
       units.sync(snapshot.enemies.filter(enemy => enemy.state !== "deleted"));
+      syncProjectileVisuals(snapshot);
       callbacks.onSnapshot?.(snapshot);
     },
     handleEvent,
@@ -1605,6 +1619,7 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
     if (!latest) return;
     updatePanelVisuals(latest);
     syncObjectVisuals(latest);
+    syncProjectileVisuals(latest);
     updateWarningVisuals(latest, delta);
     if (requestedVfxCard && performance.now() >= nextVfxPreviewAt) {
       const tiles = debugVfxTiles(
@@ -1812,16 +1827,6 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
       }
     }
 
-    for (let index = beams.length - 1; index >= 0; index -= 1) {
-      const beam = beams[index];
-      beam.progress += delta * beam.speed;
-      beam.mesh.position = Vector3.Lerp(beam.from, beam.to, Math.min(1, beam.progress));
-      beam.mesh.scaling.setAll(1 + Math.sin(beam.progress * Math.PI) * 0.4);
-      if (beam.progress >= 1) {
-        transientResources.release(beam.mesh);
-        beams.splice(index, 1);
-      }
-    }
     for (let index = effects.length - 1; index >= 0; index -= 1) {
       const effect = effects[index];
       effect.age += delta;

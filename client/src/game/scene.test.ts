@@ -3,6 +3,7 @@ import type { Engine } from "@babylonjs/core/Engines/engine";
 import type { Scene } from "@babylonjs/core/scene";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGameScene } from "./scene";
+import { projectileRenderPosition } from "./render/projectileVisuals";
 import type { BattleSnapshot } from "./types";
 
 // Keep Babylon geometry/material ownership real; omit browser image decoding only.
@@ -80,6 +81,26 @@ describe("実シーンとGameWorldの接続", () => {
     }
     handle.dispose();
     expect(f.countListeners()).toBe(0);
+  });
+  it("表示弾の位置をスナップショットの進行率から更新する", async () => {
+    const f = setup();
+    let latest!: BattleSnapshot;
+    const handle = await createGameScene(f.engine as unknown as Engine, f.canvas, {
+      onSnapshot: snapshot => { latest = snapshot; },
+    });
+    handle.controller.confirmCustom();
+    handle.controller.fire();
+
+    const projectile = latest.projectiles.find(candidate => candidate.owner === "player");
+    if (!projectile) throw new Error("表示位置検査用のプレイヤー弾が生成されていません");
+    const mesh = handle.scene.getMeshByName(`projectile-${projectile.id}`);
+    expect(mesh).not.toBeNull();
+    const renderPosition = projectileRenderPosition(projectile, latest.elapsed * 1000);
+    expect(mesh!.position.x).toBeCloseTo((renderPosition.col - 2.5) * 1.48);
+    expect(mesh!.position.z).toBeCloseTo((renderPosition.row - 1) * 1.48);
+    expect(mesh!.position.y).toBeCloseTo(renderPosition.height + 0.12);
+
+    handle.dispose();
   });
   it("シーン組立途中の例外でも外部イベント・resize監視・シーンを解放する", async () => {
     const f = setup();
