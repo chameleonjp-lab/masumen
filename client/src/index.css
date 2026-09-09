@@ -644,12 +644,12 @@ select {
 
   .dpad.dpad-large {
     width: 132px;
-    height: 114px;
+    height: 132px;
   }
 
   .dpad.dpad-large button {
     width: 44px;
-    height: 38px;
+    height: 44px;
     font-size: 16px;
   }
 
@@ -659,12 +659,12 @@ select {
   }
 
   .dpad.dpad-large button:nth-child(2) {
-    top: 39px;
+    top: 44px;
     left: 0;
   }
 
   .dpad.dpad-large button:nth-child(3) {
-    top: 39px;
+    top: 44px;
     right: 0;
   }
 
@@ -776,6 +776,11 @@ select {
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
+}
+
+.game-shell .mobile-controls,
+.game-shell .mobile-controls button {
+  touch-action: none;
 }
 
 .game-shell .folder-editor input,
@@ -1114,12 +1119,12 @@ select {
 
   .dpad.dpad-large {
     width: 132px;
-    height: 114px;
+    height: 132px;
   }
 
   .dpad.dpad-large button {
     width: 44px;
-    height: 38px;
+    height: 44px;
     font-size: 16px;
   }
 
@@ -1129,7 +1134,7 @@ select {
 
   .dpad.dpad-large button:nth-child(2),
   .dpad.dpad-large button:nth-child(3) {
-    top: 39px;
+    top: 44px;
   }
 
   .dpad.dpad-large button:nth-child(4) {

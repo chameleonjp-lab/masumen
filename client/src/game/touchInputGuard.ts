@@ -1,8 +1,10 @@
 export type TouchAction = "move" | "fire" | "charge" | "skill";
 
 export interface TouchInputState {
-  activePointerId: number | null;
-  activeAction: TouchAction | null;
+  movePointerId: number | null;
+  chargePointerId: number | null;
+  actionPointerId: number | null;
+  action: Exclude<TouchAction, "move" | "charge"> | null;
   lastFireAt: number | null;
 }
 
@@ -10,10 +12,22 @@ const FIRE_REPEAT_GUARD_MS = 140;
 
 export function createTouchInputState(): TouchInputState {
   return {
-    activePointerId: null,
-    activeAction: null,
+    movePointerId: null,
+    chargePointerId: null,
+    actionPointerId: null,
+    action: null,
     lastFireAt: null,
   };
+}
+
+export function touchActionForPointer(
+  state: TouchInputState,
+  pointerId: number,
+): TouchAction | null {
+  if (state.movePointerId === pointerId) return "move";
+  if (state.chargePointerId === pointerId) return "charge";
+  if (state.actionPointerId === pointerId) return state.action;
+  return null;
 }
 
 export function beginTouchAction(
@@ -22,9 +36,6 @@ export function beginTouchAction(
   action: TouchAction,
   now: number,
 ): { accepted: boolean; state: TouchInputState } {
-  if (state.activePointerId !== null) {
-    return { accepted: false, state };
-  }
   if (
     action === "fire" &&
     state.lastFireAt !== null &&
@@ -32,11 +43,42 @@ export function beginTouchAction(
   ) {
     return { accepted: false, state };
   }
+
+  const hasActionPointer = state.actionPointerId !== null;
+  if (action === "move") {
+    if (state.movePointerId !== null || hasActionPointer) {
+      return { accepted: false, state };
+    }
+    return {
+      accepted: true,
+      state: { ...state, movePointerId: pointerId },
+    };
+  }
+
+  if (action === "charge") {
+    if (state.chargePointerId !== null || hasActionPointer) {
+      return { accepted: false, state };
+    }
+    return {
+      accepted: true,
+      state: { ...state, chargePointerId: pointerId },
+    };
+  }
+
+  if (
+    state.movePointerId !== null ||
+    state.chargePointerId !== null ||
+    hasActionPointer
+  ) {
+    return { accepted: false, state };
+  }
+
   return {
     accepted: true,
     state: {
-      activePointerId: pointerId,
-      activeAction: action,
+      ...state,
+      actionPointerId: pointerId,
+      action,
       lastFireAt: action === "fire" ? now : state.lastFireAt,
     },
   };
@@ -46,10 +88,16 @@ export function endTouchAction(
   state: TouchInputState,
   pointerId: number,
 ): TouchInputState {
-  if (state.activePointerId !== pointerId) return state;
+  if (state.movePointerId === pointerId) {
+    return { ...state, movePointerId: null };
+  }
+  if (state.chargePointerId === pointerId) {
+    return { ...state, chargePointerId: null };
+  }
+  if (state.actionPointerId !== pointerId) return state;
   return {
     ...state,
-    activePointerId: null,
-    activeAction: null,
+    actionPointerId: null,
+    action: null,
   };
 }
