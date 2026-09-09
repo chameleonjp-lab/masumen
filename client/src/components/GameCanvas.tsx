@@ -3,6 +3,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   type SyntheticEvent,
 } from "react";
@@ -12,6 +13,7 @@ import { createGameEngine } from "@/game/engine";
 import { startGameRuntime, type StartupState } from "@/game/startup";
 import { StartupGate } from "@/components/game/StartupScreen";
 import { cardPreviewTiles, nearestEnemyPosition } from "@/game/data/cardCombatData";
+import { cardPresentation } from "@/game/cardPresentation";
 import { createGameScene } from "@/game/scene";
 import type { BattleSnapshot, GameHandle, GridPosition } from "@/game/types";
 import FolderEditor from "@/components/game/FolderEditor";
@@ -222,21 +224,6 @@ function previewVector(card: BattleSnapshot["customHand"][number] | undefined) {
   if (card.target === "self") return "◎";
   if (card.target === "enemy-field") return "⇢";
   return "→";
-}
-
-const targetLabels: Record<string, string> = {
-  front: "正面",
-  near: "近距離",
-  row: "横一列",
-  column: "縦一列",
-  cross: "十字",
-  self: "自分",
-  "enemy-field": "敵陣全体",
-};
-
-function targetLabel(card: BattleSnapshot["customHand"][number] | undefined): string {
-  if (card?.rangeLabel) return card.rangeLabel;
-  return targetLabels[card?.target ?? "front"] ?? "対象範囲";
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -497,6 +484,23 @@ export default function GameCanvas() {
       : isCombatMode && hpRatio <= 30
         ? "caution"
         : "normal";
+  const previewCardIndex = snapshot.focusedCard ?? snapshot.selected[0] ?? 0;
+  const previewCard = snapshot.customHand[previewCardIndex];
+  const previewPresentation = cardPresentation(previewCard);
+  const focusedCard =
+    snapshot.focusedCard === null
+      ? undefined
+      : snapshot.customHand[snapshot.focusedCard];
+  const focusedPresentation = cardPresentation(focusedCard);
+  const focusedSelected =
+    snapshot.focusedCard !== null && snapshot.selected.includes(snapshot.focusedCard);
+  const nextQueuedCard = snapshot.queue[0];
+  const nextQueuedPresentation = cardPresentation(nextQueuedCard);
+  const cardVisualStyle = (presentation: ReturnType<typeof cardPresentation>) =>
+    ({
+      "--card-accent": presentation.accent,
+      "--card-secondary": presentation.secondary,
+    }) as CSSProperties;
   const toggleSound = () => {
     const next = !soundEnabled;
     setSoundEnabled(next);
@@ -750,12 +754,26 @@ export default function GameCanvas() {
               <p className="eyebrow">次のカード</p>
               {snapshot.queue.length > 0 ? (
                 <>
-                  <strong>{snapshot.queue[0].name}</strong>
+                  <div
+                    className="queued-card-summary"
+                    style={cardVisualStyle(nextQueuedPresentation)}
+                  >
+                    <span className="card-sigil" aria-hidden="true">
+                      {nextQueuedPresentation.glyph}
+                    </span>
+                    <div>
+                      <strong>{nextQueuedCard?.name}</strong>
+                      <small>
+                        {nextQueuedPresentation.signatureLabel} / {nextQueuedPresentation.targetLabel}
+                      </small>
+                    </div>
+                  </div>
                   <span>
                     {snapshot.sync || snapshot.emotion === "enraged"
-                      ? snapshot.queue[0].power * 2
-                      : snapshot.queue[0].power}{" "}
-                    威力
+                      ? nextQueuedCard?.power
+                        ? `威力 ${nextQueuedCard.power * 2}`
+                        : nextQueuedPresentation.impactLabel
+                      : nextQueuedPresentation.impactLabel}
                   </span>
                 </>
               ) : (
@@ -782,18 +800,28 @@ export default function GameCanvas() {
               </section>
             )}
             <section className="skill-rail" aria-label="送信済みカード">
-              {snapshot.queue.map((card, index) => (
-                <div
-                  className={`queued-card ${index === 0 ? "next" : ""} ${card.tier === "mega" ? "mega" : ""}`}
-                  key={`${card.id}-${index}`}
-                >
-                  <em>
-                    {index + 1} / {cardClassLabel(card)}
-                  </em>
-                  <span>{card.name}</span>
-                  <b>{card.power}</b>
-                </div>
-              ))}
+              {snapshot.queue.map((card, index) => {
+                const presentation = cardPresentation(card);
+                return (
+                  <div
+                    className={`queued-card ${index === 0 ? "next" : ""} ${card.tier === "mega" ? "mega" : ""}`}
+                    key={`${card.id}-${index}`}
+                    style={cardVisualStyle(presentation)}
+                  >
+                    <em>
+                      {index + 1} / {cardClassLabel(card)}
+                    </em>
+                    <span className="queued-card-name">
+                      <i className="card-sigil" aria-hidden="true">
+                        {presentation.glyph}
+                      </i>
+                      {card.name}
+                    </span>
+                    <small>{presentation.signatureLabel}</small>
+                    <b>{card.power > 0 ? card.power : "補助"}</b>
+                  </div>
+                );
+              })}
             </section>
           </>
         )}
@@ -823,58 +851,88 @@ export default function GameCanvas() {
               接続する。
             </h1>
             <span>
-              同名、同じ接続コード、または共通コード*で最大5枚を送信できます。
+              1枚から使用できます。2枚目以降は同名・同じ接続コード・共通コード*でつなぎ、最大5枚を送信します。
             </span>
             <div className="card-inspector" aria-live="polite">
-              {snapshot.focusedCard !== null ? (
+              {focusedCard ? (
                 <>
-                  <b>{snapshot.customHand[snapshot.focusedCard]?.name}</b>
-                  <span>
-                    {snapshot.customHand[snapshot.focusedCard]?.description}
-                  </span>
-                  <em>選択中。タップで解除</em>
+                  <b>{focusedCard.name}</b>
+                  <span>{focusedPresentation.summary}</span>
+                  <small>
+                    {focusedPresentation.impactLabel} / {focusedPresentation.targetLabel}
+                  </small>
+                  <em>
+                    {focusedSelected ? "選択中。もう一度タップで解除" : "未選択。タップで追加"}
+                  </em>
                 </>
               ) : (
-                <span>カードを1回タップで選択。選択中のカードをタップで解除。</span>
+                <span>カードをタップして選択。選択中のカードをもう一度タップすると解除できます。</span>
               )}
             </div>
           </div>
           <div className="card-deck">
             {snapshot.customHand.map((card, index) => {
+              const presentation = cardPresentation(card);
               const selected = snapshot.selected.includes(index);
               const focused = snapshot.focusedCard === index;
+              const selectionValidation = validateSelection(snapshot.customHand, [
+                ...snapshot.selected,
+                index,
+              ]);
               const canJoin =
                 selected ||
-                validateSelection(snapshot.customHand, [
-                  ...snapshot.selected,
-                  index,
-                ]).valid;
+                selectionValidation.valid;
               const selectionOrder = snapshot.selected.indexOf(index) + 1;
+              const selectionStatus = selected
+                ? `選択中 · ${selectionOrder}枚目`
+                : canJoin
+                  ? "追加できます"
+                  : "追加できません";
+              const selectionMessage = selected
+                ? "選択中。もう一度タップで解除"
+                : canJoin
+                  ? "タップで選択"
+                  : selectionValidation.reason;
+              const descriptionId = `card-description-${card.id}-${index}`;
               return (
                 <button
                   type="button"
                   key={`${card.id}-${index}`}
                   className={`signal-card ${selected ? "selected" : ""} ${focused ? "focused" : ""} ${!canJoin ? "unavailable" : ""} ${card.tier === "mega" ? "mega-card" : ""} ${card.isOverload ? "overload-card" : ""}`}
+                  style={cardVisualStyle(presentation)}
                   onClick={() => controller?.toggleCard(index)}
                   aria-pressed={selected}
-                  aria-label={`${card.name}。${selected ? "選択中、タップで解除" : canJoin ? "タップで選択" : "現在の選択条件では追加できません"}`}
+                  aria-describedby={descriptionId}
+                  aria-label={`${card.name}。${presentation.summary}。${selectionMessage}`}
                 >
                   <span className="card-index">0{index + 1}</span>
-                  {selected && (
-                    <span className="selection-order">{selectionOrder}</span>
-                  )}
-                  <span className="card-lane">
-                    {cardClassLabel(card)}
+                  <span
+                    className={`card-state ${selected ? "is-selected" : ""} ${!canJoin ? "is-unavailable" : ""}`}
+                  >
+                    {selectionStatus}
+                  </span>
+                  <span className="card-heading">
+                    <span className="card-sigil" aria-hidden="true">
+                      {presentation.glyph}
+                    </span>
+                    <span className="card-lane">{cardClassLabel(card)}</span>
                   </span>
                   <strong>{card.name}</strong>
-                  <small>
-                    {canJoin ? card.description : "この選択には接続できません"}
+                  <span className="card-signature">{presentation.signatureLabel}</span>
+                  <div className="card-tags" aria-label="カードの特徴">
+                    <span>{presentation.propertyLabel}</span>
+                    <span>{presentation.targetLabel}</span>
+                  </div>
+                  <small id={descriptionId}>
+                    {canJoin ? presentation.summary : `追加不可：${selectionValidation.reason}`}
                   </small>
-                  <b>
-                    {card.power}
-                    <em>OUT</em>
-                  </b>
-                  <i>コード {card.selectedCode ?? card.code}</i>
+                  <div className="card-stats" aria-label="カードの数値">
+                    <span>{presentation.impactLabel}</span>
+                    {presentation.hitLabel && <span>{presentation.hitLabel}</span>}
+                    {presentation.statusLabel && <span>{presentation.statusLabel}</span>}
+                    {presentation.durationLabel && <span>{presentation.durationLabel}</span>}
+                  </div>
+                  <i>接続コード {card.selectedCode ?? card.code}</i>
                 </button>
               );
             })}
@@ -884,28 +942,16 @@ export default function GameCanvas() {
             aria-label="カード攻撃範囲プレビュー"
           >
             <div className="range-preview-label">
-              <span>
-                攻撃範囲 /{" "}
-                {targetLabel(
-                  snapshot.customHand[
-                    snapshot.focusedCard ?? snapshot.selected[0] ?? 0
-                  ]
-                )}
-              </span>
+              <span>作用範囲 / {previewPresentation.targetLabel}</span>
               <b>
-                {snapshot.customHand[
-                  snapshot.focusedCard ?? snapshot.selected[0] ?? 0
-                ]?.name ?? "カード選択"}
+                {previewCard?.name ?? "カード選択"}
               </b>
+              <em>{previewPresentation.signatureLabel}</em>
             </div>
             <div
-              className={`range-board range-${snapshot.customHand[snapshot.focusedCard ?? snapshot.selected[0] ?? 0]?.target ?? "front"}`}
+              className={`range-board range-${previewCard?.target ?? "front"}`}
             >
               {Array.from({ length: 18 }, (_, index) => {
-                const previewCard =
-                  snapshot.customHand[
-                    snapshot.focusedCard ?? snapshot.selected[0] ?? 0
-                  ];
                 const col = Math.floor(index / 3);
                 const row = index % 3;
                 const tileKey = `${col}:${row}`;
@@ -937,14 +983,9 @@ export default function GameCanvas() {
             </div>
             <small>
               <b className="range-vector">
-                {previewVector(
-                  snapshot.customHand[
-                    snapshot.focusedCard ?? snapshot.selected[0] ?? 0
-                  ]
-                )}
+                {previewVector(previewCard)}
               </b>{" "}
-              現在位置（P）
-              から、説明中または選択中のカードが作用する対象マスを順に走査
+              Pから{previewPresentation.targetLabel}へ作用します。赤く光るマスが対象です。
             </small>
           </section>
           <div className="custom-footer">
