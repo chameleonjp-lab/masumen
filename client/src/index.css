@@ -1316,4 +1316,374 @@ select {
 
 .startup-panel { border-color: #2ad4d9; }
 .startup-diagnostics { margin-top: 16px; overflow-wrap: anywhere; font-size: 12px; }
+
+/* PR4: make weapon/card identity and selection state readable at a glance. */
+.signal-card {
+  --card-accent: #54f5ff;
+  --card-secondary: #ddfbf4;
+  min-height: 226px;
+  padding: 13px;
+  border-color: color-mix(in srgb, var(--card-accent) 42%, rgba(143, 177, 174, .36));
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--card-accent) 12%, rgba(21, 45, 52, .96)), rgba(8, 18, 24, .95));
+}
+
+.signal-card:hover,
+.signal-card:focus-visible {
+  border-color: var(--card-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--card-accent) 26%, transparent), 0 10px 28px rgba(0, 0, 0, .24);
+}
+
+.signal-card.selected {
+  border-color: #ff7257;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--card-accent) 16%, rgba(92, 45, 36, .98)), rgba(24, 21, 24, .95));
+}
+
+.signal-card.focused {
+  border-color: #ffbf62;
+  outline: 2px solid rgba(255, 191, 98, .62);
+  outline-offset: -5px;
+}
+
+.card-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+}
+
+.card-sigil {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  color: #071318;
+  border: 1px solid var(--card-secondary);
+  background: var(--card-accent);
+  box-shadow: 0 0 13px color-mix(in srgb, var(--card-accent) 45%, transparent);
+  font: 700 16px/1 "Space Grotesk", "Zen Kaku Gothic New", sans-serif;
+}
+
+.signal-card .card-lane {
+  width: auto;
+  height: auto;
+  padding: 5px 7px;
+  color: var(--card-secondary);
+  border: 1px solid color-mix(in srgb, var(--card-secondary) 62%, transparent);
+  background: color-mix(in srgb, var(--card-accent) 18%, rgba(7, 19, 24, .86));
+  font: 700 9px/1 "Zen Kaku Gothic New", sans-serif;
+  letter-spacing: .04em;
+}
+
+.card-index {
+  top: 10px;
+  right: 12px;
+}
+
+.card-state {
+  position: absolute;
+  top: 10px;
+  left: 13px;
+  max-width: calc(100% - 58px);
+  overflow: hidden;
+  color: #9dc4bd;
+  font: 700 8px/1.2 "Zen Kaku Gothic New", sans-serif;
+  letter-spacing: .04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-state.is-selected {
+  color: #ffd0a1;
+}
+
+.card-state.is-unavailable {
+  color: #ff9e84;
+}
+
+.signal-card strong {
+  margin-top: 12px;
+  color: #f1f8f1;
+  font-size: clamp(13px, 1.5vw, 19px);
+  line-height: 1.08;
+  letter-spacing: -.03em;
+}
+
+.card-signature {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--card-secondary);
+  font: 600 9px/1.25 "Zen Kaku Gothic New", sans-serif;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.card-tags,
+.card-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.card-tags {
+  margin-top: 7px;
+}
+
+.card-tags span,
+.card-stats span {
+  padding: 3px 5px;
+  border: 1px solid rgba(150, 215, 213, .22);
+  background: rgba(6, 22, 28, .58);
+  font: 600 8px/1.15 "Zen Kaku Gothic New", sans-serif;
+}
+
+.card-tags span {
+  color: #a9ccc5;
+}
+
+.signal-card small {
+  display: -webkit-box;
+  min-height: 38px;
+  margin-top: 8px;
+  overflow: hidden;
+  color: #c0d7d1;
+  font: 10px/1.45 "Zen Kaku Gothic New", sans-serif;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.card-stats {
+  margin-top: 7px;
+  padding-right: 2px;
+}
+
+.card-stats span {
+  color: #ffe0b2;
+  border-color: rgba(255, 190, 98, .28);
+}
+
+.signal-card > i {
+  right: 13px;
+  bottom: 11px;
+  left: auto;
+  color: #90ada8;
+  font-size: 8px;
+  letter-spacing: .04em;
+}
+
+.queue-console .queued-card-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 5px;
+  padding-left: 6px;
+  border-left: 2px solid var(--card-accent);
+}
+
+.queue-console .queued-card-summary .card-sigil {
+  width: 25px;
+  height: 25px;
+  font-size: 13px;
+}
+
+.queue-console .queued-card-summary strong {
+  font-size: 14px;
+}
+
+.queue-console .queued-card-summary small {
+  display: block;
+  margin-top: 3px;
+  color: var(--card-secondary);
+  font: 8px/1.2 "Zen Kaku Gothic New", sans-serif;
+}
+
+.queued-card {
+  border-color: color-mix(in srgb, var(--card-accent, #54f5ff) 42%, rgba(114, 145, 145, .28));
+}
+
+.queued-card-name {
+  display: flex !important;
+  align-items: center;
+  gap: 4px;
+}
+
+.queued-card-name .card-sigil {
+  width: 17px;
+  height: 17px;
+  color: #071318;
+  font-size: 10px;
+}
+
+.queued-card > small {
+  display: block;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--card-secondary, #ddfbf4);
+  font-size: 7px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.range-preview-label em {
+  color: var(--card-secondary, #ddfbf4);
+  font: 600 8px/1 "Zen Kaku Gothic New", sans-serif;
+  font-style: normal;
+  letter-spacing: .04em;
+}
+
+@media (max-width: 900px), (pointer: coarse) {
+  .signal-card {
+    min-height: 190px;
+    padding: 10px;
+  }
+
+  .card-heading {
+    gap: 5px;
+  }
+
+  .card-sigil {
+    width: 26px;
+    height: 26px;
+    font-size: 14px;
+  }
+
+  .signal-card .card-lane {
+    padding: 4px 5px;
+    font-size: 8px;
+  }
+
+  .card-state {
+    top: 8px;
+    left: 10px;
+    font-size: 7px;
+  }
+
+  .signal-card strong {
+    margin-top: 9px;
+    font-size: 14px;
+  }
+
+  .card-signature {
+    font-size: 8px;
+  }
+
+  .card-tags span,
+  .card-stats span {
+    font-size: 7px;
+  }
+
+  .signal-card small {
+    min-height: 34px;
+    margin-top: 6px;
+    font-size: 8px;
+    line-height: 1.4;
+    -webkit-line-clamp: 3;
+  }
+
+  .card-stats {
+    margin-top: 5px;
+  }
+
+  .signal-card > i {
+    right: 10px;
+    bottom: 8px;
+    font-size: 7px;
+  }
+
+  .card-inspector {
+    gap: 3px 8px;
+    font-size: 8px;
+  }
+
+  .card-inspector small {
+    flex-basis: 100%;
+    min-height: 0;
+    margin-top: 0;
+    font-size: 7px;
+  }
+}
+
+@media (max-width: 760px) and (orientation: landscape) {
+  .signal-card {
+    min-height: 154px;
+    padding: 8px;
+  }
+
+  .card-heading {
+    min-height: 23px;
+  }
+
+  .card-sigil {
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+  }
+
+  .signal-card .card-lane {
+    padding: 3px 4px;
+    font-size: 7px;
+  }
+
+  .card-state {
+    top: 7px;
+    left: 8px;
+    font-size: 6px;
+  }
+
+  .signal-card strong {
+    margin-top: 6px;
+    font-size: clamp(10px, 2vw, 13px);
+  }
+
+  .card-signature {
+    margin-top: 2px;
+    font-size: 7px;
+  }
+
+  .card-tags {
+    margin-top: 4px;
+    gap: 2px;
+  }
+
+  .card-tags span,
+  .card-stats span {
+    padding: 2px 3px;
+    font-size: 6px;
+  }
+
+  .signal-card small {
+    min-height: 25px;
+    margin-top: 4px;
+    font-size: 7px;
+    line-height: 1.3;
+    -webkit-line-clamp: 2;
+  }
+
+  .card-stats {
+    margin-top: 3px;
+    gap: 2px;
+  }
+
+  .signal-card > i {
+    right: 8px;
+    bottom: 5px;
+    font-size: 6px;
+  }
+
+  .range-preview-label em {
+    font-size: 7px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signal-card,
+  .signal-card:hover,
+  .signal-card.focused {
+    transform: none;
+    transition: none;
+  }
+}
 .startup-diagnostics summary { cursor: pointer; }

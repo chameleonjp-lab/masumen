@@ -29,6 +29,7 @@ if (visualEntries.join(",") !== audioEntries.join(","))
 const scene = await read("client/src/game/scene.ts");
 const projectileVisuals = await read("client/src/game/render/projectileVisuals.ts");
 const gameCanvas = await read("client/src/components/GameCanvas.tsx");
+const cardPresentation = await read("client/src/game/cardPresentation.ts");
 const styles = await read("client/src/index.css");
 const engine = await read("client/src/game/engine.ts");
 const startup = await read("client/src/game/startup.ts");
@@ -84,6 +85,9 @@ for (const required of [
   'aria-label=\"通常攻撃\"',
   'aria-label=\"チャージショット\"',
   'onClick={() => controller?.toggleCard(index)}',
+  "cardPresentation(card)",
+  "card-state",
+  "card-stats",
 ]) {
   if (!gameCanvas.includes(required))
     throw new Error(`Mobile input/card contract missing: ${required}`);
@@ -95,9 +99,16 @@ for (const required of [
   "touch-action: none",
   "@media (pointer: coarse) and (orientation: landscape)",
   ".dpad.dpad-large button {\n    width: 44px;\n    height: 44px;",
+  ".card-sigil",
+  ".card-state.is-selected",
+  ".card-stats span",
 ]) {
   if (!styles.includes(required))
     throw new Error(`Mobile layout contract missing: ${required}`);
+}
+for (const required of ["readableDescription", "cardTargetLabel", "getCardVfxRecipe"]) {
+  if (!cardPresentation.includes(required))
+    throw new Error(`Card presentation contract missing: ${required}`);
 }
 
 console.log(`browser contract ok: ${assetEntries.length} bundled assets, ${visualEntries.length} visual/audio recipes, scene cleanup covered`);
