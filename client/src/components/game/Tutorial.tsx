@@ -3,13 +3,33 @@ import { getPracticeStage, PRACTICE_STAGES } from "@/game/data/practice";
 interface TutorialProps {
   stage: number;
   cleared: boolean;
+  progress?: {
+    completed: number;
+    total: number;
+    remaining: string[];
+  };
+  retryCount: number;
+  supplyNames: string[];
   onNext: () => void;
+  onRetry: () => void;
   onExit: () => void;
 }
 
-export default function Tutorial({ stage, cleared, onNext, onExit }: TutorialProps) {
+export default function Tutorial({
+  stage,
+  cleared,
+  progress,
+  retryCount,
+  supplyNames,
+  onNext,
+  onRetry,
+  onExit,
+}: TutorialProps) {
   const current = getPracticeStage(stage);
   const finished = current.stage >= PRACTICE_STAGES.length;
+  const completed = progress?.completed ?? 0;
+  const total = progress?.total ?? current.requiredProgress.length;
+  const remaining = progress?.remaining ?? [];
 
   return (
     <section
@@ -26,8 +46,21 @@ export default function Tutorial({ stage, cleared, onNext, onExit }: TutorialPro
       <div className="practice-objective">
         <span>この段階の目標</span>
         <strong>{current.objective}</strong>
-        <small>{cleared ? "段階クリア — 次の段階へ進めます" : current.actionHint}</small>
+        <small>
+          {cleared
+            ? "段階クリア — 次の段階へ進めます"
+            : remaining.length === 0
+              ? `目標達成 — 敵を倒すと段階クリア（${completed}/${total}）`
+              : `${current.actionHint}（目標 ${completed}/${total}）`}
+        </small>
+        {!cleared && remaining.length > 0 ? (
+          <small>未達: {remaining.join(" / ")}</small>
+        ) : null}
       </div>
+      <p className="practice-supply">
+        補給: {supplyNames.length > 0 ? supplyNames.join(" / ") : "カードなし（通常射撃を使用）"}
+        {retryCount > 0 && ` ・ やり直し ${retryCount}回`}
+      </p>
       <ol className="practice-stages">
         {PRACTICE_STAGES.map(item => (
           <li
@@ -48,6 +81,9 @@ export default function Tutorial({ stage, cleared, onNext, onExit }: TutorialPro
       <div className="practice-actions">
         <button type="button" onClick={onExit}>
           通常モードへ戻る
+        </button>
+        <button type="button" onClick={onRetry}>
+          この段階をやり直す
         </button>
         <button
           type="button"

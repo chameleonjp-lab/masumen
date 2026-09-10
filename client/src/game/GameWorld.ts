@@ -60,7 +60,9 @@ import {
 import {
   getPracticeStage,
   PRACTICE_STAGES,
+  PRACTICE_PROGRESS_LABELS,
   type PracticeAction,
+  type PracticeProgressId,
 } from "./data/practice";
 import {
   BOSS_ENEMY_IDS,
@@ -396,6 +398,9 @@ export class GameWorld {
   private personalBestDelta = 0;
   private practiceStage = 1;
   private practiceCleared = false;
+  private practiceProgress = new Set<PracticeProgressId>();
+  private practiceRetryCount = 0;
+  private practiceLastCardCode: string | null = null;
   private records = loadRecords();
   private bossHistory: EnemyId[] = loadBossHistory();
   private lastAttackCard: Card | null = null;
@@ -447,6 +452,7 @@ export class GameWorld {
     togglePause: () => this.togglePause(),
     startPractice: () => this.startPractice(),
     nextPracticeStage: () => this.nextPracticeStage(),
+    retryPracticeStage: () => this.retryPracticeStage(),
     exitPractice: () => this.exitPractice(),
   };
 
@@ -476,6 +482,11 @@ export class GameWorld {
     }
   }
 
+  private retryPracticeStage(): void {
+    if (this.mode !== "practice") return;
+    this.enterPracticeStage(this.practiceStage, { retry: true });
+  }
+
   private exitPractice(): void {
     if (this.mode !== "practice") return;
     this.restart();
@@ -483,17 +494,50 @@ export class GameWorld {
     this.notify();
   }
 
-  private enterPracticeStage(stage: number): void {
+  private enterPracticeStage(stage: number, options: { retry?: boolean } = {}): void {
     // P0-3: each lesson is a real fixed-step combat scene, reset without run scoring.
+    const retryCount = options.retry ? this.practiceRetryCount + 1 : 0;
     this.restart();
     const current = getPracticeStage(stage);
     this.mode = "practice";
     this.practiceStage = current.stage;
     this.practiceCleared = false;
+    this.practiceProgress = new Set<PracticeProgressId>();
+    this.practiceRetryCount = retryCount;
+    this.practiceLastCardCode = null;
+    this.customHand = this.practiceSupply(current);
     this.queue = this.customHand.map(card => ({ ...card }));
     this.resetBoard(current.enemyIds);
-    this.message = "練習モード — " + current.title;
+    this.message = options.retry
+      ? `練習モード — ${current.title}をやり直します（補給・HP回復済み）`
+      : "練習モード — " + current.title;
     this.notify();
+  }
+
+  private practiceSupply(stage: ReturnType<typeof getPracticeStage>): Card[] {
+    const catalog = [...CARD_CATALOG, ...OVERLOAD_CARDS];
+    return stage.supplyCardIds.flatMap((id, index) => {
+      const source = catalog.find(card => card.id === id);
+      if (!source) return [];
+      return [{
+        ...source,
+        instanceId: `practice-${stage.stage}-${index}`,
+      }];
+    });
+  }
+
+  private markPracticeProgress(progress: PracticeProgressId): void {
+    if (this.mode !== "practice") return;
+    const stage = getPracticeStage(this.practiceStage);
+    if (!stage.requiredProgress.includes(progress)) return;
+    this.practiceProgress.add(progress);
+  }
+
+  private practiceRequirementsComplete(): boolean {
+    const stage = getPracticeStage(this.practiceStage);
+    return stage.requiredProgress.every(progress =>
+      this.practiceProgress.has(progress)
+    );
   }
 
   private isCombatActive(): boolean {
@@ -581,18 +625,27 @@ export class GameWorld {
     }
     this.updateForcedRepairDrain(now);
     this.emotionSystem.update(now, this.playerHp, this.playerMaxHp, this.sync);
+    if (this.emotionSystem.snapshot(now).state !== "normal")
+      this.markPracticeProgress("emotion");
     this.syncBoardOccupancy();
     const allEnemiesDefeated =
       this.enemies.length > 0 &&
       this.enemies.every(enemy => enemy.state === "deleted");
     if (this.mode === "practice") {
       if (this.playerHp <= 0) {
-        this.enterPracticeStage(this.practiceStage);
+        this.enterPracticeStage(this.practiceStage, { retry: true });
         return;
       }
       if (allEnemiesDefeated && !this.practiceCleared) {
-        this.practiceCleared = true;
-        this.message = "段階クリア — 次の段階へ進めます";
+        if (this.practiceRequirementsComplete()) {
+          this.practiceCleared = true;
+          this.message = "段階クリア — 次の段階へ進めます";
+        } else {
+          const remaining = getPracticeStage(this.practiceStage).requiredProgress
+            .filter(progress => !this.practiceProgress.has(progress))
+            .map(progress => PRACTICE_PROGRESS_LABELS[progress]);
+          this.message = `敵撃破 — 残りの目標: ${remaining.join("・")}`;
+        }
         this.notify();
       }
     } else {
@@ -648,6 +701,7 @@ export class GameWorld {
     if (enemy.state === "windup") {
       const warningUpdate = updateEnemyWarning(enemy, now);
       if (warningUpdate.started) {
+        this.markPracticeProgress("warning");
         enemy.lockedTargets.forEach(target =>
           this.onEvent({ type: "warning", at: target, enabled: true })
         );
@@ -1339,6 +1393,7 @@ export class GameWorld {
     this.playerGrid = next;
     this.panelSystem.occupy(this.playerGrid, "player");
     this.applyPlayerEntryTerrain(this.playerGrid);
+    this.markPracticeProgress("move");
     this.message = this.isCharging ? "チャージを維持して移動" : "位置を更新";
     this.notify();
   }
@@ -1389,6 +1444,7 @@ export class GameWorld {
       target: target ? { ...target.grid } : null,
       speedCellsPerSecond: COMBAT_BALANCE.normalShot.speedCellsPerSecond,
     });
+    this.markPracticeProgress("normal-shot");
     this.message = "正面へ通常弾を発射";
     this.notify();
   }
@@ -1440,6 +1496,7 @@ export class GameWorld {
         ? COMBAT_BALANCE.chargeShot.speedCellsPerSecond
         : COMBAT_BALANCE.normalShot.speedCellsPerSecond,
     });
+    this.markPracticeProgress("charge-shot");
     this.message = charged ? "正面へチャージ弾を発射" : "正面へ短射撃を発射";
     this.notify();
   }
@@ -1516,6 +1573,12 @@ export class GameWorld {
     if (!this.practiceActionAllowed("card")) return;
     const card = this.queue.shift();
     if (!card) return;
+    const cardCode = card.selectedCode ?? card.code;
+    if (this.practiceLastCardCode === cardCode)
+      this.markPracticeProgress("connection");
+    this.practiceLastCardCode = cardCode;
+    this.markPracticeProgress("card");
+    if (card.isOverload) this.markPracticeProgress("overload");
     this.cardsUsed += card.chainCardIds?.length ?? 1;
     if (card.isOverload) this.overloadCardsUsed += 1;
     if (card.power > 0) this.lastAttackCard = { ...card };
@@ -2859,6 +2922,13 @@ export class GameWorld {
       : elementalDamage;
   }
   private applyPlayerCardEffect(card: Card, power = card.power): void {
+    if (
+      card.family === "設置" ||
+      card.family === "地形" ||
+      card.properties?.includes("地形")
+    ) {
+      this.markPracticeProgress("terrain");
+    }
     if (card.isOverload) this.applyOverloadEffect(card);
     const value = card.effectValue ?? 0;
 
@@ -3536,6 +3606,7 @@ export class GameWorld {
         isCounterWindowOpen(this.gameTimeMs, enemy.counterWindowState)
     );
     if (counter) {
+      this.markPracticeProgress("counter");
       this.clearWarnings(enemy);
       enemy.lockedTargets = [];
       enemy.state = "stunned";
@@ -3999,6 +4070,9 @@ export class GameWorld {
     this.personalBestDelta = 0;
     this.practiceStage = 1;
     this.practiceCleared = false;
+    this.practiceProgress = new Set<PracticeProgressId>();
+    this.practiceRetryCount = 0;
+    this.practiceLastCardCode = null;
     this.selected = [];
     this.focusedCard = null;
     this.selectionError = null;
@@ -4188,6 +4262,16 @@ export class GameWorld {
     const now = this.gameTimeMs;
     const emotion = this.emotionSystem.snapshot(now);
     const practice = getPracticeStage(this.practiceStage);
+    const practiceProgress =
+      this.mode === "practice"
+        ? {
+            completed: this.practiceProgress.size,
+            total: practice.requiredProgress.length,
+            remaining: practice.requiredProgress
+              .filter(progress => !this.practiceProgress.has(progress))
+              .map(progress => PRACTICE_PROGRESS_LABELS[progress]),
+          }
+        : undefined;
     this.onSnapshot({
       mode: this.mode,
       playerHp: this.playerHp,
@@ -4335,6 +4419,13 @@ export class GameWorld {
         this.mode === "practice" ? practice.objective : undefined,
       practiceCleared:
         this.mode === "practice" ? this.practiceCleared : undefined,
+      practiceProgress,
+      practiceRetryCount:
+        this.mode === "practice" ? this.practiceRetryCount : undefined,
+      practiceSupplyNames:
+        this.mode === "practice"
+          ? this.customHand.map(card => card.name)
+          : undefined,
     });
   }
 }
