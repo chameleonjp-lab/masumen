@@ -566,6 +566,46 @@ describe("GameWorldの現行Wave基準", () => {
     ]));
   });
 
+  it("leaves a solid durability-70 ice wall after the thrown card lands", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+
+    queueCardForTest(world, "icewall");
+    world.controller.useSkill();
+    expect(latest?.projectiles).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceCardId: "icewall", motion: "thrown" }),
+    ]));
+
+    advanceAtFixedRate(world, 0.4);
+
+    expect(latest?.objects).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "cube",
+        effectId: "ice-wall",
+        sourceCardId: "icewall",
+        hp: 70,
+        collision: "solid",
+      }),
+    ]));
+  });
+
+  it("halves enemy barriers when the turbulence wall resolves", () => {
+    const world = new GameWorld(() => undefined, () => undefined);
+    const internal = world as unknown as {
+      enemies: Array<{ barrier: number; state: string }>;
+    };
+    const target = internal.enemies.find(enemy => enemy.state !== "deleted");
+    if (!target) throw new Error("障壁検査用の敵が配置されていません");
+    target.barrier = 120;
+
+    queueCardForTest(world, "gustwall");
+    world.controller.useSkill();
+
+    expect(target.barrier).toBe(60);
+  });
+
   it("transfers to the first safe panel around the shared nearest target", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(snapshot => {

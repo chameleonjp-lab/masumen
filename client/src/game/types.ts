@@ -147,6 +147,7 @@ export type ObjectTrigger =
 export type FieldObjectEffect =
   | "timed-bomb"
   | "watch-mine"
+  | "ice-wall"
   | "turret"
   | "stake"
   | "poison-mist"

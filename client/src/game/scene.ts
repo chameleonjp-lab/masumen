@@ -317,7 +317,11 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
   const makeObjectVisual = (object: FieldObject): { root: TransformNode; meshes: Mesh[] } => {
     const root = new TransformNode(`field-object-${object.id}`, scene);
     root.position = gridToWorld(object.panel);
-    const tint = object.owner === "player" ? TEAL : OCHRE;
+    const tint = object.sourceCardId === "icewall"
+      ? Color3.FromHexString("#89E6FF")
+      : object.owner === "player"
+        ? TEAL
+        : OCHRE;
     const material = new StandardMaterial(`field-object-${object.id}-mat`, scene);
     material.emissiveColor = tint;
     material.diffuseColor = tint.scale(0.4);

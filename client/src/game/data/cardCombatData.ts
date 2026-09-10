@@ -271,6 +271,10 @@ export function enrichCard(card: Card): Card {
   return {
     ...card,
     ...profile,
+    // Profile metadata is authoritative for combat, but an individual card
+    // can still provide a clearer player-facing range label when its shape is
+    // only an approximation (for example, a persistent object left on impact).
+    rangeLabel: profile.rangeLabel ?? card.rangeLabel,
     powerPerHit: profile.powerPerHit || card.power,
     hitCount: profile.hitCount || 1,
     rangePreviewId: profile.rangePreviewId || "shape-default",

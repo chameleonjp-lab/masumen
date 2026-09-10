@@ -52,6 +52,33 @@ describe("カード表示用プレゼンテーション", () => {
     expect(rapid.hitLabel).toBe("3回作用");
   });
 
+  it("カード固有の作用範囲を汎用形状ラベルより優先する", () => {
+    const labels = [
+      "icewall",
+      "web",
+      "turret",
+      "block",
+      "sector",
+      "gustwall",
+      "sanctuary",
+      "overdrive",
+    ].map(id => {
+      const card = CARD_CATALOG.find(candidate => candidate.id === id);
+      return [id, cardTargetLabel(card)] as const;
+    });
+
+    expect(Object.fromEntries(labels)).toEqual({
+      icewall: "最寄り敵＋近くの空きマス",
+      web: "最寄り敵中心の2×2",
+      turret: "自陣前列",
+      block: "自分の正面1マス",
+      sector: "敵前列1列",
+      gustwall: "敵陣全行",
+      sanctuary: "全自陣",
+      overdrive: "最も近い敵へ3回入力",
+    });
+  });
+
   it("未選択状態にも安全な説明を返す", () => {
     const presentation = cardPresentation(undefined);
 
