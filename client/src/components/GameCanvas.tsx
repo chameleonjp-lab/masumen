@@ -1240,7 +1240,11 @@ export default function GameCanvas() {
         <Tutorial
           stage={snapshot.practiceStage ?? 1}
           cleared={snapshot.practiceCleared === true}
+          progress={snapshot.practiceProgress}
+          retryCount={snapshot.practiceRetryCount ?? 0}
+          supplyNames={snapshot.practiceSupplyNames ?? []}
           onNext={() => controller?.nextPracticeStage()}
+          onRetry={() => controller?.retryPracticeStage()}
           onExit={() => controller?.exitPractice()}
         />
       )}

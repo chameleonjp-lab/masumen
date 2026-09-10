@@ -3,6 +3,7 @@ import { GameWorld } from "./GameWorld";
 import { CARD_CATALOG } from "./deck";
 import { createChainCard, findChainTechnique } from "./data/chainTechniques";
 import { getEnemyDefinition } from "./data/enemies";
+import { getPracticeStage } from "./data/practice";
 import type { BattleEvent, BattleSnapshot, Card, GridPosition } from "./types";
 
 type ProjectileEvent = Extract<BattleEvent, { type: "projectile" }>;
@@ -1354,8 +1355,12 @@ describe("GameWorldの現行Wave基準", () => {
 
     const internal = world as unknown as {
       enemies: Array<{ state: string }>;
+      practiceProgress: Set<string>;
     };
     for (let stage = 0; stage < 6; stage += 1) {
+      internal.practiceProgress = new Set(
+        getPracticeStage(stage + 1).requiredProgress
+      );
       internal.enemies.forEach(enemy => {
         enemy.state = "deleted";
       });
@@ -1374,6 +1379,86 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.wave).toBe(1);
     expect(latest?.elapsed).toBe(0);
     expect(latest?.highScore).toBe(0);
+  });
+
+  it("requires the stage goals in addition to defeating the practice enemy", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      enemies: Array<{ state: string }>;
+    };
+
+    world.controller.startPractice();
+    internal.enemies.forEach(enemy => {
+      enemy.state = "deleted";
+    });
+    world.update(1 / 60);
+
+    expect(latest?.practiceCleared).toBe(false);
+    expect(latest?.practiceProgress).toEqual({
+      completed: 0,
+      total: 2,
+      remaining: ["移動", "通常射撃"],
+    });
+
+    world.controller.move(1, 0);
+    world.controller.fire();
+    world.update(1 / 60);
+
+    expect(latest?.practiceCleared).toBe(true);
+    expect(latest?.practiceProgress).toEqual({
+      completed: 2,
+      total: 2,
+      remaining: [],
+    });
+  });
+
+  it("restocks and fully resets a practice stage when retrying", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      playerHp: number;
+      playerMaxHp: number;
+    };
+
+    world.controller.startPractice();
+    world.controller.retryPracticeStage();
+    expect(latest?.practiceRetryCount).toBe(1);
+    internal.playerHp = 0;
+    world.update(1 / 60);
+
+    expect(latest?.practiceRetryCount).toBe(2);
+    expect(latest?.playerHp).toBe(internal.playerMaxHp);
+    expect(latest?.practiceProgress?.completed).toBe(0);
+    expect(latest?.practiceSupplyNames).toEqual([]);
+    expect(latest?.message).toContain("補給・HP回復済み");
+  });
+
+  it("supplies connected cards for the connection-code lesson", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      enterPracticeStage: (stage: number) => void;
+      hitstopRemainingMs: number;
+    };
+
+    internal.enterPracticeStage(3);
+    expect(latest?.practiceSupplyNames).toEqual(["連射弾", "貫通槍"]);
+    world.controller.useSkill();
+    internal.hitstopRemainingMs = 0;
+    world.controller.useSkill();
+
+    expect(latest?.practiceProgress).toEqual({
+      completed: 1,
+      total: 1,
+      remaining: [],
+    });
   });
 
   it("does not advance practice before the current stage is cleared", () => {

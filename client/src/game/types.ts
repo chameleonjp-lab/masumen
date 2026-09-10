@@ -335,6 +335,13 @@ export interface BattleSnapshot {
   practiceStageLesson?: string;
   practiceStageObjective?: string;
   practiceCleared?: boolean;
+  practiceProgress?: {
+    completed: number;
+    total: number;
+    remaining: string[];
+  };
+  practiceRetryCount?: number;
+  practiceSupplyNames?: string[];
   overdriveStep?: number;
   overdriveRemaining?: number;
   usedChainTechniques?: string[];
@@ -397,6 +404,7 @@ export interface GameController {
   restart: () => void;
   startPractice: () => void;
   nextPracticeStage: () => void;
+  retryPracticeStage: () => void;
   exitPractice: () => void;
   togglePause: () => void;
   setSoundEnabled?: (enabled: boolean) => void;
