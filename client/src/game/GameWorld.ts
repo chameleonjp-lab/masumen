@@ -221,6 +221,8 @@ const playerTiles = () =>
   ).flat();
 const sameTile = (a: GridPosition, b: GridPosition) =>
   a.col === b.col && a.row === b.row;
+const gridDistance = (a: GridPosition, b: GridPosition) =>
+  Math.abs(a.col - b.col) + Math.abs(a.row - b.row);
 const uniqueTiles = (tiles: GridPosition[]) =>
   tiles.filter(
     (tile, index) => tiles.findIndex(other => sameTile(other, tile)) === index
@@ -563,7 +565,8 @@ export class GameWorld {
         this.applyProjectileResolution(
           resolution.projectile,
           resolution.targetIds,
-          resolution.objectId
+          resolution.objectId,
+          resolution.kind
         )
       );
     this.updateFieldObjects(now);
@@ -2313,7 +2316,8 @@ export class GameWorld {
   private applyProjectileResolution(
     projectile: ProjectileState,
     targetIds: string[],
-    objectId: string | null
+    objectId: string | null,
+    resolutionKind: "hit" | "blocked" | "expired"
   ): void {
     if (projectile.sourceCardId === "meteor")
       this.panelSystem.crack(projectile.position);
@@ -2363,6 +2367,8 @@ export class GameWorld {
           }
           this.strikeEnemy(enemy, projectile.damage, card, projectile.charged);
         });
+      if (projectile.sourceCardId === "icewall" && resolutionKind !== "expired")
+        this.placeIceWallAtImpact(projectile.position);
       return;
     }
     if (targetIds.includes("player")) {
@@ -3147,6 +3153,61 @@ export class GameWorld {
     );
   }
 
+  private placeIceWallAtImpact(impact: GridPosition): void {
+    const adjacent = [
+      { col: impact.col - 1, row: impact.row },
+      { col: impact.col + 1, row: impact.row },
+      { col: impact.col, row: impact.row - 1 },
+      { col: impact.col, row: impact.row + 1 },
+    ];
+    const candidates = uniqueTiles([
+      impact,
+      ...adjacent,
+      ...this.panelSystem.snapshot()
+        .filter(panel => panel.owner === "enemy")
+        .map(panel => ({ col: panel.col, row: panel.row })),
+    ]);
+    const placement = candidates
+      .map(position => ({
+        position,
+        panel: this.panelSystem.get(position),
+      }))
+      .filter(({ panel }) =>
+        panel?.owner === "enemy" &&
+        panel.occupantId === null &&
+        panel.objectId === null &&
+        panel.terrain !== "hole"
+      )
+      .sort(
+        (a, b) =>
+          gridDistance(a.position, impact) - gridDistance(b.position, impact) ||
+          a.position.col - b.position.col ||
+          a.position.row - b.position.row
+      )[0]?.position;
+
+    if (!placement) {
+      this.message = "氷壁弾 — 置ける空きマスがありません";
+      return;
+    }
+    const wall = this.placeFieldObject(
+      "cube",
+      placement,
+      70,
+      null,
+      "damage",
+      {
+        effectId: "ice-wall",
+        sourceCardId: "icewall",
+        collision: "solid",
+        fallback: false,
+      }
+    );
+    if (wall)
+      this.message = sameTile(placement, impact)
+        ? "氷壁弾 — 氷壁を設置"
+        : "氷壁弾 — 近くに氷壁を設置";
+  }
+
   private placeFieldObject(
     kind: FieldObjectKind,
     preferred: GridPosition,
@@ -3290,6 +3351,10 @@ export class GameWorld {
   }
 
   private applyGustWall(): void {
+    for (const enemy of this.enemies) {
+      if (enemy.state !== "deleted" && enemy.barrier > 0)
+        enemy.barrier = Math.floor(enemy.barrier / 2);
+    }
     for (const enemy of [...this.enemies].filter(enemy => enemy.state !== "deleted").sort((a, b) => b.grid.col - a.grid.col)) {
       const destination = { col: enemy.grid.col + 1, row: enemy.grid.row };
       const panel = this.panelSystem.get(destination);
