@@ -5,6 +5,7 @@ import {
   BattleDeck,
   createStandardFolder,
   defaultSaveData,
+  folderHandSignature,
   loadSaveData,
   validateFolder,
 } from "./folder";
@@ -114,6 +115,31 @@ describe("再現可能な戦闘デッキ", () => {
       second.map(card => `${card.id}:${card.selectedCode}`)
     );
     expect(new Set(first.map(card => card.instanceId)).size).toBe(5);
+  });
+
+  it("does not repeat a physical hand while the Wave is being offered", () => {
+    const folder = createStandardFolder("variation");
+    const deck = new BattleDeck(folder, 12345);
+    const hands = Array.from({ length: 6 }, () => deck.drawHand());
+    const signatures = hands.map(hand => folderHandSignature(hand));
+
+    expect(hands.every(hand => hand.length === 5)).toBe(true);
+    expect(
+      hands.every(hand => new Set(hand.map(card => card.instanceId)).size === 5)
+    ).toBe(true);
+    expect(new Set(signatures).size).toBe(hands.length);
+  });
+
+  it("keeps hand variation deterministic for a seeded run", () => {
+    const folder = createStandardFolder("variation-replay");
+    const drawSequence = () => {
+      const deck = new BattleDeck(folder, 90210);
+      return Array.from({ length: 6 }, () =>
+        folderHandSignature(deck.drawHand())
+      );
+    };
+
+    expect(drawSequence()).toEqual(drawSequence());
   });
 
   it("moves only selected cards to used and returns the rest", () => {

@@ -296,6 +296,8 @@ export interface BattleSnapshot {
   invincible: boolean;
   invincibleRemaining: number;
   customHand: Card[];
+  /** Number of normal-mode hands presented in the current Wave. */
+  customHandNumber: number;
   selected: number[];
   focusedCard: number | null;
   selectionError: string | null;

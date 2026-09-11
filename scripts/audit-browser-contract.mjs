@@ -88,6 +88,8 @@ for (const required of [
   "cardPresentation(card)",
   "card-state",
   "card-stats",
+  "customHandNumber",
+  "提示 ",
 ]) {
   if (!gameCanvas.includes(required))
     throw new Error(`Mobile input/card contract missing: ${required}`);

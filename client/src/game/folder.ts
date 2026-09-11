@@ -17,6 +17,22 @@ export interface FolderEntry {
   code: ConnectionCode;
 }
 
+/**
+ * A stable identity for a presented hand.
+ *
+ * Card names are intentionally not used here: a valid folder may contain
+ * multiple copies of the same card, while each physical folder entry must be
+ * tracked independently for draw/return accounting.
+ */
+export function folderHandSignature(
+  cards: readonly Pick<FolderEntry, "instanceId">[]
+): string {
+  return cards
+    .map(card => card.instanceId)
+    .sort()
+    .join("|");
+}
+
 export interface SavedFolder {
   id: string;
   name: string;
@@ -310,6 +326,7 @@ export class BattleDeck {
   private remaining: FolderEntry[] = [];
   private offered: FolderEntry[] = [];
   private used: FolderEntry[] = [];
+  private presentedHands = new Set<string>();
 
   public constructor(folder: SavedFolder, seed: number) {
     if (!validateFolder(folder).valid)
@@ -327,11 +344,41 @@ export class BattleDeck {
     this.remaining = this.random.shuffle(this.folder.cards);
     this.offered = [];
     this.used = [];
+    this.presentedHands.clear();
   }
 
-  public drawHand(): MaterializedFolderCard[] {
+  public drawHand(options: {
+    avoidSignatures?: readonly string[];
+  } = {}): MaterializedFolderCard[] {
     this.returnOffered();
-    this.offered = this.remaining.splice(0, Math.min(HAND_SIZE, this.remaining.length));
+    const avoided = new Set<string>([
+      ...Array.from(this.presentedHands),
+      ...(options.avoidSignatures ?? []),
+    ]);
+    let attempts = 0;
+    do {
+      this.offered = this.remaining.splice(
+        0,
+        Math.min(HAND_SIZE, this.remaining.length)
+      );
+      const signature = folderHandSignature(this.offered);
+      if (
+        !avoided.has(signature) ||
+        this.offered.length < HAND_SIZE ||
+        this.remaining.length < HAND_SIZE ||
+        attempts >= this.folder.cards.length
+      ) {
+        this.presentedHands.add(signature);
+        break;
+      }
+      // Put a repeated offer at the back of the remaining pile and try the
+      // next deterministic segment. The cap above guarantees progress even
+      // for a tiny/degenerate folder supplied by a future migration.
+      this.remaining.push(...this.offered);
+      this.offered = [];
+      attempts += 1;
+    } while (this.remaining.length > 0);
+
     return this.offered.flatMap(entry => {
       const card = materializeFolderEntry(entry);
       return card ? [card] : [];
