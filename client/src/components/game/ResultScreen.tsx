@@ -18,6 +18,7 @@ interface ResultScreenProps {
   onRestart: () => void;
   onFolderEdit: () => void;
   onHome: () => void;
+  onRetryRanking: () => void;
 }
 
 function timecode(seconds: number): string {
@@ -48,6 +49,7 @@ export default function ResultScreen({
   onRestart,
   onFolderEdit,
   onHome,
+  onRetryRanking,
 }: ResultScreenProps) {
   const breakdown = snapshot.scoreBreakdown;
   const chains = snapshot.usedChainTechniques ?? [];
@@ -159,6 +161,11 @@ export default function ResultScreen({
           結果をシェア／コピー <span>↗</span>
         </button>
         <p className="share-status" role="status">{shareStatus || rankingStatus}</p>
+        {rankingStatus.includes("利用できません") && (
+          <button type="button" onClick={onRetryRanking}>
+            ランキングを再試行
+          </button>
+        )}
         <ol className="online-ranking" aria-label="オンラインランキング">
           {ranking.length > 0 ? ranking.map(row => (
             <li key={`${row.rank}-${row.displayName}`}>

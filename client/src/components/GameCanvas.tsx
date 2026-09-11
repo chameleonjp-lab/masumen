@@ -54,6 +54,7 @@ const initialSnapshot: BattleSnapshot = {
   invincible: false,
   invincibleRemaining: 0,
   customHand: [],
+  customHandNumber: 1,
   selected: [],
   focusedCard: null,
   selectionError: null,
@@ -309,6 +310,7 @@ export default function GameCanvas() {
   const [nameShareStatus, setNameShareStatus] = useState("");
   const [ranking, setRanking] = useState<RankingRow[]>([]);
   const [rankingStatus, setRankingStatus] = useState("ランキング登録：待機中");
+  const [rankingRetryToken, setRankingRetryToken] = useState(0);
   const resultSubmissionKeyRef = useRef<string | null>(null);
   const touchInputRef = useRef(createTouchInputState());
   const moveRepeatRef = useRef<MovementRepeat | null>(null);
@@ -472,6 +474,7 @@ export default function GameCanvas() {
     snapshot.reachedWave,
     snapshot.score,
     snapshot.wave,
+    rankingRetryToken,
   ]);
 
   const controller = controllerRef.current;
@@ -840,7 +843,8 @@ export default function GameCanvas() {
               {snapshot.elapsed > 0 ? "10秒後に再選択" : "初回選択"}
             </span>
             <span>
-              手札 {String(snapshot.customHand.length).padStart(2, "0")} / 05
+              提示 {String(snapshot.customHandNumber).padStart(2, "0")} / 手札{" "}
+              {String(snapshot.customHand.length).padStart(2, "0")} / 05
             </span>
           </div>
           <div className="custom-heading">
@@ -1233,6 +1237,10 @@ export default function GameCanvas() {
           onRestart={() => controller?.restart()}
           onFolderEdit={() => setFolderEditorOpen(true)}
           onHome={() => controller?.restart()}
+          onRetryRanking={() => {
+            resultSubmissionKeyRef.current = null;
+            setRankingRetryToken(token => token + 1);
+          }}
         />
       )}
 

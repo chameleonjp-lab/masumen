@@ -125,13 +125,13 @@ describe("GameWorldの現行Wave基準", () => {
     installWindowStub("?seed=777");
     const seeded = new GameWorld(() => undefined, () => undefined);
     const seededHand = (seeded as unknown as { customHand: Card[] }).customHand.map(
-      card => card.id
+      card => `${card.instanceId}:${card.id}:${card.selectedCode}`
     );
 
     installWindowStub("?seed=777");
     const repeated = new GameWorld(() => undefined, () => undefined);
     const repeatedHand = (repeated as unknown as { customHand: Card[] }).customHand.map(
-      card => card.id
+      card => `${card.instanceId}:${card.id}:${card.selectedCode}`
     );
     expect(repeatedHand).toEqual(seededHand);
 
@@ -141,6 +141,59 @@ describe("GameWorldの現行Wave基準", () => {
     const ordinarySeed = (ordinary as unknown as { runSeed: number }).runSeed;
     const secondOrdinarySeed = (secondOrdinary as unknown as { runSeed: number }).runSeed;
     expect(secondOrdinarySeed).not.toBe(ordinarySeed);
+  });
+
+  it("changes the normal hand between Waves and replays that sequence by seed", () => {
+    const run = () => {
+      installWindowStub("?seed=7788");
+      let latest: BattleSnapshot | undefined;
+      const world = new GameWorld(
+        snapshot => {
+          latest = snapshot;
+        },
+        () => undefined
+      );
+      if (!latest) throw new Error("missing initial snapshot");
+      const first = latest.customHand.map(card => card.instanceId);
+      const internal = world as unknown as {
+        mode: BattleSnapshot["mode"];
+      };
+      internal.mode = "intermission";
+      world.controller.nextWave();
+      if (!latest) throw new Error("missing next-wave snapshot");
+      return {
+        hands: [first, latest.customHand.map(card => card.instanceId)],
+        numbers: [1, latest.customHandNumber],
+      };
+    };
+
+    const firstRun = run();
+    const repeatedRun = run();
+    expect(firstRun.hands[0]).not.toEqual(firstRun.hands[1]);
+    expect(firstRun.numbers).toEqual([1, 1]);
+    expect(repeatedRun).toEqual(firstRun);
+  });
+
+  it("derives the overload replacement stream from the run seed", () => {
+    installWindowStub("?seed=11");
+    const first = new GameWorld(() => undefined, () => undefined) as unknown as {
+      overloadRandom: { getState: () => number };
+    };
+    installWindowStub("?seed=11");
+    const repeated = new GameWorld(() => undefined, () => undefined) as unknown as {
+      overloadRandom: { getState: () => number };
+    };
+    installWindowStub("?seed=12");
+    const second = new GameWorld(() => undefined, () => undefined) as unknown as {
+      overloadRandom: { getState: () => number };
+    };
+
+    expect(repeated.overloadRandom.getState()).toBe(
+      first.overloadRandom.getState()
+    );
+    expect(second.overloadRandom.getState()).not.toBe(
+      first.overloadRandom.getState()
+    );
   });
 
   it("selects and deselects a card with one tap", () => {
@@ -286,10 +339,12 @@ describe("GameWorldの現行Wave基準", () => {
     advanceAtFixedRate(world, 10);
     world.controller.move(0, 0);
     expect(latest?.mode).toBe("battle");
+    expect(latest?.customHandNumber).toBe(1);
     expect(latest?.gauge).toBeCloseTo(100, 5);
     expect(latest?.customRemaining).toBeCloseTo(0, 5);
     world.controller.openCustom();
     expect(latest?.mode).toBe("custom");
+    expect(latest?.customHandNumber).toBe(2);
   });
 
   it("does not open custom before full and cancels charge when opening", () => {

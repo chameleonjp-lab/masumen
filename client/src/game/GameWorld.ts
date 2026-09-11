@@ -20,6 +20,7 @@ import {
 import {
   activeFolder as getActiveFolder,
   BattleDeck,
+  folderHandSignature,
   loadSaveData,
   saveSaveData,
   type SavedFolder,
@@ -198,6 +199,7 @@ const CUSTOM_INTERVAL_SECONDS = COMBAT_BALANCE.custom.intervalMs / 1000;
 const TERRITORY_EXPANSION_DURATION_MS = 10000;
 const STORAGE_KEY = "grid-signal-arena-records-v2";
 const DEMO_RUN_SEED = 12345;
+const OVERLOAD_RANDOM_SALT = 0x51a7c0de;
 let runSeedSequence = 0;
 const PATTERN_LABEL: Record<Pattern, string> = {
   "lane-sweep": "横一列砲撃",
@@ -377,6 +379,10 @@ export class GameWorld {
   private activeFolder: SavedFolder = getActiveFolder(loadSaveData());
   private battleDeck = new BattleDeck(this.activeFolder, 1009);
   private customHand: Card[] = [];
+  /** Number of normal-mode offers shown in the current Wave. */
+  private customHandNumber = 0;
+  /** Last physical hand shown; used to avoid repeating it on Wave reset. */
+  private previousWaveHandSignature: string | null = null;
   private selected: number[] = [];
   private focusedCard: number | null = null;
   private selectionError: string | null = null;
@@ -428,6 +434,7 @@ export class GameWorld {
       this.wave = startWave;
       this.message = `ウェーブ 0${this.wave} デモ — カードを選択`;
     }
+    this.resetOverloadRandom();
     this.resetBattleDeck();
     this.resetBoard();
     if (new URLSearchParams(window.location.search).has("panic")) {
@@ -506,6 +513,7 @@ export class GameWorld {
     this.practiceRetryCount = retryCount;
     this.practiceLastCardCode = null;
     this.customHand = this.practiceSupply(current);
+    this.customHandNumber = 1;
     this.queue = this.customHand.map(card => ({ ...card }));
     this.resetBoard(current.enemyIds);
     this.message = options.retry
@@ -3770,14 +3778,19 @@ export class GameWorld {
 
   private resetBattleDeck(): void {
     this.battleDeck.resetWave(this.deckSeed());
-    this.customHand = this.drawCustomHand();
+    this.customHandNumber = 0;
+    this.customHand = this.drawCustomHand(
+      this.previousWaveHandSignature ? [this.previousWaveHandSignature] : []
+    );
     this.selected = [];
     this.focusedCard = null;
     this.selectionError = null;
   }
 
-  private drawCustomHand(): Card[] {
-    const hand = this.battleDeck.drawHand();
+  private drawCustomHand(avoidSignatures: readonly string[] = []): Card[] {
+    const hand = this.battleDeck.drawHand({ avoidSignatures });
+    this.previousWaveHandSignature = folderHandSignature(hand);
+    this.customHandNumber += 1;
     const chance = this.emotionSystem.overloadChance();
     if (hand.length > 0 && this.overloadRandom.next() < chance) {
       const slot = this.overloadRandom.int(hand.length);
@@ -3809,6 +3822,7 @@ export class GameWorld {
     const saveData = loadSaveData();
     this.activeFolder = getActiveFolder(saveData);
     this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed());
+    this.previousWaveHandSignature = null;
     this.queue = [];
     this.mode = "custom";
     this.customSystem.reset();
@@ -3822,6 +3836,14 @@ export class GameWorld {
     // P1-4: ordinary runs vary by run seed; demo and test query seeds remain reproducible.
     const waveOffset = this.wave === 1 ? 0 : this.wave * 1009 + 17;
     return (this.runSeed + waveOffset) >>> 0;
+  }
+
+  private resetOverloadRandom(): void {
+    // Overload offers belong to the run's deterministic stream. A fixed seed
+    // made shaken/corrupted runs show the same replacement pattern every time.
+    this.overloadRandom = new Random(
+      (this.runSeed ^ OVERLOAD_RANDOM_SALT) >>> 0
+    );
   }
 
   private beginCustom(message: string): void {
@@ -4083,7 +4105,8 @@ export class GameWorld {
     this.rank = "—";
     this.activeFolder = getActiveFolder(loadSaveData());
     this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed());
-    this.overloadRandom = new Random(0x51a7c0de);
+    this.previousWaveHandSignature = null;
+    this.resetOverloadRandom();
     this.projectileSystem.reset();
     this.pendingMelee = [];
     this.pendingChainEffects = [];
@@ -4290,6 +4313,7 @@ export class GameWorld {
         (Math.max(this.invincibleUntil, this.phaseUntil) - now) / 1000
       ),
       customHand: this.customHand,
+      customHandNumber: this.customHandNumber,
       selected: this.selected,
       focusedCard: this.focusedCard,
       selectionError: this.selectionError,
