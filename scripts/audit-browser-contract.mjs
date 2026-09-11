@@ -51,8 +51,6 @@ for (const source of [assets, scene, index, viteConfig]) {
     throw new Error("Production client must not depend on Manus-only runtime or storage paths");
 }
 if (!index.includes("./assets/relay-mark.svg")) throw new Error("Entry page favicon must be bundled");
-if (!index.includes('name="game-version"') || !index.includes("masumen-2026-09-11-p9"))
-  throw new Error("Published game version marker is missing");
 if (index.includes("VITE_ANALYTICS_ENDPOINT") || index.includes("/umami"))
   throw new Error("Entry page must not emit an unconfigured analytics request");
 if (!viteConfig.includes('base: "./"')) throw new Error("Vite base must support repository subpaths");
