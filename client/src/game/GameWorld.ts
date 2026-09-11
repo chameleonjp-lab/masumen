@@ -375,6 +375,7 @@ export class GameWorld {
   private nextPlayerTerrainDamageAt = 0;
   private handSizeReduction = 0;
   private overloadRandom = new Random(0x51a7c0de);
+  private presentedOverloadCardIds = new Set<string>();
   private runSeed = createRunSeed();
   private activeFolder: SavedFolder = getActiveFolder(loadSaveData());
   private battleDeck = new BattleDeck(this.activeFolder, 1009);
@@ -420,6 +421,8 @@ export class GameWorld {
   private paused = false;
   private customRemaining = CUSTOM_INTERVAL_SECONDS;
   private nextFireAt = 0;
+  private normalShotBurstCount = 0;
+  private normalShotBurstCooldownUntil = 0;
   private onSnapshot: (snapshot: BattleSnapshot) => void;
   private onEvent: (event: BattleEvent) => void;
 
@@ -1425,6 +1428,7 @@ export class GameWorld {
       this.hitstopRemainingMs > 0 ||
       this.isCharging ||
       now < this.nextFireAt ||
+      now < this.normalShotBurstCooldownUntil ||
       now < this.playerControlLockedUntil ||
       now < this.playerStunnedUntil
     )
@@ -1438,7 +1442,15 @@ export class GameWorld {
         : distance === 2
           ? COMBAT_BALANCE.normalShot.intervalByDistanceMs.two
           : COMBAT_BALANCE.normalShot.intervalByDistanceMs.far;
-    this.nextFireAt = now + interval;
+    this.normalShotBurstCount += 1;
+    if (this.normalShotBurstCount >= COMBAT_BALANCE.normalShot.burstSize) {
+      this.normalShotBurstCount = 0;
+      this.normalShotBurstCooldownUntil =
+        now + COMBAT_BALANCE.normalShot.burstIntervalMs;
+      this.nextFireAt = this.normalShotBurstCooldownUntil;
+    } else {
+      this.nextFireAt = now + interval;
+    }
     this.onEvent({ type: "attack", charged: false });
     this.spawnProjectile({
       owner: "player",
@@ -3792,10 +3804,18 @@ export class GameWorld {
     this.previousWaveHandSignature = folderHandSignature(hand);
     this.customHandNumber += 1;
     const chance = this.emotionSystem.overloadChance();
-    if (hand.length > 0 && this.overloadRandom.next() < chance) {
+    const availableOverloads = OVERLOAD_CARDS.filter(
+      card => !this.presentedOverloadCardIds.has(card.id),
+    );
+    if (
+      hand.length > 0 &&
+      availableOverloads.length > 0 &&
+      this.overloadRandom.next() < chance
+    ) {
       const slot = this.overloadRandom.int(hand.length);
-      const overload = this.overloadRandom.pick(OVERLOAD_CARDS);
+      const overload = this.overloadRandom.pick(availableOverloads);
       if (overload) {
+        this.presentedOverloadCardIds.add(overload.id);
         hand[slot] = {
           ...overload,
           folderClass: "overload",
@@ -3823,6 +3843,7 @@ export class GameWorld {
     this.activeFolder = getActiveFolder(saveData);
     this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed());
     this.previousWaveHandSignature = null;
+    this.presentedOverloadCardIds.clear();
     this.queue = [];
     this.mode = "custom";
     this.customSystem.reset();
@@ -4020,6 +4041,8 @@ export class GameWorld {
     this.nextSwordMultiplier = 1;
     this.outputMarkRemaining = 0;
     this.normalShotDamageMultiplier = 1;
+    this.normalShotBurstCount = 0;
+    this.normalShotBurstCooldownUntil = 0;
     this.contaminationActive = false;
     this.forcedRepairDrainActive = false;
     this.nextForcedRepairDrainAt = 0;
@@ -4107,6 +4130,7 @@ export class GameWorld {
     this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed());
     this.previousWaveHandSignature = null;
     this.resetOverloadRandom();
+    this.presentedOverloadCardIds.clear();
     this.projectileSystem.reset();
     this.pendingMelee = [];
     this.pendingChainEffects = [];
@@ -4114,6 +4138,8 @@ export class GameWorld {
     this.overdrivePrompt = null;
     this.usedChainTechniques = [];
     this.nextFireAt = 0;
+    this.normalShotBurstCount = 0;
+    this.normalShotBurstCooldownUntil = 0;
     this.resetBattleDeck();
     this.resetBoard();
     this.notify();

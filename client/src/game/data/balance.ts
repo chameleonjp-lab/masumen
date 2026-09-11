@@ -2,6 +2,8 @@
 export const COMBAT_BALANCE = {
   normalShot: {
     damage: 12,
+    burstSize: 3,
+    burstIntervalMs: 2000,
     intervalByDistanceMs: {
       one: 210,
       two: 260,
@@ -38,7 +40,7 @@ export const COMBAT_BALANCE = {
     },
   },
   custom: {
-    intervalMs: 10000,
+    intervalMs: 20000,
     max: 100,
     baseMultiplier: 1,
     fastSyncMultiplier: 2,

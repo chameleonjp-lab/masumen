@@ -8,7 +8,9 @@ export class CustomSystem {
   private temporaryMultiplier = 1;
   private temporaryUntilMs = 0;
 
-  public constructor(intervalMs = 10000, maxValue = 100, baseMultiplier = 1) {
+  private static readonly FULL_EPSILON = 1e-9;
+
+  public constructor(intervalMs = 20000, maxValue = 100, baseMultiplier = 1) {
     this.intervalMs = intervalMs;
     this.maxValue = maxValue;
     this.initialBaseMultiplier = Math.max(0, baseMultiplier);
@@ -45,6 +47,9 @@ export class CustomSystem {
       this.maxValue,
       this.gaugeValue + deltaSeconds * percentPerSecond * this.multiplier
     );
+    if (this.maxValue - this.gaugeValue <= CustomSystem.FULL_EPSILON) {
+      this.gaugeValue = this.maxValue;
+    }
   }
 
   public add(value: number): void {
@@ -73,7 +78,10 @@ export class CustomSystem {
   }
 
   public isFull(): boolean {
-    return this.gaugeValue >= this.maxValue;
+    // Fixed-step accumulation can end a nominal 20-second interval a few
+    // ulps below 100. Treat that boundary as full so the CUSTOM action never
+    // appears locked after the advertised countdown reaches zero.
+    return this.gaugeValue >= this.maxValue - CustomSystem.FULL_EPSILON;
   }
 
   public remainingSeconds(): number {

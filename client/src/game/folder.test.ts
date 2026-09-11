@@ -120,7 +120,7 @@ describe("再現可能な戦闘デッキ", () => {
   it("does not repeat a physical hand while the Wave is being offered", () => {
     const folder = createStandardFolder("variation");
     const deck = new BattleDeck(folder, 12345);
-    const hands = Array.from({ length: 6 }, () => deck.drawHand());
+    const hands = Array.from({ length: 5 }, () => deck.drawHand());
     const signatures = hands.map(hand => folderHandSignature(hand));
 
     expect(hands.every(hand => hand.length === 5)).toBe(true);
@@ -128,6 +128,12 @@ describe("再現可能な戦闘デッキ", () => {
       hands.every(hand => new Set(hand.map(card => card.instanceId)).size === 5)
     ).toBe(true);
     expect(new Set(signatures).size).toBe(hands.length);
+    const shownIds = hands.flatMap(hand => hand.map(card => card.id));
+    expect(new Set(shownIds).size).toBe(shownIds.length);
+
+    const finalHand = deck.drawHand();
+    expect(finalHand.length).toBeLessThanOrEqual(5);
+    expect(finalHand.every(card => !shownIds.includes(card.id))).toBe(true);
   });
 
   it("keeps hand variation deterministic for a seeded run", () => {
