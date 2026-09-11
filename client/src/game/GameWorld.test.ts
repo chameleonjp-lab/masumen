@@ -213,7 +213,7 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.selected).toEqual([]);
   });
 
-  it("allows five compatible cards to be selected without a second tap", () => {
+  it("allows all five displayed cards without a connection restriction", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(
       snapshot => {
@@ -221,7 +221,7 @@ describe("GameWorldの現行Wave基準", () => {
       },
       () => undefined
     );
-    const compatibleIds = ["rapid", "lance", "triplet", "ember", "root"];
+    const compatibleIds = ["rapid", "frost", "turret", "watchmine", "rectify"];
     const internal = world as unknown as {
       customHand: Card[];
       selected: number[];
@@ -234,7 +234,6 @@ describe("GameWorldの現行Wave基準", () => {
       return {
         ...card,
         instanceId: `compatible-${index}`,
-        selectedCode: "A",
       };
     });
     internal.selected = [];
@@ -261,7 +260,7 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.message).toContain("カードなし");
   });
 
-  it("rejects a mixed-name and mixed-code selection using the whole set", () => {
+  it("allows a mixed-name and mixed-code selection using the whole set", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(
       snapshot => {
@@ -272,7 +271,8 @@ describe("GameWorldの現行Wave基準", () => {
     world.controller.toggleCard(0);
     world.controller.toggleCard(1);
     expect(latest?.mode).toBe("custom");
-    expect(latest?.selectionError).toContain("同名、同じ接続コード");
+    expect(latest?.selected).toEqual([0, 1]);
+    expect(latest?.selectionError).toBeNull();
   });
 
   it("keeps battle time stable across render rates", () => {
