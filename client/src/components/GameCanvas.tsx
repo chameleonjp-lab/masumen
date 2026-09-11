@@ -310,6 +310,7 @@ export default function GameCanvas() {
   const [nameShareStatus, setNameShareStatus] = useState("");
   const [ranking, setRanking] = useState<RankingRow[]>([]);
   const [rankingStatus, setRankingStatus] = useState("ランキング登録：待機中");
+  const [rankingRetryToken, setRankingRetryToken] = useState(0);
   const resultSubmissionKeyRef = useRef<string | null>(null);
   const touchInputRef = useRef(createTouchInputState());
   const moveRepeatRef = useRef<MovementRepeat | null>(null);
@@ -473,6 +474,7 @@ export default function GameCanvas() {
     snapshot.reachedWave,
     snapshot.score,
     snapshot.wave,
+    rankingRetryToken,
   ]);
 
   const controller = controllerRef.current;
@@ -1235,6 +1237,10 @@ export default function GameCanvas() {
           onRestart={() => controller?.restart()}
           onFolderEdit={() => setFolderEditorOpen(true)}
           onHome={() => controller?.restart()}
+          onRetryRanking={() => {
+            resultSubmissionKeyRef.current = null;
+            setRankingRetryToken(token => token + 1);
+          }}
         />
       )}
 

@@ -34,6 +34,7 @@ const styles = await read("client/src/index.css");
 const engine = await read("client/src/game/engine.ts");
 const startup = await read("client/src/game/startup.ts");
 const startupUI = await read("client/src/components/game/StartupScreen.tsx");
+const resultScreen = await read("client/src/components/game/ResultScreen.tsx");
 const index = await read("client/index.html");
 const viteConfig = await read("vite.config.ts");
 for (const required of [
@@ -90,10 +91,15 @@ for (const required of [
   "card-stats",
   "customHandNumber",
   "提示 ",
+  "onRetryRanking",
+  "rankingRetryToken",
 ]) {
   if (!gameCanvas.includes(required))
     throw new Error(`Mobile input/card contract missing: ${required}`);
 }
+for (const required of ["onRetryRanking", "ランキングを再試行"])
+  if (!resultScreen.includes(required))
+    throw new Error(`Result ranking retry contract missing: ${required}`);
 if (gameCanvas.includes("preventMultiTouch"))
   throw new Error("Combat touch input must not cancel the second pointer globally");
 for (const required of [
