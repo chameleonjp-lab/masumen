@@ -375,6 +375,7 @@ export class GameWorld {
   private nextPlayerTerrainDamageAt = 0;
   private handSizeReduction = 0;
   private overloadRandom = new Random(0x51a7c0de);
+  private presentedOverloadCardIds = new Set<string>();
   private runSeed = createRunSeed();
   private activeFolder: SavedFolder = getActiveFolder(loadSaveData());
   private battleDeck = new BattleDeck(this.activeFolder, 1009);
@@ -3803,10 +3804,18 @@ export class GameWorld {
     this.previousWaveHandSignature = folderHandSignature(hand);
     this.customHandNumber += 1;
     const chance = this.emotionSystem.overloadChance();
-    if (hand.length > 0 && this.overloadRandom.next() < chance) {
+    const availableOverloads = OVERLOAD_CARDS.filter(
+      card => !this.presentedOverloadCardIds.has(card.id),
+    );
+    if (
+      hand.length > 0 &&
+      availableOverloads.length > 0 &&
+      this.overloadRandom.next() < chance
+    ) {
       const slot = this.overloadRandom.int(hand.length);
-      const overload = this.overloadRandom.pick(OVERLOAD_CARDS);
+      const overload = this.overloadRandom.pick(availableOverloads);
       if (overload) {
+        this.presentedOverloadCardIds.add(overload.id);
         hand[slot] = {
           ...overload,
           folderClass: "overload",
@@ -3834,6 +3843,7 @@ export class GameWorld {
     this.activeFolder = getActiveFolder(saveData);
     this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed());
     this.previousWaveHandSignature = null;
+    this.presentedOverloadCardIds.clear();
     this.queue = [];
     this.mode = "custom";
     this.customSystem.reset();
@@ -4120,6 +4130,7 @@ export class GameWorld {
     this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed());
     this.previousWaveHandSignature = null;
     this.resetOverloadRandom();
+    this.presentedOverloadCardIds.clear();
     this.projectileSystem.reset();
     this.pendingMelee = [];
     this.pendingChainEffects = [];
