@@ -1,9 +1,11 @@
+import { GAME_VERSION } from "./version";
+
 export const GAME_URL = "https://chameleonjp-lab.github.io/masumen/";
 export const LAB_URL = "https://chameleonjp-lab.github.io/chameleonjp_lab/";
 const SUPABASE_URL = "https://mlpnjgezrnhdxsxolyzj.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_drzcy0v97knU6FgjqSgBHw_0A9XPdFM";
 const GAME_SLUG = "masumen";
-const CLIENT_VERSION = "masumen-2026-08-31-platform";
+const CLIENT_VERSION = GAME_VERSION;
 const PLAYER_NAME_KEY = "masumen.player-name";
 
 export interface RankingRow {
