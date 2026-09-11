@@ -224,6 +224,14 @@ button { font: inherit; }
   .practice-actions button { width: 100%; }
 }
 
+@media (max-width: 760px) and (orientation: portrait) {
+  .dpad { width: 142px; height: 134px; }
+  .dpad button { width: 44px; height: 44px; }
+  .dpad button:nth-child(1) { left: 49px; }
+  .dpad button:nth-child(2), .dpad button:nth-child(3) { top: 45px; }
+  .dpad button:nth-child(4) { left: 49px; }
+}
+
 .name-gate {
   position: absolute;
   inset: 0;
