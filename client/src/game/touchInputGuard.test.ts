@@ -118,4 +118,18 @@ describe("touch input guard", () => {
     const released = endTouchAction(first.state, 21);
     expect(released.chargePointerId).toBeNull();
   });
+
+  it("移動を押し続けたまま通常攻撃を受け付ける", () => {
+    const moving = beginTouchAction(
+      createTouchInputState(),
+      31,
+      "move",
+      3000,
+    );
+    const firing = beginTouchAction(moving.state, 32, "fire", 3001);
+
+    expect(firing.accepted).toBe(true);
+    expect(firing.state.movePointerId).toBe(31);
+    expect(firing.state.actionPointerId).toBe(32);
+  });
 });

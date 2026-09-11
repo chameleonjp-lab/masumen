@@ -326,6 +326,17 @@ export default function GameCanvas() {
     moveRepeatRef.current.start(callback);
   };
 
+  // A modal transition can remove the pressed button before Safari emits its
+  // pointerup/lostpointercapture event. Clear the ownership state together
+  // with the repeat timer so the next battle cannot inherit a dead finger.
+  const resetPointerInput = () => {
+    stopMoveRepeat();
+    if (touchInputRef.current.chargePointerId !== null) {
+      controllerRef.current?.cancelCharge();
+    }
+    touchInputRef.current = createTouchInputState();
+  };
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || startedRef.current) return;
@@ -338,7 +349,7 @@ export default function GameCanvas() {
         onSnapshot: nextSnapshot => {
           if (disposed) return;
           if ((nextSnapshot.mode !== "battle" && nextSnapshot.mode !== "practice") || nextSnapshot.paused)
-            stopMoveRepeat();
+            resetPointerInput();
           setSnapshot(nextSnapshot);
         },
       }),
@@ -395,13 +406,7 @@ export default function GameCanvas() {
   }, []);
 
   useEffect(() => {
-    const clearTouchState = () => {
-      stopMoveRepeat();
-      if (touchInputRef.current.chargePointerId !== null) {
-        controllerRef.current?.cancelCharge();
-      }
-      touchInputRef.current = createTouchInputState();
-    };
+    const clearTouchState = resetPointerInput;
     const finishNativePointer = (event: PointerEvent, cancelled: boolean) => {
       const current = touchInputRef.current;
       const action = touchActionForPointer(current, event.pointerId);
@@ -840,7 +845,7 @@ export default function GameCanvas() {
           <div className="custom-topline">
             <span>
               カード選択 / ウェーブ 0{snapshot.wave} /{" "}
-              {snapshot.elapsed > 0 ? "10秒後に再選択" : "初回選択"}
+              {snapshot.elapsed > 0 ? "20秒後に再選択" : "初回選択"}
             </span>
             <span>
               提示 {String(snapshot.customHandNumber).padStart(2, "0")} / 手札{" "}
@@ -1281,7 +1286,7 @@ export default function GameCanvas() {
           <b>カード</b> X
         </span>
         <span>
-          <b>カード選択</b> 10秒
+          <b>カード選択</b> 20秒
         </span>
       </footer>
       </StartupGate>

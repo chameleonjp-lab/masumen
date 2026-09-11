@@ -336,7 +336,13 @@ describe("GameWorldの現行Wave基準", () => {
       () => undefined
     );
     world.controller.confirmCustom();
-    advanceAtFixedRate(world, 10);
+    const internal = world as unknown as {
+      enemies: Array<{ nextAttackAt: number }>;
+    };
+    internal.enemies.forEach(enemy => {
+      enemy.nextAttackAt = Number.POSITIVE_INFINITY;
+    });
+    advanceAtFixedRate(world, 20);
     world.controller.move(0, 0);
     expect(latest?.mode).toBe("battle");
     expect(latest?.customHandNumber).toBe(1);
@@ -345,6 +351,60 @@ describe("GameWorldの現行Wave基準", () => {
     world.controller.openCustom();
     expect(latest?.mode).toBe("custom");
     expect(latest?.customHandNumber).toBe(2);
+  });
+
+  it("limits normal shots to three per burst and resumes after two seconds", () => {
+    const events: BattleEvent[] = [];
+    const world = new GameWorld(() => undefined, event => events.push(event));
+    world.controller.confirmCustom();
+
+    const playerShots = () =>
+      events.filter(
+        (event): event is Extract<BattleEvent, { type: "projectile" }> =>
+          event.type === "projectile" && event.side === "player",
+      );
+
+    world.controller.fire();
+    advanceAtFixedRate(world, 0.4);
+    world.controller.fire();
+    advanceAtFixedRate(world, 0.4);
+    world.controller.fire();
+    expect(playerShots()).toHaveLength(3);
+
+    advanceAtFixedRate(world, 1.9);
+    world.controller.fire();
+    expect(playerShots()).toHaveLength(3);
+
+    advanceAtFixedRate(world, 0.2);
+    world.controller.fire();
+    expect(playerShots()).toHaveLength(4);
+  });
+
+  it("shows a fresh random five-card offer after twenty seconds", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const initialIds = latest?.customHand.map(card => card.id) ?? [];
+    expect(initialIds).toHaveLength(5);
+    expect(new Set(initialIds).size).toBe(initialIds.length);
+
+    world.controller.confirmCustom();
+    const internal = world as unknown as {
+      enemies: Array<{ nextAttackAt: number }>;
+    };
+    internal.enemies.forEach(enemy => {
+      enemy.nextAttackAt = Number.POSITIVE_INFINITY;
+    });
+    advanceAtFixedRate(world, 20);
+    expect(latest?.gauge).toBeCloseTo(100, 5);
+    world.controller.openCustom();
+
+    const nextIds = latest?.customHand.map(card => card.id) ?? [];
+    expect(latest?.mode).toBe("custom");
+    expect(nextIds.length).toBeLessThanOrEqual(5);
+    expect(nextIds.every(id => !initialIds.includes(id))).toBe(true);
+    expect(new Set(nextIds).size).toBe(nextIds.length);
   });
 
   it("does not open custom before full and cancels charge when opening", () => {
@@ -356,12 +416,18 @@ describe("GameWorldの現行Wave基準", () => {
       () => undefined
     );
     world.controller.confirmCustom();
+    const internal = world as unknown as {
+      enemies: Array<{ nextAttackAt: number }>;
+    };
+    internal.enemies.forEach(enemy => {
+      enemy.nextAttackAt = Number.POSITIVE_INFINITY;
+    });
     advanceAtFixedRate(world, 2);
     world.controller.openCustom();
     expect(latest?.mode).toBe("battle");
     expect(latest?.message).toContain("満タン");
 
-    advanceAtFixedRate(world, 8);
+    advanceAtFixedRate(world, 18);
     world.controller.startCharge();
     world.controller.openCustom();
     expect(latest?.mode).toBe("custom");

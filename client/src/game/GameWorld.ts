@@ -420,6 +420,8 @@ export class GameWorld {
   private paused = false;
   private customRemaining = CUSTOM_INTERVAL_SECONDS;
   private nextFireAt = 0;
+  private normalShotBurstCount = 0;
+  private normalShotBurstCooldownUntil = 0;
   private onSnapshot: (snapshot: BattleSnapshot) => void;
   private onEvent: (event: BattleEvent) => void;
 
@@ -1425,6 +1427,7 @@ export class GameWorld {
       this.hitstopRemainingMs > 0 ||
       this.isCharging ||
       now < this.nextFireAt ||
+      now < this.normalShotBurstCooldownUntil ||
       now < this.playerControlLockedUntil ||
       now < this.playerStunnedUntil
     )
@@ -1438,7 +1441,15 @@ export class GameWorld {
         : distance === 2
           ? COMBAT_BALANCE.normalShot.intervalByDistanceMs.two
           : COMBAT_BALANCE.normalShot.intervalByDistanceMs.far;
-    this.nextFireAt = now + interval;
+    this.normalShotBurstCount += 1;
+    if (this.normalShotBurstCount >= COMBAT_BALANCE.normalShot.burstSize) {
+      this.normalShotBurstCount = 0;
+      this.normalShotBurstCooldownUntil =
+        now + COMBAT_BALANCE.normalShot.burstIntervalMs;
+      this.nextFireAt = this.normalShotBurstCooldownUntil;
+    } else {
+      this.nextFireAt = now + interval;
+    }
     this.onEvent({ type: "attack", charged: false });
     this.spawnProjectile({
       owner: "player",
@@ -4020,6 +4031,8 @@ export class GameWorld {
     this.nextSwordMultiplier = 1;
     this.outputMarkRemaining = 0;
     this.normalShotDamageMultiplier = 1;
+    this.normalShotBurstCount = 0;
+    this.normalShotBurstCooldownUntil = 0;
     this.contaminationActive = false;
     this.forcedRepairDrainActive = false;
     this.nextForcedRepairDrainAt = 0;
@@ -4114,6 +4127,8 @@ export class GameWorld {
     this.overdrivePrompt = null;
     this.usedChainTechniques = [];
     this.nextFireAt = 0;
+    this.normalShotBurstCount = 0;
+    this.normalShotBurstCooldownUntil = 0;
     this.resetBattleDeck();
     this.resetBoard();
     this.notify();

@@ -327,6 +327,8 @@ export class BattleDeck {
   private offered: FolderEntry[] = [];
   private used: FolderEntry[] = [];
   private presentedHands = new Set<string>();
+  /** Card IDs already shown in this run; physical duplicate copies are not re-offered. */
+  private presentedCardIds = new Set<string>();
 
   public constructor(folder: SavedFolder, seed: number) {
     if (!validateFolder(folder).valid)
@@ -357,26 +359,39 @@ export class BattleDeck {
     ]);
     let attempts = 0;
     do {
-      this.offered = this.remaining.splice(
-        0,
-        Math.min(HAND_SIZE, this.remaining.length)
-      );
-      const signature = folderHandSignature(this.offered);
-      if (
-        !avoided.has(signature) ||
-        this.offered.length < HAND_SIZE ||
-        this.remaining.length < HAND_SIZE ||
-        attempts >= this.folder.cards.length
-      ) {
-        this.presentedHands.add(signature);
-        break;
+      const candidate: FolderEntry[] = [];
+      const deferred: FolderEntry[] = [];
+      while (this.remaining.length > 0 && candidate.length < HAND_SIZE) {
+        const entry = this.remaining.shift();
+        if (!entry) break;
+        if (
+          this.presentedCardIds.has(entry.cardId) ||
+          candidate.some(card => card.cardId === entry.cardId)
+        ) {
+          deferred.push(entry);
+          continue;
+        }
+        candidate.push(entry);
       }
-      // Put a repeated offer at the back of the remaining pile and try the
-      // next deterministic segment. The cap above guarantees progress even
-      // for a tiny/degenerate folder supplied by a future migration.
-      this.remaining.push(...this.offered);
-      this.offered = [];
-      attempts += 1;
+      this.remaining.push(...deferred);
+
+      const signature = folderHandSignature(candidate);
+      if (
+        candidate.length === HAND_SIZE &&
+        avoided.has(signature) &&
+        attempts < this.folder.cards.length
+      ) {
+        // Put an avoided hand back at the end and try another deterministic
+        // segment. The cap guarantees progress for a tiny or degenerate deck.
+        this.remaining.push(...candidate);
+        attempts += 1;
+        continue;
+      }
+
+      this.offered = candidate;
+      this.presentedHands.add(signature);
+      candidate.forEach(entry => this.presentedCardIds.add(entry.cardId));
+      break;
     } while (this.remaining.length > 0);
 
     return this.offered.flatMap(entry => {

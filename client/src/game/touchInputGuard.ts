@@ -46,7 +46,7 @@ export function beginTouchAction(
 
   const hasActionPointer = state.actionPointerId !== null;
   if (action === "move") {
-    if (state.movePointerId !== null || hasActionPointer) {
+    if (state.movePointerId !== null) {
       return { accepted: false, state };
     }
     return {
@@ -66,7 +66,6 @@ export function beginTouchAction(
   }
 
   if (
-    state.movePointerId !== null ||
     state.chargePointerId !== null ||
     hasActionPointer
   ) {
