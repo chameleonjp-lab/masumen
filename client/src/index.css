@@ -1700,3 +1700,10 @@ select {
   }
 }
 .startup-diagnostics summary { cursor: pointer; }
+
+/* Touch controls must remain easy to hit on a phone, including pause settings. */
+.pause-button { min-height: 44px; }
+.feedback-controls button { min-height: 44px; }
+.pause-settings .sound-toggle,
+.pause-settings .vibration-toggle,
+.pause-settings .volume-control { min-height: 44px; }

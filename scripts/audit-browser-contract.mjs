@@ -110,6 +110,8 @@ for (const required of [
   ".card-sigil",
   ".card-state.is-selected",
   ".card-stats span",
+  ".pause-button { min-height: 44px; }",
+  ".feedback-controls button { min-height: 44px; }",
 ]) {
   if (!styles.includes(required))
     throw new Error(`Mobile layout contract missing: ${required}`);
