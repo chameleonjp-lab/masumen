@@ -297,7 +297,7 @@ export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
         </div>
 
         <footer className="folder-editor-footer">
-          <span>{notice || "同名または接続条件がそろったカードだけ、まとめて送信できます。"}</span>
+          <span>{notice || "戦闘中は表示されたカードを自由に選び、タップした順番に送信できます。"}</span>
           <div>
             <button type="button" onClick={onClose}>戻る</button>
             <button type="button" className="engage-button" onClick={save} disabled={!validation.valid}>

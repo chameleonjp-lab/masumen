@@ -25,7 +25,7 @@ describe("現行カードカタログの基準", () => {
     expect(canAppendSelection(hand, [0, 1, 2, 3, 4], 0)).toBe(false);
   });
 
-  it("validates the whole selected set using name, code, and wildcard rules", () => {
+  it("allows every displayed card regardless of name or connection code", () => {
     const card = (id: string, selectedCode: string) => ({
       ...CARD_CATALOG.find(item => item.id === id)!,
       selectedCode: selectedCode as "A" | "B" | "*",
@@ -40,28 +40,23 @@ describe("現行カードカタログの基準", () => {
     ];
     expect(validateSelection(hand, [0, 1])).toMatchObject({
       valid: true,
-      rule: "name",
+      rule: null,
     });
     expect(validateSelection(hand, [0, 2, 3])).toMatchObject({
       valid: true,
-      rule: "wildcard",
+      rule: null,
     });
     expect(validateSelection(hand, [3, 4])).toMatchObject({
       valid: true,
-      rule: "wildcard",
+      rule: null,
     });
-    expect(validateSelection(hand, [0, 5])).toMatchObject({
-      valid: false,
-    });
+    expect(validateSelection(hand, [0, 5]).valid).toBe(true);
   });
 
-  it("allows an overload card only as a single ! connection", () => {
+  it("allows an overload card to be selected with the other displayed cards", () => {
     const overload = OVERLOAD_CARDS[0];
     const hand = [overload, CARD_CATALOG[0]];
-    expect(validateSelection(hand, [0])).toMatchObject({
-      valid: true,
-      rule: "overload",
-    });
-    expect(validateSelection(hand, [0, 1]).valid).toBe(false);
+    expect(validateSelection(hand, [0])).toMatchObject({ valid: true, rule: null });
+    expect(validateSelection(hand, [0, 1]).valid).toBe(true);
   });
 });

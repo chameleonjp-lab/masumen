@@ -25,7 +25,7 @@ React App
 | `client/src/game/scene.ts` | Scene、カメラ、照明、グリッド、ビルボード、カードの命中方向ガイド、ゲームハンドルの生成。 |
 | `client/src/game/GameWorld.ts` | 固定更新、停止・10秒ゲージの手動カスタム遷移、連射制限付き正面直線攻撃、固定対象マスのカード判定、対象マス被弾、勝敗、イベント発行。 |
 | `client/src/game/types.ts` | グリッド・カード・戦闘状態・UIスナップショットの共通型。 |
-| `client/src/game/deck.ts` | 日本語名50枚のカードフォルダ、系統、メガ枠、カスタム候補、同名・同コード・`*`でつなぐ最大5枚の選択条件の定義。 |
+| `client/src/game/deck.ts` | 日本語名50枚のカードフォルダ、系統、メガ枠、カスタム候補、表示された最大5枚を自由に選ぶ条件の定義。 |
 | `client/src/game/cardAudio.ts` | Web Audio APIで系統別カード音・カウンター音・敵別撃破音を合成し、音量とオンオフを制御してラン終了時に破棄する。 |
 | `client/src/game/assets.ts` | `/manus-storage/` の画像URLとBabylonテクスチャ生成を一箇所に集約。 |
 | `client/src/index.css` | Signal Relay Tacticalの色、切欠きパネル、操作反応、レスポンシブHUD。 |

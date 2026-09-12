@@ -1330,6 +1330,77 @@ select {
 .startup-panel { border-color: #2ad4d9; }
 .startup-diagnostics { margin-top: 16px; overflow-wrap: anywhere; font-size: 12px; }
 
+/* PR14: keep the three combat actions large and grouped at the lower right. */
+.action-buttons {
+  gap: 8px;
+}
+
+.action-buttons button {
+  width: 64px;
+  min-width: 64px;
+  height: 64px;
+  min-height: 64px;
+  font-size: 11px;
+}
+
+.charge-indicator {
+  bottom: 72px;
+}
+
+@media (max-width: 430px) {
+  .action-buttons {
+    gap: 6px;
+  }
+
+  .action-buttons button {
+    width: 56px;
+    min-width: 56px;
+    height: 56px;
+    min-height: 56px;
+    font-size: 10px;
+  }
+
+  .charge-indicator {
+    bottom: 64px;
+  }
+}
+
+@media (max-width: 380px) {
+  .action-buttons {
+    gap: 6px;
+  }
+
+  .action-buttons button {
+    width: 52px;
+    min-width: 52px;
+    height: 52px;
+    min-height: 52px;
+    font-size: 9px;
+  }
+
+  .charge-indicator {
+    bottom: 60px;
+  }
+}
+
+@media (pointer: coarse) and (orientation: landscape) {
+  .action-buttons {
+    gap: 8px;
+  }
+
+  .action-buttons button {
+    width: 60px;
+    min-width: 60px;
+    height: 60px;
+    min-height: 60px;
+    font-size: 10px;
+  }
+
+  .charge-indicator {
+    bottom: 68px;
+  }
+}
+
 /* PR4: make weapon/card identity and selection state readable at a glance. */
 .signal-card {
   --card-accent: #54f5ff;

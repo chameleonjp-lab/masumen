@@ -860,7 +860,7 @@ export default function GameCanvas() {
               接続する。
             </h1>
             <span>
-              1枚から使用できます。2枚目以降は同名・同じ接続コード・共通コード*でつなぎ、最大5枚を送信します。
+              表示された5枚はすべて選択できます。タップした順番にカードを使用します。
             </span>
             <div className="card-inspector" aria-live="polite">
               {focusedCard ? (
