@@ -1,17 +1,18 @@
 import { COMBAT_BALANCE } from "../data/balance";
-import type { EmotionState } from "../types";
+
+type LegacyState = "normal" | "synchronized" | "shaken" | "enraged" | "corrupted";
 
 export interface EmotionSnapshot {
-  state: EmotionState;
+  state: LegacyState;
   remainingMs: number;
   corruption: number;
   maxHpReduction: number;
   rageReady: boolean;
 }
 
-/** Run-scoped emotion rules. Corruption is intentionally reset with a new run, not persisted. */
+/** 旧データ検証専用の状態処理。通常戦闘では参照しません。 */
 export class EmotionSystem {
-  private current: EmotionState = "normal";
+  private current: LegacyState = "normal";
   private corruptionValue = 0;
   private maxHpReductionValue = 0;
   private recentDamageAt: number[] = [];
@@ -180,7 +181,7 @@ export class EmotionSystem {
     return this.rageReadyValue && nowMs < this.rageUntil;
   }
 
-  private baseState(): EmotionState {
+  private baseState(): LegacyState {
     return this.corruptionValue > 0 ? "corrupted" : "normal";
   }
 

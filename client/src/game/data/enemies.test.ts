@@ -10,11 +10,11 @@ describe("PR10の既存5敵定義", () => {
   it("5体の名前と役割を定義する", () => {
     expect(PR10_ENEMY_IDS).toHaveLength(5);
     expect(PR10_ENEMY_IDS.map(id => ENEMY_DEFINITIONS[id].name)).toEqual([
-      "BULWARK-3",
-      "SCANNER-8",
-      "RAZOR-6",
-      "MORTAR-NODE",
-      "VOLT-SENTINEL",
+      "防壁３号",
+      "索敵８号",
+      "刃影６号",
+      "迫撃ノード",
+      "電撃守衛",
     ]);
   });
 
@@ -48,20 +48,20 @@ describe("PR11の新規敵とボス定義", () => {
   it("新規通常敵7体とボス4体を定義する", () => {
     expect(PR11_NORMAL_ENEMY_IDS).toHaveLength(7);
     expect(PR11_NORMAL_ENEMY_IDS.map(id => ENEMY_DEFINITIONS[id].name)).toEqual([
-      "WAVE-RUNNER",
-      "BOOMER-ARC",
-      "HOPPER-BOMB",
-      "GAIA-HAMMER",
-      "WEATHER-CORE",
-      "SUPPORT-RELAY",
-      "MIRROR-NODE",
+      "波走り",
+      "周回弾",
+      "跳躍爆弾",
+      "大地槌",
+      "天候核",
+      "支援中継",
+      "反射核",
     ]);
     expect(BOSS_ENEMY_IDS).toHaveLength(4);
     expect(BOSS_ENEMY_IDS.map(id => ENEMY_DEFINITIONS[id].name)).toEqual([
-      "BASTION PRIME",
-      "PRISM HUNTER",
-      "CLIMATE ENGINE",
-      "CORE ARBITER",
+      "要塞本体",
+      "光彩狩人",
+      "気象機関",
+      "中枢裁定",
     ]);
   });
 

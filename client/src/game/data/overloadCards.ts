@@ -1,6 +1,6 @@
 import type { Card } from "../types";
 
-/** These cards are injected into a hand by emotion rules and can never be stored in a folder. */
+/** 互換用の特殊カード。通常の提示には含めません。 */
 export const OVERLOAD_CARDS: readonly Card[] = [
   {
     id: "overload-limit-cannon",
@@ -12,9 +12,9 @@ export const OVERLOAD_CARDS: readonly Card[] = [
     target: "front",
     power: 400,
     description:
-      "失ったHPに応じて最大400の直進ダメージ。今Waveは通常射撃が半減",
+      "失った耐久に応じて最大400の直進ダメージ。このウェーブは通常射撃が半減",
     isOverload: true,
-    overloadPenalty: "このWaveの通常射撃威力が半分",
+    overloadPenalty: "このウェーブの通常射撃威力が半分",
   },
   {
     id: "overload-contamination",
@@ -38,9 +38,9 @@ export const OVERLOAD_CARDS: readonly Card[] = [
     family: "回復",
     target: "self",
     power: 0,
-    description: "HPを大きく回復する。以後このWaveは毎秒1HP減少",
+    description: "耐久を大きく回復する。以後このウェーブは毎秒1減少",
     isOverload: true,
-    overloadPenalty: "このWaveは毎秒1HP減少",
+    overloadPenalty: "このウェーブは毎秒1減少",
   },
   {
     id: "overload-collapse-field",

@@ -72,7 +72,7 @@ export const CHAIN_TECHNIQUES: readonly ChainTechnique[] = [
     cardIds: ["rectify", "repair", "sanctum"],
     requiredCodes: ["*", "*", "A"],
     target: "self",
-    description: "HP180回復、状態異常解除、自陣を6秒聖域化",
+    description: "耐久180回復、状態異常解除、自陣を6秒聖域化",
   },
 ];
 

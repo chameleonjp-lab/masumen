@@ -11,9 +11,6 @@ const resultSnapshot: BattleSnapshot = {
   playerGrid: { col: 0, row: 0 },
   gauge: 0,
   sync: false,
-  emotion: "normal",
-  emotionRemaining: 0,
-  corruption: 0,
   charging: 0,
   barrier: 0,
   invincible: false,
@@ -49,7 +46,6 @@ function renderResult(rankingStatus: string) {
       ranking: [],
       rankingStatus,
       onRestart: vi.fn(),
-      onFolderEdit: vi.fn(),
       onHome: vi.fn(),
       onRetryRanking: vi.fn(),
     })

@@ -16,7 +16,6 @@ interface ResultScreenProps {
   ranking: RankingRow[];
   rankingStatus: string;
   onRestart: () => void;
-  onFolderEdit: () => void;
   onHome: () => void;
   onRetryRanking: () => void;
 }
@@ -47,7 +46,6 @@ export default function ResultScreen({
   ranking,
   rankingStatus,
   onRestart,
-  onFolderEdit,
   onHome,
   onRetryRanking,
 }: ResultScreenProps) {
@@ -66,7 +64,6 @@ export default function ResultScreen({
     counters: snapshot.counters,
     simultaneousDefeats: snapshot.simultaneousDefeats ?? 0,
     cardsUsed: snapshot.cardsUsed ?? 0,
-    overloadCardsUsed: snapshot.overloadCardsUsed ?? 0,
   });
 
   const shareResult = () => {
@@ -120,9 +117,6 @@ export default function ResultScreen({
           使用カード <b>{snapshot.cardsUsed ?? 0}</b>
         </span>
         <span>
-          過負荷カード <b>{snapshot.overloadCardsUsed ?? 0}</b>
-        </span>
-        <span>
           最高記録 <b>{snapshot.highScore}</b>
         </span>
       </div>
@@ -147,14 +141,13 @@ export default function ResultScreen({
             {breakdown.noDamagePoints}
           </p>
           <p>
-            被ダメージ -{breakdown.damagePenalty} / 過負荷 -
-            {breakdown.overloadPenalty}
+            被ダメージ -{breakdown.damagePenalty}
           </p>
         </div>
       )}
 
       <section className="result-platform technical-panel" aria-label="結果の共有とランキング">
-        <p className="eyebrow">RESULT SIGNAL / ONLINE TOP 10</p>
+        <p className="eyebrow">結果共有 / ランキング上位10名</p>
         <p className="result-platform__player">{playerName} の結果</p>
         <textarea className="result-share-text" readOnly value={shareText} aria-label="結果のシェア文" />
         <button type="button" className="engage-button result-share-button" onClick={shareResult}>
@@ -182,9 +175,6 @@ export default function ResultScreen({
       <div className="result-actions">
         <button type="button" className="engage-button" onClick={onRestart}>
           もう一度 <span>↗</span>
-        </button>
-        <button type="button" onClick={onFolderEdit}>
-          フォルダ編集
         </button>
         <button type="button" onClick={onHome}>
           ホームへ戻る

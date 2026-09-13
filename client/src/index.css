@@ -1778,3 +1778,71 @@ select {
 .pause-settings .sound-toggle,
 .pause-settings .vibration-toggle,
 .pause-settings .volume-control { min-height: 44px; }
+
+/* 追加仕様: 攻撃操作は三角配置。各ボタンは指で押しやすい大きさを確保する。 */
+.action-buttons {
+  --action-size: 60px;
+  display: grid;
+  grid-template-columns: repeat(3, var(--action-size));
+  grid-template-rows: repeat(2, var(--action-size));
+  gap: 7px;
+  width: calc(var(--action-size) * 3 + 14px);
+  height: calc(var(--action-size) * 2 + 7px);
+  pointer-events: auto;
+}
+.action-buttons button {
+  width: var(--action-size);
+  height: var(--action-size);
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 50%;
+}
+.action-buttons .action-charge { grid-column: 2; grid-row: 1; }
+.action-buttons .action-fire { grid-column: 1; grid-row: 2; }
+.action-buttons .action-skill { grid-column: 3; grid-row: 2; }
+.charge-indicator {
+  right: 7px;
+  bottom: calc(var(--action-size) * 2 + 15px);
+  width: calc(var(--action-size) * 3 + 14px);
+}
+.engage-button:disabled { cursor: not-allowed; opacity: .46; }
+.selection-required { color: #ffb56f; font-size: 10px; }
+.keyboard-bindings {
+  margin: 0 auto 20px;
+  padding: 12px;
+  text-align: left;
+  border: 1px solid rgba(150,215,213,.2);
+  background: rgba(8,24,29,.58);
+}
+.keyboard-bindings > small { display: block; color: #9ab6b4; font-size: 10px; }
+.keyboard-bindings > .keyboard-binding-error { margin-top: 5px; color: #ffb56f; }
+.keyboard-binding-list { display: grid; gap: 6px; margin-top: 10px; }
+.keyboard-binding-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #dcefed; font-size: 11px; }
+.keyboard-binding-row button { min-width: 92px; min-height: 44px; padding: 8px 12px; color: #f2c365; border: 1px solid rgba(228,163,58,.55); background: rgba(8,18,24,.8); }
+.home-gate, .name-gate { position: absolute; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px; background: rgba(4,12,17,.74); }
+.home-gate__panel, .name-gate__panel { width: min(520px, 100%); padding: clamp(24px, 5vw, 48px); pointer-events: auto; }
+.home-gate__panel h1 { margin: 0; font: 700 clamp(34px, 7vw, 64px)/.95 "Space Grotesk", "Zen Kaku Gothic New", sans-serif; letter-spacing: -.06em; }
+.home-gate__copy { margin: 16px 0 28px; color: #b9ceca; font-size: 14px; line-height: 1.8; }
+.home-gate__start { width: 100%; }
+.home-gate__saved { color: #8da7a3; font-size: 11px; }
+@media (max-width: 760px) {
+  .action-buttons { --action-size: 56px; }
+}
+@media (max-width: 380px) {
+  .mobile-controls { left: 8px; right: 8px; }
+  .dpad.dpad-large { width: 132px; height: 132px; }
+  .dpad.dpad-large button { width: 48px; height: 48px; }
+  .dpad.dpad-large button:nth-child(1) { top: 0; left: 42px; }
+  .dpad.dpad-large button:nth-child(2) { top: 42px; left: 0; }
+  .dpad.dpad-large button:nth-child(3) { top: 42px; right: 0; }
+  .dpad.dpad-large button:nth-child(4) { bottom: 0; left: 42px; }
+  .action-buttons { --action-size: 48px; gap: 4px; }
+  .action-buttons button { font-size: 9px; }
+}
+@media (pointer: coarse) and (orientation: landscape) {
+  .action-buttons { --action-size: 60px; }
+}
+
+/* 耐久警告は数値と表示だけで伝え、画面全体を囲む赤い枠は表示しない。 */
+.crisis-frame { display: none !important; }
+.emotion-status { display: none !important; }

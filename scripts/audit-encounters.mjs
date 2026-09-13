@@ -9,24 +9,24 @@ const enemyData = read("client/src/game/data/enemies.ts");
 const encounterData = read("client/src/game/data/encounters.ts");
 
 const expectedNormals = [
-  ["bulwark", "BULWARK-3"],
-  ["scanner", "SCANNER-8"],
-  ["razor", "RAZOR-6"],
-  ["mortar", "MORTAR-NODE"],
-  ["sentinel", "VOLT-SENTINEL"],
-  ["wave-runner", "WAVE-RUNNER"],
-  ["boomer-arc", "BOOMER-ARC"],
-  ["hopper-bomb", "HOPPER-BOMB"],
-  ["gaia-hammer", "GAIA-HAMMER"],
-  ["weather-core", "WEATHER-CORE"],
-  ["support-relay", "SUPPORT-RELAY"],
-  ["mirror-node", "MIRROR-NODE"],
+  ["bulwark", "防壁３号"],
+  ["scanner", "索敵８号"],
+  ["razor", "刃影６号"],
+  ["mortar", "迫撃ノード"],
+  ["sentinel", "電撃守衛"],
+  ["wave-runner", "波走り"],
+  ["boomer-arc", "周回弾"],
+  ["hopper-bomb", "跳躍爆弾"],
+  ["gaia-hammer", "大地槌"],
+  ["weather-core", "天候核"],
+  ["support-relay", "支援中継"],
+  ["mirror-node", "反射核"],
 ];
 const expectedBosses = [
-  ["bastion-prime", "BASTION PRIME"],
-  ["prism-hunter", "PRISM HUNTER"],
-  ["climate-engine", "CLIMATE ENGINE"],
-  ["core-arbiter", "CORE ARBITER"],
+  ["bastion-prime", "要塞本体"],
+  ["prism-hunter", "光彩狩人"],
+  ["climate-engine", "気象機関"],
+  ["core-arbiter", "中枢裁定"],
 ];
 const expectedActions = [
   "bulwark-lane-cannon",

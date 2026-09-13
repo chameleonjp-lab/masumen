@@ -16,9 +16,7 @@ import { cardPreviewTiles, nearestEnemyPosition } from "@/game/data/cardCombatDa
 import { cardPresentation } from "@/game/cardPresentation";
 import { createGameScene } from "@/game/scene";
 import type { BattleSnapshot, GameHandle, GridPosition } from "@/game/types";
-import FolderEditor from "@/components/game/FolderEditor";
 import ResultScreen from "@/components/game/ResultScreen";
-import Tutorial from "@/components/game/Tutorial";
 import { createMovementRepeat, type MovementRepeat } from "@/game/movementRepeat";
 import {
   beginTouchAction,
@@ -46,9 +44,6 @@ const initialSnapshot: BattleSnapshot = {
   playerGrid: { col: 1, row: 1 },
   gauge: 0,
   sync: false,
-  emotion: "normal",
-  emotionRemaining: 0,
-  corruption: 0,
   charging: 0,
   barrier: 0,
   invincible: false,
@@ -72,20 +67,12 @@ const initialSnapshot: BattleSnapshot = {
   highScore: 0,
   bestWave: 0,
   paused: false,
-  customRemaining: 10,
+  customRemaining: 20,
 };
 
 function meterStyle(value: number) {
   return { transform: `scaleX(${Math.max(0, Math.min(1, value / 100))})` };
 }
-
-const emotionLabels: Record<BattleSnapshot["emotion"], string> = {
-  normal: "平常",
-  synchronized: "完全同期",
-  shaken: "動揺",
-  enraged: "激昂",
-  corrupted: "侵食",
-};
 
 function timecode(seconds: number) {
   const minutes = Math.floor(seconds / 60)
@@ -248,6 +235,137 @@ interface NameGateProps {
   onShare: () => void;
 }
 
+type KeyboardAction = "fire" | "charge" | "skill";
+type KeyboardBindings = Record<KeyboardAction, string>;
+
+const KEYBOARD_BINDINGS_KEY = "grid-signal-arena-keyboard-v1";
+const DEFAULT_KEYBOARD_BINDINGS: KeyboardBindings = {
+  fire: "z",
+  charge: " ",
+  skill: "x",
+};
+const RESERVED_KEYBOARD_KEYS = new Set([
+  "arrowup",
+  "arrowdown",
+  "arrowleft",
+  "arrowright",
+  "enter",
+  "escape",
+  "tab",
+]);
+
+function normaliseKey(value: string): string {
+  return value === " " ? value : value.toLowerCase();
+}
+
+function readKeyboardBindings(): KeyboardBindings {
+  if (typeof window === "undefined") return { ...DEFAULT_KEYBOARD_BINDINGS };
+  try {
+    const saved = JSON.parse(
+      window.localStorage.getItem(KEYBOARD_BINDINGS_KEY) ?? "null"
+    ) as Partial<KeyboardBindings> | null;
+    return {
+      fire: typeof saved?.fire === "string" ? normaliseKey(saved.fire) : DEFAULT_KEYBOARD_BINDINGS.fire,
+      charge: typeof saved?.charge === "string" ? normaliseKey(saved.charge) : DEFAULT_KEYBOARD_BINDINGS.charge,
+      skill: typeof saved?.skill === "string" ? normaliseKey(saved.skill) : DEFAULT_KEYBOARD_BINDINGS.skill,
+    };
+  } catch {
+    return { ...DEFAULT_KEYBOARD_BINDINGS };
+  }
+}
+
+function writeKeyboardBindings(bindings: KeyboardBindings): void {
+  try {
+    window.localStorage.setItem(KEYBOARD_BINDINGS_KEY, JSON.stringify(bindings));
+  } catch {
+    // Private browsing may deny local storage; the current session still works.
+  }
+}
+
+function isPcPlatform(): boolean {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  const coarsePointer =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches;
+  return navigator.maxTouchPoints === 0 && !coarsePointer;
+}
+
+function keyboardLabel(key: string): string {
+  if (key === " ") return "スペース";
+  if (key === "arrowup") return "上矢印";
+  if (key === "arrowdown") return "下矢印";
+  if (key === "arrowleft") return "左矢印";
+  if (key === "arrowright") return "右矢印";
+  return key.length === 1 ? key.toUpperCase() : key;
+}
+
+interface KeyboardBindingPanelProps {
+  bindings: KeyboardBindings;
+  capturing: KeyboardAction | null;
+  captureError: string;
+  onCapture: (action: KeyboardAction) => void;
+}
+
+function KeyboardBindingPanel({
+  bindings,
+  capturing,
+  captureError,
+  onCapture,
+}: KeyboardBindingPanelProps) {
+  const rows: ReadonlyArray<[KeyboardAction, string]> = [
+    ["fire", "通常攻撃"],
+    ["charge", "チャージ"],
+    ["skill", "カード使用"],
+  ];
+  return (
+    <section className="keyboard-bindings" aria-label="キーボード設定">
+      <p className="eyebrow">PC操作 / キー設定</p>
+      <small>ボタンを押してから、割り当てたいキーを押してください。</small>
+      {captureError && <small className="keyboard-binding-error" role="status">{captureError}</small>}
+      <div className="keyboard-binding-list">
+        {rows.map(([action, label]) => (
+          <div className="keyboard-binding-row" key={action}>
+            <span>{label}</span>
+            <button type="button" onClick={() => onCapture(action)}>
+              {capturing === action ? "キー入力待ち" : keyboardLabel(bindings[action])}
+            </button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+interface HomeGateProps {
+  playerName: string;
+  onStart: () => void;
+  onShare: () => void;
+  shareStatus: string;
+}
+
+function HomeGate({ playerName, onStart, onShare, shareStatus }: HomeGateProps) {
+  return (
+    <section className="home-gate" role="dialog" aria-modal="true" aria-labelledby="home-gate-title">
+      <div className="home-gate__panel technical-panel">
+        <p className="eyebrow">グリッド・シグナル</p>
+        <h1 id="home-gate-title">アリーナへようこそ</h1>
+        <p className="home-gate__copy">
+          20秒ごとにカードを選び、敵の予兆を見て戦います。
+        </p>
+        <button type="button" className="engage-button home-gate__start" onClick={onStart}>
+          信号を開始 <span>↗</span>
+        </button>
+        {playerName && <p className="home-gate__saved">登録名：{playerName}</p>}
+        <div className="name-gate__links">
+          <button type="button" onClick={onShare}>ゲームを共有</button>
+          <a href={LAB_URL} target="_blank" rel="noreferrer">実験場へ</a>
+        </div>
+        {shareStatus && <p className="share-status" role="status">{shareStatus}</p>}
+      </div>
+    </section>
+  );
+}
+
 function NameGate({
   draft,
   error,
@@ -259,10 +377,10 @@ function NameGate({
   return (
     <section className="name-gate" role="dialog" aria-modal="true" aria-labelledby="name-gate-title">
       <div className="name-gate__panel technical-panel">
-        <p className="eyebrow">ACCESS / PLAYER REGISTRATION</p>
+        <p className="eyebrow">プレイヤー登録</p>
         <h1 id="name-gate-title">信号を入力して開始</h1>
         <p className="name-gate__copy">
-          プレイヤー名を登録すると、戦闘結果をオンラインランキングに送信できます。
+          プレイヤー名を登録すると、戦闘結果をランキングへ送信できます。
         </p>
         <label className="name-gate__label" htmlFor="masumen-player-name">
           プレイヤー名（必須）
@@ -275,12 +393,18 @@ function NameGate({
           autoComplete="nickname"
           placeholder="名前を入力"
           onChange={event => onDraftChange(event.target.value)}
+          onKeyDown={event => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              onSubmit();
+            }
+          }}
         />
         <p className="name-gate__status" role="status">
           {error || "名前を入力してからカード選択を開始してください"}
         </p>
         <button type="button" className="engage-button name-gate__submit" onClick={onSubmit}>
-          カード選択を開始 <span>↗</span>
+          カード選択へ進む <span>↗</span>
         </button>
         <div className="name-gate__links">
           <button type="button" onClick={onShare}>ゲームをシェア</button>
@@ -300,14 +424,24 @@ export default function GameCanvas() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [soundVolume, setSoundVolume] = useState(70);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
-  const [folderEditorOpen, setFolderEditorOpen] = useState(false);
   const [startup, setStartup] = useState<StartupState>({ status: "loading", stage: "engine" });
   const [playerName, setPlayerName] = useState(() => readPlayerName());
+  const [entryScreen, setEntryScreen] = useState<"home" | "name" | "game">("home");
   const inputReadyRef = useRef(false);
-  inputReadyRef.current = startup.status === "ready" && Boolean(playerName);
+  const keyboardBindingsRef = useRef<KeyboardBindings>(readKeyboardBindings());
+  inputReadyRef.current =
+    startup.status === "ready" &&
+    entryScreen === "game" &&
+    Boolean(playerName);
   const [nameDraft, setNameDraft] = useState(() => readPlayerName());
   const [nameError, setNameError] = useState("");
   const [nameShareStatus, setNameShareStatus] = useState("");
+  const [keyboardBindings, setKeyboardBindings] = useState<KeyboardBindings>(
+    () => keyboardBindingsRef.current
+  );
+  const [capturingKey, setCapturingKey] = useState<KeyboardAction | null>(null);
+  const [captureError, setCaptureError] = useState("");
+  const pcPlatform = isPcPlatform();
   const [ranking, setRanking] = useState<RankingRow[]>([]);
   const [rankingStatus, setRankingStatus] = useState("ランキング登録：待機中");
   const [rankingRetryToken, setRankingRetryToken] = useState(0);
@@ -346,6 +480,7 @@ export default function GameCanvas() {
       createEngine: () => createGameEngine(canvas),
       createScene: engine => createGameScene(engine, canvas, {
         canAcceptInput: () => inputReadyRef.current,
+        getKeyboardBindings: () => keyboardBindingsRef.current,
         onSnapshot: nextSnapshot => {
           if (disposed) return;
           if ((nextSnapshot.mode !== "battle" && nextSnapshot.mode !== "practice") || nextSnapshot.paused)
@@ -387,6 +522,44 @@ export default function GameCanvas() {
       startedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!capturingKey) return;
+    const capture = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setCapturingKey(null);
+        setCaptureError("");
+        return;
+      }
+      const key = normaliseKey(event.key);
+      if (RESERVED_KEYBOARD_KEYS.has(key)) {
+        event.preventDefault();
+        event.stopPropagation();
+        setCaptureError("矢印キーと決定キーは移動・選択に使うため設定できません。");
+        return;
+      }
+      const conflict = (Object.entries(keyboardBindingsRef.current) as Array<[KeyboardAction, string]>)
+        .find(([action, binding]) => action !== capturingKey && binding === key);
+      if (conflict) {
+        event.preventDefault();
+        event.stopPropagation();
+        setCaptureError(`そのキーは${conflict[0] === "fire" ? "通常攻撃" : conflict[0] === "charge" ? "チャージ" : "カード使用"}に設定済みです。`);
+        return;
+      }
+      const next = { ...keyboardBindingsRef.current, [capturingKey]: key };
+      keyboardBindingsRef.current = next;
+      setKeyboardBindings(next);
+      writeKeyboardBindings(next);
+      setCapturingKey(null);
+      setCaptureError("");
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    window.addEventListener("keydown", capture, true);
+    return () => window.removeEventListener("keydown", capture, true);
+  }, [capturingKey]);
 
   useEffect(() => {
     const root = document.getElementById("root");
@@ -483,8 +656,7 @@ export default function GameCanvas() {
   ]);
 
   const controller = controllerRef.current;
-  const isCombatMode =
-    snapshot.mode === "battle" || snapshot.mode === "practice";
+  const isCombatMode = snapshot.mode === "battle";
   const hpRatio = (snapshot.playerHp / snapshot.playerMaxHp) * 100;
   const crisisState =
     isCombatMode && hpRatio <= 15
@@ -583,6 +755,20 @@ export default function GameCanvas() {
     setNameDraft(name);
     setNameError("");
     setNameShareStatus("");
+    setEntryScreen("game");
+    controllerRef.current?.restart();
+  };
+
+  const startSignal = () => {
+    setNameDraft(playerName);
+    setNameError("");
+    setEntryScreen("name");
+  };
+
+  const returnHome = () => {
+    resetPointerInput();
+    controllerRef.current?.restart();
+    setEntryScreen("home");
   };
 
   const shareHome = () => {
@@ -605,21 +791,33 @@ export default function GameCanvas() {
         style={{ touchAction: "none" }}
         aria-label="グリッド・シグナル・アリーナの戦闘フィールド"
       />
-      <StartupGate state={startup} hasName={Boolean(playerName)} nameGate={
-        <NameGate
-          draft={nameDraft}
-          error={nameError}
-          shareStatus={nameShareStatus}
-          onDraftChange={value => {
-            setNameDraft(value);
-            if (nameError) setNameError("");
-          }}
-          onSubmit={submitPlayerName}
-          onShare={shareHome}
-        />
-      }>
+      <StartupGate
+        state={startup}
+        hasName={entryScreen === "game" && Boolean(playerName)}
+        nameGate={
+          entryScreen === "home" ? (
+            <HomeGate
+              playerName={playerName}
+              onStart={startSignal}
+              onShare={shareHome}
+              shareStatus={nameShareStatus}
+            />
+          ) : (
+            <NameGate
+              draft={nameDraft}
+              error={nameError}
+              shareStatus={nameShareStatus}
+              onDraftChange={value => {
+                setNameDraft(value);
+                if (nameError) setNameError("");
+              }}
+              onSubmit={submitPlayerName}
+              onShare={shareHome}
+            />
+          )
+        }
+      >
       <div className="screen-noise" aria-hidden="true" />
-      <div className="crisis-frame" aria-hidden="true" />
       <div className="signal-hud">
         <header className="terminal-brand">
           <img src={ASSET_URLS.mark} alt="グリッド・シグナル・アリーナ" />
@@ -681,16 +879,6 @@ export default function GameCanvas() {
                 : snapshot.barrier > 0
                   ? `障壁 // ${snapshot.barrier}`
                   : "同期接続 // 待機"}
-          </div>
-          <div className={`emotion-status emotion-${snapshot.emotion}`}>
-            <span>精神状態</span>
-            <strong>{emotionLabels[snapshot.emotion]}</strong>
-            {snapshot.emotionRemaining > 0 && (
-              <small>{snapshot.emotionRemaining.toFixed(1)}秒</small>
-            )}
-            {snapshot.corruption > 0 && (
-              <small>侵食 {snapshot.corruption}/3</small>
-            )}
           </div>
         </section>
 
@@ -777,7 +965,7 @@ export default function GameCanvas() {
                     </div>
                   </div>
                   <span>
-                    {snapshot.sync || snapshot.emotion === "enraged"
+                    {snapshot.sync
                       ? nextQueuedCard?.power
                         ? `威力 ${nextQueuedCard.power * 2}`
                         : nextQueuedPresentation.impactLabel
@@ -788,25 +976,6 @@ export default function GameCanvas() {
                 <strong className="empty-queue">送信済みカードなし</strong>
               )}
             </section>
-            {snapshot.mode === "battle" && (
-              <section className="gauge-console technical-panel">
-                <div className="metric-row">
-                  <span>カード選択まで</span>
-                  <strong>{snapshot.customRemaining.toFixed(1)}S</strong>
-                </div>
-                <div className="meter gauge-meter">
-                  <span style={meterStyle(snapshot.gauge)} />
-                </div>
-                <button
-                  type="button"
-                  className={snapshot.gauge >= 100 ? "is-ready" : undefined}
-                  disabled={snapshot.gauge < 100 || snapshot.paused}
-                  onClick={() => controller?.openCustom()}
-                >
-                  {snapshot.gauge >= 100 ? "CUSTOM" : "カード選択"}
-                </button>
-              </section>
-            )}
             <section className="skill-rail" aria-label="送信済みカード">
               {snapshot.queue.map((card, index) => {
                 const presentation = cardPresentation(card);
@@ -848,19 +1017,18 @@ export default function GameCanvas() {
               {snapshot.elapsed > 0 ? "20秒後に再選択" : "初回選択"}
             </span>
             <span>
-              提示 {String(snapshot.customHandNumber).padStart(2, "0")} / 手札{" "}
-              {String(snapshot.customHand.length).padStart(2, "0")} / 05
+              提示 {String(snapshot.customHandNumber).padStart(2, "0")} / 5枚
             </span>
           </div>
           <div className="custom-heading">
             <p>カードを選ぶ</p>
             <h1>
-              次の一手を、
+              次のカードを
               <br />
-              接続する。
+              選びます。
             </h1>
             <span>
-              表示された5枚はすべて選択できます。タップした順番にカードを使用します。
+              表示された5枚から、1〜5枚を選べます。選択した順番に使用します。
             </span>
             <div className="card-inspector" aria-live="polite">
               {focusedCard ? (
@@ -871,11 +1039,11 @@ export default function GameCanvas() {
                     {focusedPresentation.impactLabel} / {focusedPresentation.targetLabel}
                   </small>
                   <em>
-                    {focusedSelected ? "選択中。もう一度タップで解除" : "未選択。タップで追加"}
+                    {focusedSelected ? "選択中。再度押すと解除できます" : "未選択。押して選択できます"}
                   </em>
                 </>
               ) : (
-                <span>カードをタップして選択。選択中のカードをもう一度タップすると解除できます。</span>
+                <span>カードを選択してください。選択中のカードを再度押すと解除できます。</span>
               )}
             </div>
           </div>
@@ -893,14 +1061,14 @@ export default function GameCanvas() {
                 selectionValidation.valid;
               const selectionOrder = snapshot.selected.indexOf(index) + 1;
               const selectionStatus = selected
-                ? `選択中 · ${selectionOrder}枚目`
+                ? `選択中・${selectionOrder}枚目`
                 : canJoin
-                  ? "追加できます"
-                  : "追加できません";
+                  ? "選択できます"
+                  : "選択できません";
               const selectionMessage = selected
-                ? "選択中。もう一度タップで解除"
+                ? "選択中。もう一度押すと解除できます"
                 : canJoin
-                  ? "タップで選択"
+                  ? "押して選択できます"
                   : selectionValidation.reason;
               const descriptionId = `card-description-${card.id}-${index}`;
               return (
@@ -933,7 +1101,7 @@ export default function GameCanvas() {
                     <span>{presentation.targetLabel}</span>
                   </div>
                   <small id={descriptionId}>
-                    {canJoin ? presentation.summary : `追加不可：${selectionValidation.reason}`}
+                    {canJoin ? presentation.summary : `選択できません：${selectionValidation.reason}`}
                   </small>
                   <div className="card-stats" aria-label="カードの数値">
                     <span>{presentation.impactLabel}</span>
@@ -941,7 +1109,7 @@ export default function GameCanvas() {
                     {presentation.statusLabel && <span>{presentation.statusLabel}</span>}
                     {presentation.durationLabel && <span>{presentation.durationLabel}</span>}
                   </div>
-                  <i>接続コード {card.selectedCode ?? card.code}</i>
+                  <i>選択順に使用</i>
                 </button>
               );
             })}
@@ -985,7 +1153,7 @@ export default function GameCanvas() {
                     }
                     key={tileKey}
                   >
-                    {player && <i>P</i>}
+                    {player && <i>自</i>}
                   </span>
                 );
               })}
@@ -994,36 +1162,29 @@ export default function GameCanvas() {
               <b className="range-vector">
                 {previewVector(previewCard)}
               </b>{" "}
-              Pから{previewPresentation.targetLabel}へ作用します。赤く光るマスが対象です。
+              自分から{previewPresentation.targetLabel}へ作用します。赤く光るマスが対象です。
             </small>
           </section>
           <div className="custom-footer">
             <p>
-              <span>{snapshot.selected.length}</span> / 05枚を選択中
+              <span>{snapshot.selected.length}</span> / 5枚を選択中
               {snapshot.selectionError && (
                 <small>{snapshot.selectionError}</small>
               )}
             </p>
             <div className="custom-footer-actions">
-              <button type="button" onClick={() => setFolderEditorOpen(true)}>
-                フォルダ編集
-              </button>
-              {snapshot.wave === 1 && snapshot.elapsed === 0 && (
-                <button
-                  type="button"
-                  onClick={() => controller?.startPractice()}
-                >
-                  練習モード
-                </button>
-              )}
               <button
                 type="button"
                 className="engage-button"
+                disabled={snapshot.selected.length < 1}
                 onClick={() => controller?.confirmCustom()}
               >
-                戦闘へ戻る <span>↗</span>
+                戦闘を開始 <span>↗</span>
               </button>
             </div>
+            {snapshot.selected.length < 1 && (
+              <small className="selection-required">1枚以上選択してください。</small>
+            )}
           </div>
         </section>
       )}
@@ -1121,26 +1282,18 @@ export default function GameCanvas() {
             </button>
             <button
               type="button"
-              className={`action-skill ${snapshot.mode === "battle" && snapshot.gauge >= 100 ? "is-custom-ready" : ""}`}
+              className="action-skill"
               onPointerDown={event =>
                 beginPointerAction(event, "skill", () =>
-                  snapshot.mode === "battle" && snapshot.gauge >= 100
-                    ? controllerRef.current?.openCustom()
-                    : controllerRef.current?.useSkill(),
+                  controllerRef.current?.useSkill(),
                 )
               }
               onPointerUp={event => endPointerAction(event)}
               onPointerCancel={event => endPointerAction(event, true)}
               onLostPointerCapture={event => endPointerAction(event, true)}
-              aria-label={
-                snapshot.mode === "battle" && snapshot.gauge >= 100
-                  ? "カスタム画面を開く"
-                  : "次のカードを使用"
-              }
+              aria-label="カードを使用"
             >
-              {snapshot.mode === "battle" && snapshot.gauge >= 100
-                ? "CUSTOM"
-                : "カード"}
+              カード
             </button>
           </div>
           <div className="charge-indicator">
@@ -1189,9 +1342,20 @@ export default function GameCanvas() {
               onClick={toggleVibration}
               aria-pressed={vibrationEnabled}
             >
-              振動 {vibrationEnabled ? "ON" : "OFF"}
+              振動 {vibrationEnabled ? "有効" : "無効"}
             </button>
           </div>
+          {pcPlatform && (
+            <KeyboardBindingPanel
+              bindings={keyboardBindings}
+              capturing={capturingKey}
+              captureError={captureError}
+              onCapture={action => {
+                setCaptureError("");
+                setCapturingKey(action);
+              }}
+            />
+          )}
           <button
             type="button"
             className="engage-button"
@@ -1240,8 +1404,7 @@ export default function GameCanvas() {
           ranking={ranking}
           rankingStatus={rankingStatus}
           onRestart={() => controller?.restart()}
-          onFolderEdit={() => setFolderEditorOpen(true)}
-          onHome={() => controller?.restart()}
+          onHome={returnHome}
           onRetryRanking={() => {
             resultSubmissionKeyRef.current = null;
             setRankingRetryToken(token => token + 1);
@@ -1249,42 +1412,27 @@ export default function GameCanvas() {
         />
       )}
 
-      {snapshot.mode === "practice" && (
-        <Tutorial
-          stage={snapshot.practiceStage ?? 1}
-          cleared={snapshot.practiceCleared === true}
-          progress={snapshot.practiceProgress}
-          retryCount={snapshot.practiceRetryCount ?? 0}
-          supplyNames={snapshot.practiceSupplyNames ?? []}
-          onNext={() => controller?.nextPracticeStage()}
-          onRetry={() => controller?.retryPracticeStage()}
-          onExit={() => controller?.exitPractice()}
-        />
-      )}
-
-      {folderEditorOpen && (
-        <FolderEditor
-          onClose={() => setFolderEditorOpen(false)}
-          onSaved={() => {
-            controllerRef.current?.reloadFolder?.();
-            setFolderEditorOpen(false);
-          }}
-        />
-      )}
-
       <footer className="control-guide">
         <span>
-          <b>移動</b> WASD / 矢印キー
+          <b>移動</b> 矢印キー
         </span>
-        <span>
-          <b>通常攻撃</b> Z / 正面直線
-        </span>
-        <span>
-          <b>チャージ</b> スペース長押し＋移動
-        </span>
-        <span>
-          <b>カード</b> X
-        </span>
+        {pcPlatform ? (
+          <>
+            <span>
+              <b>通常攻撃</b> {keyboardLabel(keyboardBindings.fire)}
+            </span>
+            <span>
+              <b>チャージ</b> {keyboardLabel(keyboardBindings.charge)}長押し
+            </span>
+            <span>
+              <b>カード</b> {keyboardLabel(keyboardBindings.skill)}
+            </span>
+          </>
+        ) : (
+          <span>
+            <b>攻撃</b> 画面のボタン
+          </span>
+        )}
         <span>
           <b>カード選択</b> 20秒
         </span>
