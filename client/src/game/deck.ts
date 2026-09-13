@@ -24,14 +24,14 @@ const standardCards: Card[] = [
   { id: "dashslash", name: "突進斬", code: "B", tier: "standard", family: "近接", target: "near", power: 100, description: "最も近い敵のマスへ踏み込み、100ダメージ後に安全位置へ戻る" },
   { id: "gridcut", name: "格子断", code: "C", tier: "standard", family: "近接", target: "cross", power: 50, description: "最も近い敵を中心に横3マスと縦3マスを斬る。交点は2回命中" },
   { id: "moonblade", name: "月光剣", code: "A", tier: "standard", folderClass: "upper", family: "近接", target: "near", power: 140, description: "正面の同じ行2マスへ140ダメージ。長い準備時間" },
-  { id: "timer", name: "時限地雷", code: "D", tier: "standard", family: "設置", target: "near", power: 90, description: "指定敵マスへHP50の爆弾を置く。2秒後に周囲3×3へ90ダメージ" },
+  { id: "timer", name: "時限地雷", code: "D", tier: "standard", family: "設置", target: "near", power: 90, description: "指定敵マスへ耐久50の爆弾を置く。2秒後に周囲3×3へ90ダメージ" },
   { id: "watchmine", name: "監視地雷", code: "E", tier: "standard", family: "設置", target: "enemy-field", power: 100, description: "敵陣の空きマスへ隠し罠を置く。敵が踏むと100ダメージと短い麻痺" },
   { id: "turret", name: "砲台ポッド", code: "B", tier: "standard", family: "設置", target: "column", rangeLabel: "自陣前列", power: 12, description: "自陣前列へ耐久60の砲台を置く。4秒間、0.4秒ごとに12ダメージ射撃" },
-  { id: "stake", name: "拘束杭", code: "C", tier: "standard", family: "設置", target: "near", power: 10, description: "指定マスへHP40の杭を置く。隣接敵へ10ダメージを5回与え、移動を拘束" },
+  { id: "stake", name: "拘束杭", code: "C", tier: "standard", family: "設置", target: "near", power: 10, description: "指定マスへ耐久40の杭を置く。隣接敵へ10ダメージを5回与え、移動を拘束" },
   { id: "breakpillar", name: "破砕柱", code: "C", tier: "standard", family: "設置", target: "near", power: 90, description: "指定マスへ90破砕ダメージ。障害物を破壊し、パネルを亀裂化" },
   { id: "block", name: "遮断キューブ", code: "B", tier: "standard", family: "設置", target: "self", rangeLabel: "自分の正面1マス", power: 0, description: "自分の正面1マスへ耐久100の立方体を置き、射撃と移動を遮る" },
   { id: "toxic", name: "毒霧装置", code: "E", tier: "standard", family: "設置", target: "near", power: 8, description: "装置周囲へ5秒間毒霧を出し、範囲内へ毎秒8ダメージ" },
-  { id: "sanctum", name: "聖域セル", code: "A", tier: "standard", family: "地形", target: "self", power: 0, status: "recover", effectValue: 20, durationMs: 8000, description: "現在地と上下左右の自陣パネルを8秒間聖域化し、HP20回復" },
+  { id: "sanctum", name: "聖域セル", code: "A", tier: "standard", family: "地形", target: "self", power: 0, status: "recover", effectValue: 20, durationMs: 8000, description: "現在地と上下左右の自陣パネルを8秒間聖域化し、耐久20回復" },
   { id: "crack", name: "亀裂線", code: "C", tier: "standard", family: "地形", target: "front", power: 20, description: "前方2マスを亀裂化。対象がいれば20破砕ダメージ" },
   { id: "rush", name: "強襲転送", code: "B", tier: "standard", family: "地形", target: "near", power: 0, description: "選択可能なマスへ転送。350ミリ秒位相化し、次の剣攻撃を30％強化" },
   { id: "sector", name: "区画拡張", code: "C", tier: "standard", family: "地形", target: "self", rangeLabel: "敵前列1列", power: 0, durationMs: 10000, description: "敵前列1列を10秒間自陣へ変更" },
@@ -44,11 +44,11 @@ const standardCards: Card[] = [
   { id: "substitute", name: "身代わり膜", code: "D", tier: "standard", family: "防御", target: "self", power: 0, description: "次の1撃を無効化し、隣接安全マスへ移動。元の場所へ2秒間囮を残す" },
   { id: "magguard", name: "電磁防壁", code: "E", tier: "standard", family: "防御", target: "self", power: 0, status: "barrier", effectValue: 80, description: "80障壁。破壊時または接触時に周囲へ40電気ダメージと麻痺" },
   { id: "premonition", name: "予知反撃", code: "C", tier: "standard", family: "反撃", target: "self", power: 0, effectValue: 120, durationMs: 1200, description: "1.2秒の反撃姿勢。時間内の攻撃を無効化し、攻撃元へ120ダメージ" },
-  { id: "rectify", name: "整流回復", code: "A", tier: "standard", family: "回復", target: "self", power: 0, status: "recover", effectValue: 50, description: "HP50回復" },
-  { id: "repair", name: "応急修復", code: "B", tier: "standard", family: "回復", target: "self", power: 0, status: "recover", effectValue: 100, durationMs: 600, description: "600ミリ秒の準備後、HP100回復。準備中に被弾すると失敗" },
-  { id: "fastsync", name: "速攻同期", code: "C", tier: "standard", family: "補助", target: "self", power: 0, status: "gauge", durationMs: 8000, description: "8秒間、カスタムゲージ上昇速度を2倍" },
-  { id: "stamp", name: "出力印", code: "*", tier: "standard", family: "補助", target: "self", power: 0, effectValue: 120, description: "カスタム画面で直前に選んだ攻撃カードへ接続。1命中につき威力+30、最大+120" },
-  { id: "reroute", name: "再送回路", code: "D", tier: "standard", family: "補助", target: "self", power: 0, description: "カスタムゲージを即座に満タンにする" },
+  { id: "rectify", name: "整流回復", code: "A", tier: "standard", family: "回復", target: "self", power: 0, status: "recover", effectValue: 50, description: "耐久50回復" },
+  { id: "repair", name: "応急修復", code: "B", tier: "standard", family: "回復", target: "self", power: 0, status: "recover", effectValue: 100, durationMs: 600, description: "600ミリ秒の準備後、耐久100回復。準備中に被弾すると失敗" },
+  { id: "fastsync", name: "同期強化", code: "C", tier: "standard", family: "補助", target: "self", power: 0, status: "boost", effectValue: 2, description: "次に使用するカードの威力を2倍にする" },
+  { id: "stamp", name: "出力印", code: "*", tier: "standard", family: "補助", target: "self", power: 0, effectValue: 120, description: "次の攻撃カードを1命中につき威力30、最大120強化する" },
+  { id: "reroute", name: "再送障壁", code: "D", tier: "standard", family: "補助", target: "self", power: 0, status: "barrier", effectValue: 60, description: "耐久60の障壁を展開する" },
 ];
 
 const megaCards: Card[] = [
@@ -84,7 +84,7 @@ const megaCards: Card[] = [
     target: "self",
     rangeLabel: "全自陣",
     power: 0,
-    description: "全自陣を10秒間聖域化し、HP50回復",
+    description: "全自陣を10秒間聖域化し、耐久50回復",
   },
   {
     id: "overdrive",
@@ -140,7 +140,7 @@ export function validateSelection(
   // The offer size itself is the only selection limit; connection codes and
   // card classes no longer block the player's chosen execution order.
   if (selected.length === 0)
-    return { valid: true, rule: null, reason: "カードを選ばず戦闘へ戻れます" };
+    return { valid: false, rule: null, reason: "1枚以上選択してください" };
   if (selected.length > 5)
     return { valid: false, rule: null, reason: "選択できるカードは最大5枚です" };
   if (new Set(selected).size !== selected.length)

@@ -34,6 +34,9 @@ function queueCardForTest(world: GameWorld, id: string): void {
     mode: BattleSnapshot["mode"];
     queue: Card[];
     hitstopRemainingMs: number;
+    playerControlLockedUntil: number;
+    playerDamageInvulnerableUntil: number;
+    playerStunnedUntil: number;
   };
   internal.mode = "battle";
   internal.queue = [card];
@@ -41,6 +44,15 @@ function queueCardForTest(world: GameWorld, id: string): void {
   // production path blocks that input during hitstop, so clear the visual
   // lock between these isolated fixtures.
   internal.hitstopRemainingMs = 0;
+  internal.playerControlLockedUntil = 0;
+  internal.playerDamageInvulnerableUntil = 0;
+  internal.playerStunnedUntil = 0;
+}
+
+function confirmCustomForTest(world: GameWorld): void {
+  const internal = world as unknown as { selected: number[] };
+  if (internal.selected.length === 0) world.controller.toggleCard(0);
+  world.controller.confirmCustom();
 }
 
 function placeMeleeTarget(world: GameWorld): { hp: number } {
@@ -90,23 +102,23 @@ describe("GameWorldの現行Wave基準", () => {
     );
     expect([...names]).toEqual(
       expect.arrayContaining([
-        "BULWARK-3",
-        "SCANNER-8",
-        "BOOMER-ARC",
-        "HOPPER-BOMB",
-        "MIRROR-NODE",
-        "RAZOR-6",
-        "SUPPORT-RELAY",
+        "防壁３号",
+        "索敵８号",
+        "周回弾",
+        "跳躍爆弾",
+        "反射核",
+        "刃影６号",
+        "支援中継",
       ])
     );
     expect(
-      ["BASTION PRIME", "PRISM HUNTER", "CLIMATE ENGINE", "CORE ARBITER"].some(
+      ["要塞本体", "光彩狩人", "気象機関", "中枢裁定"].some(
         name => names.has(name)
       )
     ).toBe(true);
   });
 
-  it("starts from five folder cards with stable instance identities", () => {
+  it("starts from five catalog cards with stable instance identities", () => {
     let latest: BattleSnapshot | undefined;
     new GameWorld(
       snapshot => {
@@ -119,6 +131,8 @@ describe("GameWorldの現行Wave基準", () => {
       5
     );
     expect(latest?.customHand.every(card => card.selectedCode)).toBe(true);
+    expect("emotion" in (latest ?? {})).toBe(false);
+    expect("corruption" in (latest ?? {})).toBe(false);
   });
 
   it("reproduces explicit run seeds and varies ordinary run seeds", () => {
@@ -246,7 +260,7 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.selectionError).toBeNull();
   });
 
-  it("allows returning to battle with zero selected cards", () => {
+  it("requires at least one selected card before battle", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(
       snapshot => {
@@ -255,9 +269,9 @@ describe("GameWorldの現行Wave基準", () => {
       () => undefined
     );
     world.controller.confirmCustom();
-    expect(latest?.mode).toBe("battle");
+    expect(latest?.mode).toBe("custom");
     expect(latest?.queue).toHaveLength(0);
-    expect(latest?.message).toContain("カードなし");
+    expect(latest?.selectionError).toContain("1枚以上");
   });
 
   it("allows a mixed-name and mixed-code selection using the whole set", () => {
@@ -285,7 +299,7 @@ describe("GameWorldの現行Wave基準", () => {
         () => undefined
       );
       world.controller.toggleCard(0);
-      world.controller.confirmCustom();
+      confirmCustomForTest(world);
       for (let frame = 0; frame < renderRate; frame += 1)
         world.update(1 / renderRate);
       world.controller.move(0, 0);
@@ -313,7 +327,7 @@ describe("GameWorldの現行Wave基準", () => {
       () => undefined
     );
     world.controller.toggleCard(0);
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     world.update(1 / 60);
     world.update(2);
     world.controller.move(0, 0);
@@ -327,7 +341,7 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.elapsed).toBeCloseTo(1 / 30, 5);
   });
 
-  it("keeps the battle open at a full gauge until the player opens custom", () => {
+  it("opens the next card selection automatically after twenty seconds", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(
       snapshot => {
@@ -335,7 +349,7 @@ describe("GameWorldの現行Wave基準", () => {
       },
       () => undefined
     );
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     const internal = world as unknown as {
       enemies: Array<{ nextAttackAt: number }>;
     };
@@ -344,19 +358,16 @@ describe("GameWorldの現行Wave基準", () => {
     });
     advanceAtFixedRate(world, 20);
     world.controller.move(0, 0);
-    expect(latest?.mode).toBe("battle");
-    expect(latest?.customHandNumber).toBe(1);
-    expect(latest?.gauge).toBeCloseTo(100, 5);
-    expect(latest?.customRemaining).toBeCloseTo(0, 5);
-    world.controller.openCustom();
     expect(latest?.mode).toBe("custom");
     expect(latest?.customHandNumber).toBe(2);
+    expect(latest?.gauge).toBeCloseTo(100, 5);
+    expect(latest?.customRemaining).toBeCloseTo(0, 5);
   });
 
   it("limits normal shots to three per burst and resumes after two seconds", () => {
     const events: BattleEvent[] = [];
     const world = new GameWorld(() => undefined, event => events.push(event));
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
 
     const playerShots = () =>
       events.filter(
@@ -389,7 +400,7 @@ describe("GameWorldの現行Wave基準", () => {
     expect(initialIds).toHaveLength(5);
     expect(new Set(initialIds).size).toBe(initialIds.length);
 
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     const internal = world as unknown as {
       enemies: Array<{ nextAttackAt: number }>;
     };
@@ -398,8 +409,6 @@ describe("GameWorldの現行Wave基準", () => {
     });
     advanceAtFixedRate(world, 20);
     expect(latest?.gauge).toBeCloseTo(100, 5);
-    world.controller.openCustom();
-
     const nextIds = latest?.customHand.map(card => card.id) ?? [];
     expect(latest?.mode).toBe("custom");
     expect(nextIds.length).toBeLessThanOrEqual(5);
@@ -415,7 +424,7 @@ describe("GameWorldの現行Wave基準", () => {
       },
       () => undefined
     );
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     const internal = world as unknown as {
       enemies: Array<{ nextAttackAt: number }>;
     };
@@ -425,34 +434,33 @@ describe("GameWorldの現行Wave基準", () => {
     advanceAtFixedRate(world, 2);
     world.controller.openCustom();
     expect(latest?.mode).toBe("battle");
-    expect(latest?.message).toContain("満タン");
+    expect(latest?.message).toContain("あと");
 
     advanceAtFixedRate(world, 18);
-    world.controller.startCharge();
-    world.controller.openCustom();
+    expect(latest?.mode).toBe("custom");
     expect(latest?.mode).toBe("custom");
     expect((world as unknown as { isCharging: boolean }).isCharging).toBe(false);
   });
 
-  it("opens a full custom while the player is stunned without clearing stun", () => {
+  it("opens the timed selection while the player is stunned without clearing stun", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(snapshot => {
       latest = snapshot;
     }, () => undefined);
     const internal = world as unknown as {
-      customSystem: { fill: () => void };
       gameTimeMs: number;
+      customElapsedMs: number;
       playerStunnedUntil: number;
     };
 
-    world.controller.confirmCustom();
-    internal.customSystem.fill();
+    confirmCustomForTest(world);
+    internal.customElapsedMs = 20000;
     internal.playerStunnedUntil = internal.gameTimeMs + 500;
 
     world.controller.openCustom();
 
     expect(latest?.mode).toBe("custom");
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     expect(latest?.mode).toBe("battle");
     expect(internal.playerStunnedUntil).toBeGreaterThan(internal.gameTimeMs);
   });
@@ -490,7 +498,7 @@ describe("GameWorldの現行Wave基準", () => {
       latest = snapshot;
     }, () => undefined);
     const internal = world as unknown as {
-      customSystem: { fill: () => void };
+      customElapsedMs: number;
       notify: () => void;
       enemies: Array<{
         id: string;
@@ -501,7 +509,7 @@ describe("GameWorldの現行Wave基準", () => {
         lockedTargets: GridPosition[];
       }>;
     };
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     advanceAtFixedRate(world, 1.2);
     const before = internal.enemies.map(enemy => ({
       id: enemy.id,
@@ -512,11 +520,11 @@ describe("GameWorldの現行Wave基準", () => {
       lockedTargets: enemy.lockedTargets.map(target => ({ ...target })),
     }));
 
-    internal.customSystem.fill();
+    internal.customElapsedMs = 20000;
     internal.notify();
     world.controller.openCustom();
     expect(latest?.mode).toBe("custom");
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
 
     expect(latest?.mode).toBe("battle");
     expect(internal.enemies.map(enemy => ({
@@ -538,7 +546,7 @@ describe("GameWorldの現行Wave基準", () => {
       () => undefined
     );
     world.controller.toggleCard(0);
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     advanceAtFixedRate(world, 1);
     const beforePause = latest?.gauge ?? 0;
     world.controller.togglePause();
@@ -563,7 +571,7 @@ describe("GameWorldの現行Wave基準", () => {
 
     for (let attempt = 0; attempt < 10; attempt += 1) {
       world.controller.toggleCard(0);
-      world.controller.confirmCustom();
+      confirmCustomForTest(world);
       world.update(1 / 60);
       world.controller.restart();
       expect(latest?.mode).toBe("custom");
@@ -603,7 +611,7 @@ describe("GameWorldの現行Wave基準", () => {
     ).toBe(initial?.enemies.length ? initial.enemies.length + 1 : 0);
 
     world.controller.toggleCard(0);
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     world.controller.move(1, 0);
     expect(latest?.playerGrid).toEqual({ col: 2, row: 1 });
     world.controller.move(1, 0);
@@ -631,7 +639,7 @@ describe("GameWorldの現行Wave基準", () => {
     const enemyBefore =
       latest?.enemies.find(enemy => enemy.id === "bulwark")?.hp ?? 0;
     world.controller.toggleCard(0);
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     world.controller.fire();
 
     expect(latest?.projectiles).toHaveLength(1);
@@ -658,11 +666,7 @@ describe("GameWorldの現行Wave基準", () => {
       },
       () => undefined
     );
-    const cardIndex =
-      latest?.customHand.findIndex(card => card.id === "triplet") ?? -1;
-    expect(cardIndex).toBeGreaterThanOrEqual(0);
-    world.controller.toggleCard(cardIndex);
-    world.controller.confirmCustom();
+    queueCardForTest(world, "triplet");
     world.controller.useSkill();
 
     expect(latest?.projectiles).toHaveLength(3);
@@ -897,7 +901,6 @@ describe("GameWorldの現行Wave基準", () => {
     }, () => undefined);
     const internal = world as unknown as {
       playerHp: number;
-      customSystem: { multiplier: number };
       applyPlayerHit: (damage: number, enemyId?: string) => void;
     };
 
@@ -917,7 +920,11 @@ describe("GameWorldの現行Wave基準", () => {
 
     queueCardForTest(world, "fastsync");
     world.controller.useSkill();
-    expect(internal.customSystem.multiplier).toBe(2);
+    expect(latest?.sync).toBe(true);
+
+    queueCardForTest(world, "reroute");
+    world.controller.useSkill();
+    expect(latest?.barrier).toBe(160);
 
     let repairLatest: BattleSnapshot | undefined;
     const repairWorld = new GameWorld(snapshot => {
@@ -963,7 +970,7 @@ describe("GameWorldの現行Wave基準", () => {
       () => undefined
     );
     world.controller.toggleCard(0);
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     world.controller.startCharge();
     world.update(0.2);
     world.update(0.2);
@@ -984,7 +991,7 @@ describe("GameWorldの現行Wave基準", () => {
       const world = new GameWorld(() => undefined, event => events.push(event));
       const internal = world as unknown as { enemies: unknown[] };
       internal.enemies = [];
-      world.controller.confirmCustom();
+      confirmCustomForTest(world);
 
       if (charged) {
         world.controller.startCharge();
@@ -1017,7 +1024,7 @@ describe("GameWorldの現行Wave基準", () => {
     const internal = world as unknown as {
       enemies: Array<{ state: string; grid: GridPosition }>;
     };
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     internal.enemies.forEach(enemy => {
       enemy.state = "deleted";
     });
@@ -1103,7 +1110,7 @@ describe("GameWorldの現行Wave基準", () => {
     const world = new GameWorld(snapshot => {
       latest = snapshot;
     }, () => undefined);
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     advanceAtFixedRate(world, 2);
     world.controller.move(0, 0);
 
@@ -1122,7 +1129,7 @@ describe("GameWorldの現行Wave基準", () => {
       enemies: Array<{ id: string; grid: GridPosition }>;
       syncBoardOccupancy: () => void;
     };
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     const bulwark = internal.enemies.find(enemy => enemy.id === "bulwark");
     if (!bulwark) throw new Error("カウンター検査用の敵が配置されていません");
     bulwark.grid = { col: 3, row: 1 };
@@ -1144,7 +1151,7 @@ describe("GameWorldの現行Wave基準", () => {
     const world = new GameWorld(snapshot => {
       latest = snapshot;
     }, () => undefined);
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
 
     advanceAtFixedRate(world, 1.2);
     const telegraph = latest?.enemies.find(
@@ -1186,7 +1193,7 @@ describe("GameWorldの現行Wave基準", () => {
     const internal = world as unknown as {
       playerBlindUntil: number;
     };
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     internal.playerBlindUntil = 10000;
     advanceAtFixedRate(world, 1.2);
     world.controller.move(0, 0);
@@ -1389,7 +1396,7 @@ describe("GameWorldの現行Wave基準", () => {
     const world = new GameWorld(snapshot => {
       latest = snapshot;
     }, () => undefined);
-    world.controller.confirmCustom();
+    confirmCustomForTest(world);
     advanceAtFixedRate(world, 4.4);
     world.controller.move(0, 0);
 
@@ -1491,7 +1498,7 @@ describe("GameWorldの現行Wave基準", () => {
     }
 
     expect(latest?.practiceStage).toBe(7);
-    expect(latest?.practiceStageTitle).toContain("精神状態");
+    expect(latest?.practiceStageTitle).toContain("特別カード");
     world.controller.nextPracticeStage();
     expect(latest?.mode).toBe("practice");
     world.controller.exitPractice();
@@ -1556,7 +1563,7 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.playerHp).toBe(internal.playerMaxHp);
     expect(latest?.practiceProgress?.completed).toBe(0);
     expect(latest?.practiceSupplyNames).toEqual([]);
-    expect(latest?.message).toContain("補給・HP回復済み");
+    expect(latest?.message).toContain("補給・耐久回復済み");
   });
 
   it("supplies connected cards for the connection-code lesson", () => {
@@ -1573,6 +1580,8 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.practiceSupplyNames).toEqual(["連射弾", "貫通槍"]);
     world.controller.useSkill();
     internal.hitstopRemainingMs = 0;
+    internal.playerControlLockedUntil = 0;
+    internal.playerDamageInvulnerableUntil = 0;
     world.controller.useSkill();
 
     expect(latest?.practiceProgress).toEqual({
@@ -1732,7 +1741,7 @@ describe("GameWorldの現行Wave基準", () => {
       };
 
       for (let wave = 1; wave <= 4; wave += 1) {
-        if (latest?.mode === "custom") world.controller.confirmCustom();
+        if (latest?.mode === "custom") confirmCustomForTest(world);
         expect(latest?.mode).toBe("battle");
         internal.enemies.forEach(enemy => {
           enemy.state = "deleted";

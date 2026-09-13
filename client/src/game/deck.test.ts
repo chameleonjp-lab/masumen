@@ -23,6 +23,7 @@ describe("現行カードカタログの基準", () => {
     const hand = drawHand(0);
     expect(canAppendSelection(hand, [], 0)).toBe(true);
     expect(canAppendSelection(hand, [0, 1, 2, 3, 4], 0)).toBe(false);
+    expect(validateSelection(hand, []).valid).toBe(false);
   });
 
   it("allows every displayed card regardless of name or connection code", () => {

@@ -39,6 +39,11 @@ const GRAPHITE = Color3.FromHexString("#10171F");
 
 export interface SceneCallbacks {
   canAcceptInput?: () => boolean;
+  getKeyboardBindings?: () => {
+    fire: string;
+    charge: string;
+    skill: string;
+  };
   onSnapshot?: (snapshot: BattleSnapshot) => void;
 }
 
@@ -402,12 +407,6 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
           });
     }
   };
-
-  const divider = MeshBuilder.CreateBox("divider", { width: 0.12, depth: 4.55, height: 0.13 }, scene);
-  divider.position = new Vector3(0, 0.14, 0);
-  const dividerMaterial = new StandardMaterial("divider-mat", scene);
-  dividerMaterial.emissiveColor = EMBER.scale(0.78);
-  divider.material = dividerMaterial;
 
   const player = makeUnit(scene, "pilot", ASSET_URLS.pilot, 1.18, 1.54);
   const playerAttack = MeshBuilder.CreatePlane("pilot-attack-plane", { width: 1.18, height: 1.54 }, scene);
@@ -1453,15 +1452,13 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
 
   const keyMoveRepeat = createMovementRepeat();
   let activeMoveKey: string | null = null;
+  const normaliseKeyboardKey = (key: string): string =>
+    key === " " ? key : key.toLowerCase();
   const moveDirections: Record<string, GridPosition> = {
     arrowup: { col: 0, row: 1 },
-    w: { col: 0, row: 1 },
     arrowdown: { col: 0, row: -1 },
-    s: { col: 0, row: -1 },
     arrowleft: { col: -1, row: 0 },
-    a: { col: -1, row: 0 },
     arrowright: { col: 1, row: 0 },
-    d: { col: 1, row: 0 },
   };
   const stopKeyMove = () => {
     activeMoveKey = null;
@@ -1483,15 +1480,25 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
       );
       return;
     }
-    if (event.key.toLowerCase() === "z") world.controller.fire();
-    if (event.key === " ") world.controller.startCharge();
-    if (event.key.toLowerCase() === "x") world.controller.useSkill();
-    if (event.key.toLowerCase() === "c") world.controller.openCustom();
+    const bindings = callbacks.getKeyboardBindings?.() ?? {
+      fire: "z",
+      charge: " ",
+      skill: "x",
+    };
+    const key = normaliseKeyboardKey(event.key);
+    if (key === bindings.fire || key === bindings.charge || key === bindings.skill) {
+      event.preventDefault();
+      if (event.repeat) return;
+      if (key === bindings.fire) world.controller.fire();
+      if (key === bindings.charge) world.controller.startCharge();
+      if (key === bindings.skill) world.controller.useSkill();
+    }
     if (event.key === "Enter") world.controller.confirmCustom();
   };
   const keyUp = (event: KeyboardEvent) => {
     if (activeMoveKey === event.key.toLowerCase()) stopKeyMove();
-    if (event.key === " ") {
+    const chargeKey = callbacks.getKeyboardBindings?.().charge ?? " ";
+    if (normaliseKeyboardKey(event.key) === normaliseKeyboardKey(chargeKey)) {
       if (!acceptsInput(event)) {
         world.controller.cancelCharge();
         return;
@@ -1772,7 +1779,10 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
           }
         }
       }
-      unit.root.position = Vector3.Lerp(unit.root.position, target.add(recoil), Math.min(1, delta * 10));
+      // The grid state is authoritative. Snapping the enemy to its current
+      // panel prevents a wind-up ring or impact from appearing on a different
+      // floor tile while the visual body is still interpolating from a move.
+      unit.root.position.copyFrom(target.add(recoil));
       unit.root.rotation.z = tilt;
       unit.root.scaling.setAll(scale);
       const windupScale = enemy.state === "windup" ? 1.18 + Math.sin(performance.now() / 85) * 0.14 : 1;

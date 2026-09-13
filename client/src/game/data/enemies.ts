@@ -155,7 +155,7 @@ const normal = (
 export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   bulwark: normal({
     id: "bulwark",
-    name: "BULWARK-3",
+    name: "防壁３号",
     maxHp: 150,
     element: "none",
     movement: "ground",
@@ -190,7 +190,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   }),
   scanner: normal({
     id: "scanner",
-    name: "SCANNER-8",
+    name: "索敵８号",
     maxHp: 95,
     element: "none",
     movement: "flying",
@@ -228,7 +228,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   }),
   razor: normal({
     id: "razor",
-    name: "RAZOR-6",
+    name: "刃影６号",
     maxHp: 100,
     element: "none",
     movement: "pursuit",
@@ -263,7 +263,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   }),
   mortar: normal({
     id: "mortar",
-    name: "MORTAR-NODE",
+    name: "迫撃ノード",
     maxHp: 160,
     element: "none",
     movement: "stationary",
@@ -318,7 +318,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   }),
   sentinel: normal({
     id: "sentinel",
-    name: "VOLT-SENTINEL",
+    name: "電撃守衛",
     maxHp: 130,
     element: "electric",
     movement: "flying",
@@ -355,7 +355,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   }),
   "wave-runner": normal({
     id: "wave-runner",
-    name: "WAVE-RUNNER",
+    name: "波走り",
     maxHp: 80,
     element: "water",
     movement: "row-align",
@@ -394,7 +394,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   }),
   "boomer-arc": normal({
     id: "boomer-arc",
-    name: "BOOMER-ARC",
+    name: "周回弾",
     maxHp: 90,
     element: "none",
     movement: "outer",
@@ -432,7 +432,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   }),
   "hopper-bomb": normal({
     id: "hopper-bomb",
-    name: "HOPPER-BOMB",
+    name: "跳躍爆弾",
     maxHp: 110,
     element: "none",
     movement: "ground",
@@ -470,7 +470,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   }),
   "gaia-hammer": normal({
     id: "gaia-hammer",
-    name: "GAIA-HAMMER",
+    name: "大地槌",
     maxHp: 180,
     element: "none",
     movement: "stationary",
@@ -507,7 +507,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   }),
   "weather-core": normal({
     id: "weather-core",
-    name: "WEATHER-CORE",
+    name: "天候核",
     maxHp: 140,
     element: "none",
     movement: "stationary",
@@ -583,7 +583,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   }),
   "support-relay": normal({
     id: "support-relay",
-    name: "SUPPORT-RELAY",
+    name: "支援中継",
     maxHp: 85,
     element: "none",
     movement: "ground",
@@ -636,7 +636,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   }),
   "mirror-node": normal({
     id: "mirror-node",
-    name: "MIRROR-NODE",
+    name: "反射核",
     maxHp: 120,
     element: "none",
     movement: "stationary",
@@ -670,7 +670,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   }),
   "bastion-prime": {
     id: "bastion-prime",
-    name: "BASTION PRIME",
+    name: "要塞本体",
     rank: "boss",
     maxHp: 420,
     element: "none",
@@ -773,7 +773,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   },
   "prism-hunter": {
     id: "prism-hunter",
-    name: "PRISM HUNTER",
+    name: "光彩狩人",
     rank: "boss",
     maxHp: 380,
     element: "none",
@@ -848,7 +848,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   },
   "climate-engine": {
     id: "climate-engine",
-    name: "CLIMATE ENGINE",
+    name: "気象機関",
     rank: "boss",
     maxHp: 400,
     element: "none",
@@ -972,7 +972,7 @@ export const ENEMY_DEFINITIONS: Record<EnemyId, EnemyDefinition> = {
   },
   "core-arbiter": {
     id: "core-arbiter",
-    name: "CORE ARBITER",
+    name: "中枢裁定",
     rank: "boss",
     maxHp: 480,
     element: "none",

@@ -70,6 +70,7 @@ describe("実シーンとGameWorldの接続", () => {
     frame();
     const baseline = counts();
     for (let cycle = 0; cycle < 10; cycle++) {
+      handle.controller.toggleCard(0);
       handle.controller.confirmCustom();
       for (let step = 0; step < 120; step++) {
         if (step % 12 === 0) handle.controller.fire();
@@ -88,6 +89,7 @@ describe("実シーンとGameWorldの接続", () => {
     const handle = await createGameScene(f.engine as unknown as Engine, f.canvas, {
       onSnapshot: snapshot => { latest = snapshot; },
     });
+    handle.controller.toggleCard(0);
     handle.controller.confirmCustom();
     handle.controller.fire();
 
@@ -120,6 +122,40 @@ describe("実シーンとGameWorldの接続", () => {
       (listener as (event: unknown) => void)({ key: "Enter", preventDefault: vi.fn() });
     for (let i = 0; i < 20; i++) handle.scene.onBeforeRenderObservable.notifyObservers(handle.scene);
     expect(snapshot.mode).toBe("custom"); expect(snapshot.elapsed).toBe(0);
+    handle.dispose();
+  });
+  it("PC版の割り当てキーで通常攻撃・チャージ・カードを操作できる", async () => {
+    const f = setup();
+    let latest!: BattleSnapshot;
+    const handle = await createGameScene(f.engine as unknown as Engine, f.canvas, {
+      canAcceptInput: () => true,
+      getKeyboardBindings: () => ({ fire: "j", charge: "k", skill: "l" }),
+      onSnapshot: snapshot => { latest = snapshot; },
+    });
+    const dispatch = (type: "keydown" | "keyup", key: string) => {
+      for (const listener of f.listeners.get(`window:${type}`) ?? [])
+        (listener as (event: unknown) => void)({ key, preventDefault: vi.fn() });
+    };
+    handle.controller.toggleCard(0);
+    handle.controller.confirmCustom();
+    dispatch("keydown", "j");
+    expect(latest.projectiles.some(projectile => projectile.owner === "player")).toBe(true);
+
+    for (let i = 0; i < 3; i += 1)
+      handle.scene.onBeforeRenderObservable.notifyObservers(handle.scene);
+    dispatch("keydown", "l");
+    expect(latest.queue).toHaveLength(0);
+
+    handle.controller.restart();
+    handle.controller.toggleCard(0);
+    handle.controller.confirmCustom();
+    dispatch("keydown", "k");
+    handle.scene.onBeforeRenderObservable.notifyObservers(handle.scene);
+    expect(latest.charging).toBeGreaterThan(0);
+    for (let i = 0; i < 2; i += 1)
+      handle.scene.onBeforeRenderObservable.notifyObservers(handle.scene);
+    dispatch("keyup", "k");
+    expect(latest.message).toContain("短射撃");
     handle.dispose();
   });
 });

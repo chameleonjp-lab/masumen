@@ -30,12 +30,6 @@ export type EnemyDefenseMode =
   | "airborne"
   | "armor"
   | "reflect";
-export type EmotionState =
-  | "normal"
-  | "synchronized"
-  | "shaken"
-  | "enraged"
-  | "corrupted";
 export type CardTier = "standard" | "mega";
 export type ConnectionCode =
   | "A"
@@ -288,9 +282,6 @@ export interface BattleSnapshot {
   playerGrid: GridPosition;
   gauge: number;
   sync: boolean;
-  emotion: EmotionState;
-  emotionRemaining: number;
-  corruption: number;
   charging: number;
   barrier: number;
   invincible: boolean;

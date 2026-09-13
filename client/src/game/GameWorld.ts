@@ -351,6 +351,7 @@ export class GameWorld {
     COMBAT_BALANCE.custom.max,
     COMBAT_BALANCE.custom.baseMultiplier
   );
+  // 練習データの後方互換用。通常戦闘では参照せず、画面にも表示しません。
   private readonly emotionSystem = new EmotionSystem();
   private sync = false;
   private charging = 0;
@@ -378,7 +379,9 @@ export class GameWorld {
   private presentedOverloadCardIds = new Set<string>();
   private runSeed = createRunSeed();
   private activeFolder: SavedFolder = getActiveFolder(loadSaveData());
-  private battleDeck = new BattleDeck(this.activeFolder, 1009);
+  private battleDeck = new BattleDeck(this.activeFolder, 1009, {
+    pool: CARD_CATALOG,
+  });
   private customHand: Card[] = [];
   /** Number of normal-mode offers shown in the current Wave. */
   private customHandNumber = 0;
@@ -420,6 +423,8 @@ export class GameWorld {
   private notifyTimer = 0;
   private paused = false;
   private customRemaining = CUSTOM_INTERVAL_SECONDS;
+  /** Elapsed battle time since the last card selection. Paused while selecting. */
+  private customElapsedMs = 0;
   private nextFireAt = 0;
   private normalShotBurstCount = 0;
   private normalShotBurstCooldownUntil = 0;
@@ -520,7 +525,7 @@ export class GameWorld {
     this.queue = this.customHand.map(card => ({ ...card }));
     this.resetBoard(current.enemyIds);
     this.message = options.retry
-      ? `練習モード — ${current.title}をやり直します（補給・HP回復済み）`
+      ? `練習モード — ${current.title}をやり直します（補給・耐久回復済み）`
       : "練習モード — " + current.title;
     this.notify();
   }
@@ -594,7 +599,15 @@ export class GameWorld {
     this.gameTimeMs += deltaMs;
     this.elapsed += delta;
     this.customSystem.advance(delta, this.gameTimeMs);
+    if (this.mode === "battle") this.customElapsedMs += deltaMs;
     this.syncCustomRemaining();
+    if (
+      this.mode === "battle" &&
+      this.customElapsedMs >= COMBAT_BALANCE.custom.intervalMs
+    ) {
+      this.beginCustom("20秒経過 — 次のカードを選択してください");
+      return;
+    }
     if (this.isCharging)
       this.charging = Math.min(
         1,
@@ -635,9 +648,11 @@ export class GameWorld {
       this.updateEnemy(enemy, now);
     }
     this.updateForcedRepairDrain(now);
-    this.emotionSystem.update(now, this.playerHp, this.playerMaxHp, this.sync);
-    if (this.emotionSystem.snapshot(now).state !== "normal")
-      this.markPracticeProgress("emotion");
+    if (this.mode === "practice") {
+      this.emotionSystem.update(now, this.playerHp, this.playerMaxHp, this.sync);
+      if (this.emotionSystem.snapshot(now).state !== "normal")
+        this.markPracticeProgress("emotion");
+    }
     this.syncBoardOccupancy();
     const allEnemiesDefeated =
       this.enemies.length > 0 &&
@@ -1526,7 +1541,10 @@ export class GameWorld {
   }
 
   private syncCustomRemaining(): void {
-    this.customRemaining = this.customSystem.remainingSeconds();
+    this.customRemaining = Math.max(
+      0,
+      CUSTOM_INTERVAL_SECONDS - this.customElapsedMs / 1000
+    );
   }
 
   private updateTerrainEffects(now: number): void {
@@ -1567,8 +1585,7 @@ export class GameWorld {
     const amount = this.pendingRepair.amount;
     this.pendingRepair = null;
     this.healPlayer(amount);
-    this.emotionSystem.recover();
-    this.message = `応急修復が完了 — HP${amount}回復`;
+    this.message = `応急修復が完了 — 耐久${amount}回復`;
   }
   private updateForcedRepairDrain(now: number): void {
     if (!this.forcedRepairDrainActive || now < this.nextForcedRepairDrainAt)
@@ -1603,12 +1620,11 @@ export class GameWorld {
     if (card.isOverload) this.overloadCardsUsed += 1;
     if (card.power > 0) this.lastAttackCard = { ...card };
     const usedSync = this.sync;
-    const rageReady = this.emotionSystem.snapshot(this.gameTimeMs).rageReady;
     const swordBonus = card.properties?.includes("剣")
       ? this.nextSwordMultiplier
       : 1;
     const power = Math.round(
-      card.power * (usedSync || rageReady ? 2 : 1) * swordBonus
+      card.power * (usedSync ? 2 : 1) * swordBonus
     );
     if (card.properties?.includes("剣")) this.nextSwordMultiplier = 1;
     const resolution = this.cardTargets(card);
@@ -1628,17 +1644,11 @@ export class GameWorld {
       duration: hitstopDuration,
       tier: card.tier,
     });
-    let consumedEmotion: "synchronized" | "enraged" | null = null;
     if (card.power > 0 && card.chainTechniqueId !== "full-repair") {
-      consumedEmotion = this.emotionSystem.consumePower(usedSync);
       if (usedSync) this.sync = false;
     }
     const multiplierLabel =
-      usedSync || consumedEmotion === "synchronized"
-        ? " — フルシンクロ×2"
-        : consumedEmotion === "enraged"
-          ? " — 激昂×2"
-          : "";
+      usedSync ? " — 同期効果で威力2倍" : "";
     this.message = `${card.name} を送信${multiplierLabel}`;
     this.notify();
   }
@@ -2671,14 +2681,6 @@ export class GameWorld {
           now + COMBAT_BALANCE.playerHit.invulnerableMs;
       }
       this.sync = false;
-      this.emotionSystem.recordDamage(
-        now,
-        remaining,
-        this.playerHp,
-        this.playerMaxHp
-      );
-      if (!terrainDamage && this.emotionSystem.isRageStaggerImmune(now))
-        this.playerControlLockedUntil = now;
       this.message = terrainDamage ? "危険地形 — 耐久を消耗" : "被弾 — 退避してください";
       this.onEvent({
         type: "impact",
@@ -2702,10 +2704,10 @@ export class GameWorld {
     }
   }
   private healPlayer(amount: number): void {
-    const adjusted = Math.floor(
-      Math.max(0, amount) * this.emotionSystem.healMultiplier()
+    this.playerHp = Math.min(
+      this.playerMaxHp,
+      this.playerHp + Math.floor(Math.max(0, amount))
     );
-    this.playerHp = Math.min(this.playerMaxHp, this.playerHp + adjusted);
   }
   private updateFieldObjects(now: number): void {
     const expiring = this.objectSystem
@@ -2952,9 +2954,9 @@ export class GameWorld {
     if (card.isOverload) this.applyOverloadEffect(card);
     const value = card.effectValue ?? 0;
 
-    if (card.id === "prism")
+    if (card.id === "prism" || card.id === "reroute")
       this.barrier = Math.min(220, this.barrier + value);
-    if (card.status === "barrier" && card.id !== "prism")
+    if (card.status === "barrier" && card.id !== "prism" && card.id !== "reroute")
       this.barrier = Math.min(220, this.barrier + value);
     if (card.id === "dream")
       this.dreamAuraUntil = Math.max(
@@ -2963,7 +2965,6 @@ export class GameWorld {
       );
     if (card.id === "rectify") {
       this.healPlayer(value);
-      this.emotionSystem.recover();
     }
     if (
       card.status === "recover" &&
@@ -2971,7 +2972,10 @@ export class GameWorld {
       card.id !== "rectify"
     ) {
       this.healPlayer(value);
-      this.emotionSystem.recover();
+    }
+    if (card.id === "fastsync") {
+      // 20秒固定の再選択時刻は変えず、次のカードだけを強化する。
+      this.sync = true;
     }
     if (
       card.status === "gauge" &&
@@ -2980,13 +2984,6 @@ export class GameWorld {
     )
       this.customSystem.add(value);
 
-    if (card.id === "fastsync")
-      this.customSystem.setTemporaryMultiplier(
-        COMBAT_BALANCE.custom.fastSyncMultiplier,
-        COMBAT_BALANCE.custom.fastSyncDurationMs,
-        this.gameTimeMs
-      );
-    if (card.id === "reroute") this.customSystem.fill();
     if (card.id === "stamp")
       this.outputMarkRemaining = Math.min(
         120,
@@ -3151,19 +3148,13 @@ export class GameWorld {
     this.syncBoardOccupancy();
   }
   private applyOverloadEffect(card: Card): void {
-    const result = this.emotionSystem.registerOverload();
-    this.playerMaxHp = Math.max(
-      1,
-      this.playerMaxHp - result.appliedMaxHpReduction
-    );
-    this.playerHp = Math.min(this.playerHp, this.playerMaxHp);
     this.addScore(
       "overloadPenalty",
       COMBAT_BALANCE.score.overloadPenalty
     );
     if (card.id === "overload-limit-cannon") {
       this.normalShotDamageMultiplier = 0.5;
-      this.message = "限界砲 — このWaveは通常射撃が半減";
+      this.message = "限界砲 — このウェーブは通常射撃が半減";
     }
     if (card.id === "overload-contamination") {
       this.contaminationActive = true;
@@ -3632,14 +3623,12 @@ export class GameWorld {
       enemy.state = "stunned";
       enemy.actionPhase = "stunned";
       enemy.stunnedUntil = this.gameTimeMs + COMBAT_BALANCE.counter.stunMs;
-      this.sync = this.emotionSystem.counterSuccess();
+      this.sync = true;
       this.counters += 1;
       this.addScore("counterPoints", COMBAT_BALANCE.score.counterPoints);
       if (enemy.definitionId === "core-arbiter")
         enemy.actionIndex += 1;
-      this.message = this.sync
-        ? "カードカウンター — フルシンクロ"
-        : "カードカウンター — 激昂を維持";
+      this.message = "カードカウンター — 次のカードの威力が上がります";
       this.onEvent({ type: "counter", at: { ...enemy.grid } });
     }
     this.onEvent({
@@ -3803,7 +3792,8 @@ export class GameWorld {
     const hand = this.battleDeck.drawHand({ avoidSignatures });
     this.previousWaveHandSignature = folderHandSignature(hand);
     this.customHandNumber += 1;
-    const chance = this.emotionSystem.overloadChance();
+    // 5枚の提示は公開カタログからのみ行い、追加の不利益カードは混ぜません。
+    const chance = 0;
     const availableOverloads = OVERLOAD_CARDS.filter(
       card => !this.presentedOverloadCardIds.has(card.id),
     );
@@ -3841,14 +3831,18 @@ export class GameWorld {
     }
     const saveData = loadSaveData();
     this.activeFolder = getActiveFolder(saveData);
-    this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed());
+    this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed(), {
+      pool: CARD_CATALOG,
+    });
     this.previousWaveHandSignature = null;
     this.presentedOverloadCardIds.clear();
     this.queue = [];
     this.mode = "custom";
     this.customSystem.reset();
+    this.customElapsedMs = 0;
     this.syncCustomRemaining();
-    this.message = `${this.activeFolder.name}を読み込みました — カードを選択`;
+    this.emotionSystem.resetWave();
+    this.message = "カード一覧を読み込みました — カードを選択";
     this.resetBattleDeck();
     this.notify();
   }
@@ -3868,7 +3862,8 @@ export class GameWorld {
   }
 
   private beginCustom(message: string): void {
-    if (!this.customSystem.isFull()) return;
+    if (this.customElapsedMs < COMBAT_BALANCE.custom.intervalMs)
+      return;
     this.mode = "custom";
     this.clock.discardPendingTime();
     this.cancelCharge();
@@ -3877,25 +3872,21 @@ export class GameWorld {
     this.selected = [];
     this.focusedCard = null;
     this.selectionError = null;
+    this.customElapsedMs = COMBAT_BALANCE.custom.intervalMs;
+    this.syncCustomRemaining();
     this.message = message;
     this.notify();
   }
   private openCustom(): void {
     if (this.mode !== "battle" || this.paused || this.hitstopRemainingMs > 0) return;
-    /**
-     * ゲームプレイレビュー: 満タンのカスタムは麻痺中でも開ける。
-     * 再現手順: 戦闘中にゲージを満タンにし、プレイヤーが麻痺している間にCUSTOMを押す。
-     * 期待仕様: カスタム画面へ遷移し、カスタム開始で麻痺の残り時間は解除しない。
-     * 現状コード位置: GameWorld.openCustom() の入力制限。
-     * 修正方針: 戦闘を一時停止するカスタム操作を、麻痺による移動・攻撃制限から分離する。
-     * 追加テスト: 満タン・麻痺中のopenCustomがcustomへ遷移し、麻痺の残り時間を保つことを固定する。
-     */
-    if (!this.customSystem.isFull()) {
-      this.message = "カスタムゲージが満タンになるまで開けません";
+    if (this.customElapsedMs < COMBAT_BALANCE.custom.intervalMs) {
+      this.message = `カード選択まであと${Math.ceil(
+        CUSTOM_INTERVAL_SECONDS - this.customElapsedMs / 1000
+      )}秒です`;
       this.notify();
       return;
     }
-    this.beginCustom("カスタム画面 — 次のカードを選択");
+    this.beginCustom("カード選択 — 次のカードを選んでください");
   }
   private toggleCard(index: number): void {
     if (this.mode !== "custom" || !this.customHand[index]) return;
@@ -3954,6 +3945,7 @@ export class GameWorld {
     this.mode = "battle";
     this.clock.discardPendingTime();
     this.customSystem.resetGauge();
+    this.customElapsedMs = 0;
     this.syncCustomRemaining();
     this.message =
       chainTechnique
@@ -4001,7 +3993,7 @@ export class GameWorld {
         this.wave +
         " 完了 — 耐久を" +
         this.lastWaveRecovery +
-        "回復、次のWaveへ";
+        "回復、次のウェーブへ";
       if (summary.total > 0)
         this.message += "（獲得+" + summary.total + "）";
     } else {
@@ -4011,8 +4003,7 @@ export class GameWorld {
   }
   private nextWave(): void {
     if (this.mode !== "intermission") return;
-    // P1-3: temporary effects and the unspent queue are Wave-scoped; corruption
-    // is the only combat progression intentionally retained by resetWave().
+    // 一時効果と未使用のカード列はウェーブごとに初期化します。
     this.wave += 1;
     this.waveBattleStarted = false;
     this.waveStartedElapsed = this.elapsed;
@@ -4022,6 +4013,7 @@ export class GameWorld {
     this.clock.discardPendingTime();
     this.playerGrid = { col: 1, row: 1 };
     this.customSystem.reset();
+    this.customElapsedMs = 0;
     this.syncCustomRemaining();
     this.sync = false;
     this.emotionSystem.resetWave();
@@ -4074,6 +4066,7 @@ export class GameWorld {
     this.playerMaxHp = PLAYER_MAX_HP;
     this.playerGrid = { col: 1, row: 1 };
     this.customSystem.reset();
+    this.customElapsedMs = 0;
     this.syncCustomRemaining();
     this.sync = false;
     this.emotionSystem.resetRun();
@@ -4127,7 +4120,9 @@ export class GameWorld {
     this.counters = 0;
     this.rank = "—";
     this.activeFolder = getActiveFolder(loadSaveData());
-    this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed());
+    this.battleDeck = new BattleDeck(this.activeFolder, this.deckSeed(), {
+      pool: CARD_CATALOG,
+    });
     this.previousWaveHandSignature = null;
     this.resetOverloadRandom();
     this.presentedOverloadCardIds.clear();
@@ -4309,7 +4304,6 @@ export class GameWorld {
   }
   private notify(): void {
     const now = this.gameTimeMs;
-    const emotion = this.emotionSystem.snapshot(now);
     const practice = getPracticeStage(this.practiceStage);
     const practiceProgress =
       this.mode === "practice"
@@ -4328,9 +4322,6 @@ export class GameWorld {
       playerGrid: { ...this.playerGrid },
       gauge: this.customSystem.value,
       sync: this.sync,
-      emotion: emotion.state,
-      emotionRemaining: emotion.remainingMs / 1000,
-      corruption: emotion.corruption,
       charging: this.charging,
       barrier: this.barrier,
       invincible: now < this.invincibleUntil || now < this.phaseUntil,

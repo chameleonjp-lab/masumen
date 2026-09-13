@@ -28,8 +28,8 @@ export const PRACTICE_PROGRESS_LABELS: Readonly<Record<PracticeProgressId, strin
   warning: "攻撃予告の確認",
   counter: "カウンター",
   terrain: "地形・設置物",
-  emotion: "精神状態",
-  overload: "過負荷カード",
+  emotion: "特別効果",
+  overload: "特別カード",
 };
 
 export interface PracticeStage {
@@ -115,10 +115,10 @@ export const PRACTICE_STAGES: readonly PracticeStage[] = [
   },
   {
     stage: 7,
-    title: "精神状態と過負荷",
-    lesson: "被弾が続くと動揺し、強力な過負荷カードが現れます。使う代わりに侵食の不利益を受けます。",
-    objective: "強さと不利益を見比べて判断する",
-    actionHint: "精神状態が変化した後、過負荷カードを1枚送る",
+    title: "特別カードと代償",
+    lesson: "強力なカードには代償があります。効果と不利益を確認して使い分けます。",
+    objective: "カードの効果と代償を見比べて判断する",
+    actionHint: "特別カードを1枚送り、効果と代償を確認する",
     enemyIds: ["scanner", "mortar"],
     allowedActions: ["move", "normal-shot", "charge-shot", "card"],
     supplyCardIds: [

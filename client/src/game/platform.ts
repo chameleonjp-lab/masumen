@@ -126,13 +126,12 @@ export function resultShareText(snapshot: {
   counters: number;
   simultaneousDefeats: number;
   cardsUsed: number;
-  overloadCardsUsed: number;
 }): string {
   return [
     `【グリッド・シグナル・アリーナ】${readPlayerName() || "プレイヤー"}の戦闘結果`,
     `${snapshot.score.toLocaleString()}点 / ランク ${snapshot.rank}`,
     `到達ウェーブ ${snapshot.reachedWave}・時間 ${Math.floor(snapshot.elapsed)}秒・カウンター ${snapshot.counters}`,
-    `同時撃破 ${snapshot.simultaneousDefeats}・使用カード ${snapshot.cardsUsed}・過負荷 ${snapshot.overloadCardsUsed}`,
+    `同時撃破 ${snapshot.simultaneousDefeats}・使用カード ${snapshot.cardsUsed}`,
     "信号をつなぎ、敵陣を制圧した！",
     GAME_URL,
     "#グリッドシグナルアリーナ #カメレオンJP",

@@ -2,6 +2,8 @@
 
 > この文書は構成の履歴メモです。ゲームプレイの正本は`docs/COMBAT_REBUILD_PLAN.md`と`client/src/game/data/balance.ts`です。
 
+> **2026-09-13 現行実装**：開始はホームの「信号を開始」から名前を入力して進みます。フォルダ編集・練習モード・精神状態の表示と効果は公開導線から除外し、全カタログから未提示の5枚を抽選します。戦闘中は20秒ごとに自動でカード選択へ戻り、1〜5枚を選んで再開します。PCは矢印キー移動と設定可能な攻撃キー、タッチ端末は三角配置の大型ボタンを使います。
+
 ## 実行レイヤー
 
 ```text
@@ -14,18 +16,18 @@ React App
          ├─ EnemyUnit[]（状態機械、予兆、発射、麻痺）
          ├─ DeckController（候補、組み合わせ、キュー、再抽選）
          ├─ ProjectileSystem（弾道、寿命、判定）
-         └─ BattleState（custom / battle / result、HP、ゲージ、評価）
+         └─ BattleState（custom / battle / result、耐久、カード待ち時間、評価）
 ```
 
 ## 主要モジュール
 
 | パス | 責務 |
 |---|---|
-| `client/src/components/GameCanvas.tsx` | Babylonエンジンの寿命管理、DOM HUD、停止メニュー、満タン後に手動で開く10秒カスタム選択、選択順表示、対象形状ごとに走査する18マス範囲プレビュー、大型モバイル操作、ゲームイベント購読。 |
+| `client/src/components/GameCanvas.tsx` | Babylonエンジンの寿命管理、DOM HUD、停止メニュー、20秒ごとのカード選択、選択順表示、対象形状ごとに走査する18マス範囲プレビュー、大型モバイル操作、PCキー設定、ゲームイベント購読。 |
 | `client/src/game/scene.ts` | Scene、カメラ、照明、グリッド、ビルボード、カードの命中方向ガイド、ゲームハンドルの生成。 |
-| `client/src/game/GameWorld.ts` | 固定更新、停止・10秒ゲージの手動カスタム遷移、連射制限付き正面直線攻撃、固定対象マスのカード判定、対象マス被弾、勝敗、イベント発行。 |
+| `client/src/game/GameWorld.ts` | 固定更新、停止・20秒ごとのカード選択遷移、3発連射後2秒休止の正面攻撃、固定対象マスのカード判定、対象マス被弾、勝敗、イベント発行。 |
 | `client/src/game/types.ts` | グリッド・カード・戦闘状態・UIスナップショットの共通型。 |
-| `client/src/game/deck.ts` | 日本語名50枚のカードフォルダ、系統、メガ枠、カスタム候補、表示された最大5枚を自由に選ぶ条件の定義。 |
+| `client/src/game/deck.ts` | 日本語名50枚の公開カードカタログ、系統、上位枠、提示候補、表示された5枚から1〜5枚を自由に選ぶ条件の定義。 |
 | `client/src/game/cardAudio.ts` | Web Audio APIで系統別カード音・カウンター音・敵別撃破音を合成し、音量とオンオフを制御してラン終了時に破棄する。 |
 | `client/src/game/assets.ts` | `/manus-storage/` の画像URLとBabylonテクスチャ生成を一箇所に集約。 |
 | `client/src/index.css` | Signal Relay Tacticalの色、切欠きパネル、操作反応、レスポンシブHUD。 |

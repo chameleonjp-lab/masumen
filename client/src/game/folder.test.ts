@@ -148,6 +148,18 @@ describe("再現可能な戦闘デッキ", () => {
     expect(drawSequence()).toEqual(drawSequence());
   });
 
+  it("draws five unique catalog cards without repeating an ID in the run", () => {
+    const deck = new BattleDeck(createStandardFolder("catalog"), 314159, {
+      pool: CARD_CATALOG,
+    });
+    const hands = Array.from({ length: 4 }, () => deck.drawHand());
+    const ids = hands.flatMap(hand => hand.map(card => card.id));
+
+    expect(hands.every(hand => hand.length === 5)).toBe(true);
+    expect(hands.every(hand => new Set(hand.map(card => card.id)).size === 5)).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it("moves only selected cards to used and returns the rest", () => {
     const deck = new BattleDeck(createStandardFolder("used"), 7);
     const hand = deck.drawHand();

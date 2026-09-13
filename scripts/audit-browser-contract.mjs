@@ -29,6 +29,9 @@ if (visualEntries.join(",") !== audioEntries.join(","))
 const scene = await read("client/src/game/scene.ts");
 const projectileVisuals = await read("client/src/game/render/projectileVisuals.ts");
 const gameCanvas = await read("client/src/components/GameCanvas.tsx");
+const gameWorld = await read("client/src/game/GameWorld.ts");
+const folder = await read("client/src/game/folder.ts");
+const enemies = await read("client/src/game/data/enemies.ts");
 const cardPresentation = await read("client/src/game/cardPresentation.ts");
 const styles = await read("client/src/index.css");
 const engine = await read("client/src/game/engine.ts");
@@ -79,6 +82,35 @@ for (const required of ["syncProjectileVisuals(snapshot)", "projectileVisuals.cl
   if (!scene.includes(required)) throw new Error(`Projectile lifecycle contract missing: ${required}`);
 if (!gameCanvas.includes("<StartupGate") || !startupUI.includes('state.status !== "ready"'))
   throw new Error("Startup screens must be exclusive");
+for (const required of [
+  "信号を開始",
+  "entryScreen",
+  "KeyboardBindingPanel",
+  "getKeyboardBindings",
+  "表示された5枚から、1〜5枚を選べます",
+  "20秒後に再選択",
+  'className="action-buttons"',
+]) {
+  if (!gameCanvas.includes(required))
+    throw new Error(`Current flow/control contract missing: ${required}`);
+}
+for (const required of [
+  "customElapsedMs",
+  "20秒経過 — 次のカードを選択してください",
+  "COMBAT_BALANCE.normalShot.burstSize",
+  "COMBAT_BALANCE.normalShot.burstIntervalMs",
+]) {
+  if (!gameWorld.includes(required))
+    throw new Error(`Battle timing contract missing: ${required}`);
+}
+if (gameCanvas.includes("FolderEditor") || gameCanvas.includes("<Tutorial"))
+  throw new Error("Folder editing and practice UI must stay out of the public flow");
+if (gameCanvas.includes("精神状態") || gameCanvas.includes("emotionLabels"))
+  throw new Error("Mental-state labels must stay out of the public HUD");
+if (!folder.includes("createCatalogEntries") || !folder.includes("presentedCardIds"))
+  throw new Error("Catalog offer must track previously presented card IDs");
+if (/[A-Z]{3,}[- ]\d+/.test(enemies) || enemies.includes("BULWARK") || enemies.includes("SCANNER"))
+  throw new Error("Enemy definitions must use Japanese player-facing names");
 
 for (const required of [
   "beginPointerAction",

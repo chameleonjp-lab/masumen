@@ -127,6 +127,14 @@ function createEntries(cardIds: readonly string[], prefix: string): FolderEntry[
   });
 }
 
+function createCatalogEntries(cards: readonly Card[], prefix: string): FolderEntry[] {
+  return cards.map((card, index) => ({
+    instanceId: `${prefix}-${index + 1}-${card.id}`,
+    cardId: card.id,
+    code: getAllowedCodes(card)[0] ?? "*",
+  }));
+}
+
 export function createStandardFolder(id = "standard"): SavedFolder {
   return {
     id,
@@ -321,7 +329,7 @@ export function activeFolder(data: SaveDataV1): SavedFolder {
 }
 
 export class BattleDeck {
-  private readonly folder: SavedFolder;
+  private readonly entries: FolderEntry[];
   private random: Random;
   private remaining: FolderEntry[] = [];
   private offered: FolderEntry[] = [];
@@ -330,22 +338,26 @@ export class BattleDeck {
   /** Card IDs already shown in this run; physical duplicate copies are not re-offered. */
   private presentedCardIds = new Set<string>();
 
-  public constructor(folder: SavedFolder, seed: number) {
-    if (!validateFolder(folder).valid)
+  public constructor(
+    folder: SavedFolder,
+    seed: number,
+    options: { pool?: readonly Card[] } = {}
+  ) {
+    if (!options.pool && !validateFolder(folder).valid)
       throw new Error("不正なフォルダは戦闘デッキにできません");
-    this.folder = {
-      ...folder,
-      cards: folder.cards.map(entry => ({ ...entry })),
-    };
+    this.entries = options.pool
+      ? createCatalogEntries(options.pool, `${folder.id}-catalog`)
+      : folder.cards.map(entry => ({ ...entry }));
     this.random = new Random(seed);
     this.resetWave(seed);
   }
 
   public resetWave(seed: number): void {
     this.random = new Random(seed);
-    this.remaining = this.random.shuffle(this.folder.cards);
+    this.remaining = this.random.shuffle(this.entries);
     this.offered = [];
     this.used = [];
+    // 提示済みカードIDはラン全体で保持し、ウェーブをまたいでも重複させない。
     this.presentedHands.clear();
   }
 
@@ -379,7 +391,7 @@ export class BattleDeck {
       if (
         candidate.length === HAND_SIZE &&
         avoided.has(signature) &&
-        attempts < this.folder.cards.length
+        attempts < this.entries.length
       ) {
         // Put an avoided hand back at the end and try another deterministic
         // segment. The cap guarantees progress for a tiny or degenerate deck.
