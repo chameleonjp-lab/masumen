@@ -8,7 +8,7 @@ import {
   type SyntheticEvent,
 } from "react";
 import { ASSET_URLS } from "@/game/assets";
-import { validateSelection } from "@/game/deck";
+import { canAppendSelection, MAX_CARD_SELECTION } from "@/game/deck";
 import { createGameEngine } from "@/game/engine";
 import { startGameRuntime, type StartupState } from "@/game/startup";
 import { StartupGate } from "@/components/game/StartupScreen";
@@ -1052,24 +1052,20 @@ export default function GameCanvas() {
               const presentation = cardPresentation(card);
               const selected = snapshot.selected.includes(index);
               const focused = snapshot.focusedCard === index;
-              const selectionValidation = validateSelection(snapshot.customHand, [
-                ...snapshot.selected,
-                index,
-              ]);
               const canJoin =
                 selected ||
-                selectionValidation.valid;
+                canAppendSelection(snapshot.customHand, snapshot.selected, index);
               const selectionOrder = snapshot.selected.indexOf(index) + 1;
               const selectionStatus = selected
                 ? `選択中・${selectionOrder}枚目`
                 : canJoin
                   ? "選択できます"
-                  : "選択できません";
+                  : "5枚選択済み";
               const selectionMessage = selected
                 ? "選択中。もう一度押すと解除できます"
                 : canJoin
                   ? "押して選択できます"
-                  : selectionValidation.reason;
+                  : "選択上限の5枚に達しています";
               const descriptionId = `card-description-${card.id}-${index}`;
               return (
                 <button
@@ -1100,9 +1096,7 @@ export default function GameCanvas() {
                     <span>{presentation.propertyLabel}</span>
                     <span>{presentation.targetLabel}</span>
                   </div>
-                  <small id={descriptionId}>
-                    {canJoin ? presentation.summary : `選択できません：${selectionValidation.reason}`}
-                  </small>
+                  <small id={descriptionId}>{presentation.summary}</small>
                   <div className="card-stats" aria-label="カードの数値">
                     <span>{presentation.impactLabel}</span>
                     {presentation.hitLabel && <span>{presentation.hitLabel}</span>}
@@ -1167,7 +1161,7 @@ export default function GameCanvas() {
           </section>
           <div className="custom-footer">
             <p>
-              <span>{snapshot.selected.length}</span> / 5枚を選択中
+              <span>{snapshot.selected.length}</span> / {MAX_CARD_SELECTION}枚を選択中
               {snapshot.selectionError && (
                 <small>{snapshot.selectionError}</small>
               )}
