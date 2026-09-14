@@ -87,7 +87,8 @@ for (const required of [
   "entryScreen",
   "KeyboardBindingPanel",
   "getKeyboardBindings",
-  "表示された5枚から、1〜5枚を選べます",
+  "表示された10枚を横にスライドして確認し、1〜5枚を選べます",
+  "card-deck-horizontal",
   "20秒後に再選択",
   'className="action-buttons"',
 ]) {
@@ -151,6 +152,9 @@ for (const required of [
   ".card-sigil",
   ".card-state.is-selected",
   ".card-stats span",
+  ".card-deck-horizontal",
+  "overflow-x: auto",
+  "flex-wrap: nowrap",
   ".pause-button { min-height: 44px; }",
   ".feedback-controls button { min-height: 44px; }",
 ]) {

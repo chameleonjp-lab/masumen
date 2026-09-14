@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CARD_CATALOG,
+  CARD_OFFER_SIZE,
   canAppendSelection,
   MAX_CARD_SELECTION,
   drawHand,
@@ -14,9 +15,9 @@ describe("現行カードカタログの基準", () => {
     expect(new Set(CARD_CATALOG.map(card => card.id)).size).toBe(50);
   });
 
-  it("draws five cards for each protected wave seed", () => {
+  it("draws ten cards for each protected wave seed", () => {
     for (let waveSeed = 0; waveSeed < 4; waveSeed += 1) {
-      expect(drawHand(waveSeed)).toHaveLength(5);
+      expect(drawHand(waveSeed)).toHaveLength(CARD_OFFER_SIZE);
     }
   });
 

@@ -8,7 +8,11 @@ import {
   type SyntheticEvent,
 } from "react";
 import { ASSET_URLS } from "@/game/assets";
-import { canAppendSelection, MAX_CARD_SELECTION } from "@/game/deck";
+import {
+  canAppendSelection,
+  CARD_OFFER_SIZE,
+  MAX_CARD_SELECTION,
+} from "@/game/deck";
 import { createGameEngine } from "@/game/engine";
 import { startGameRuntime, type StartupState } from "@/game/startup";
 import { StartupGate } from "@/components/game/StartupScreen";
@@ -1017,7 +1021,7 @@ export default function GameCanvas() {
               {snapshot.elapsed > 0 ? "20秒後に再選択" : "初回選択"}
             </span>
             <span>
-              提示 {String(snapshot.customHandNumber).padStart(2, "0")} / 5枚
+              提示 {String(snapshot.customHandNumber).padStart(2, "0")} / {CARD_OFFER_SIZE}枚
             </span>
           </div>
           <div className="custom-heading">
@@ -1028,7 +1032,7 @@ export default function GameCanvas() {
               選びます。
             </h1>
             <span>
-              表示された5枚から、1〜5枚を選べます。選択した順番に使用します。
+              表示された10枚を横にスライドして確認し、1〜5枚を選べます。選択した順番に使用します。
             </span>
             <div className="card-inspector" aria-live="polite">
               {focusedCard ? (
@@ -1047,7 +1051,10 @@ export default function GameCanvas() {
               )}
             </div>
           </div>
-          <div className="card-deck">
+          <div
+            className="card-deck card-deck-horizontal"
+            aria-label="表示された10枚。横にスライドして確認できます。"
+          >
             {snapshot.customHand.map((card, index) => {
               const presentation = cardPresentation(card);
               const selected = snapshot.selected.includes(index);
@@ -1078,7 +1085,9 @@ export default function GameCanvas() {
                   aria-describedby={descriptionId}
                   aria-label={`${card.name}。${presentation.summary}。${selectionMessage}`}
                 >
-                  <span className="card-index">0{index + 1}</span>
+                  <span className="card-index">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
                   <span
                     className={`card-state ${selected ? "is-selected" : ""} ${!canJoin ? "is-unavailable" : ""}`}
                   >

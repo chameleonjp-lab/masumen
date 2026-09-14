@@ -1,4 +1,4 @@
-/** Signal Relay Tactical deck: each five-card offer supports one-to-five cards in tap order. */
+/** Signal Relay Tactical deck: each ten-card offer supports one-to-five cards in tap order. */
 import type { Card } from "./types";
 import { enrichCard } from "./data/cardCombatData";
 
@@ -104,6 +104,7 @@ const megaCards: Card[] = [
 export const CARD_CATALOG = [...standardCards, ...megaCards].map(enrichCard);
 
 export const MAX_CARD_SELECTION = 5;
+export const CARD_OFFER_SIZE = 10;
 
 export type SelectionRule = "name" | "code" | "wildcard" | "overload" | null;
 export interface SelectionValidation {
@@ -116,16 +117,12 @@ export function drawHand(round: number): Card[] {
   const standardPool = standardCards.map(enrichCard);
   const megaPool = megaCards.map(enrichCard);
   const leadIndex = (round * 7 + 3) % standardPool.length;
-  const lead = standardPool[leadIndex];
-  const rest = standardPool.filter((card) => card.id !== lead.id);
-  const hand = [
-    lead,
-    lead,
-    rest[(round * 11 + 4) % rest.length],
-    rest[(round * 17 + 9) % rest.length],
-    rest[(round * 19 + 15) % rest.length],
-  ];
-  if (round > 0 && round % 3 === 0) hand[4] = megaPool[Math.floor(round / 3) % megaPool.length];
+  const hand = Array.from(
+    { length: CARD_OFFER_SIZE },
+    (_, index) => standardPool[(leadIndex + index * 7) % standardPool.length]
+  );
+  if (round > 0 && round % 3 === 0)
+    hand[CARD_OFFER_SIZE - 1] = megaPool[Math.floor(round / 3) % megaPool.length];
   return hand;
 }
 

@@ -18,7 +18,7 @@ export const COMBAT_BALANCE = {
     speedCellsPerSecond: 16,
   },
   wave: {
-    recoveryRatio: 0.15,
+    recoveryAmount: 30,
   },
   playerHit: {
     controlLockMs: 180,

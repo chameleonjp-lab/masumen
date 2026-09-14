@@ -1846,3 +1846,65 @@ select {
 /* 耐久警告は数値と表示だけで伝え、画面全体を囲む赤い枠は表示しない。 */
 .crisis-frame { display: none !important; }
 .emotion-status { display: none !important; }
+
+/* 10枚を横一列で確認し、横スライドから最大5枚を選択する。 */
+.card-deck-horizontal {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 6px 12px;
+  overscroll-behavior-x: contain;
+  scrollbar-color: rgba(42, 212, 217, .65) rgba(8, 24, 29, .7);
+  scrollbar-width: thin;
+  scroll-snap-type: x proximity;
+  touch-action: pan-x;
+}
+
+.card-deck-horizontal::-webkit-scrollbar {
+  height: 6px;
+}
+
+.card-deck-horizontal::-webkit-scrollbar-track {
+  background: rgba(8, 24, 29, .7);
+}
+
+.card-deck-horizontal::-webkit-scrollbar-thumb {
+  background: rgba(42, 212, 217, .65);
+  border-radius: 999px;
+}
+
+.card-deck-horizontal .signal-card {
+  flex: 0 0 clamp(220px, 22vw, 250px);
+  width: clamp(220px, 22vw, 250px);
+  min-width: clamp(220px, 22vw, 250px);
+  min-height: 236px;
+  scroll-snap-align: start;
+  touch-action: pan-x;
+}
+
+@media (max-width: 900px), (pointer: coarse) {
+  .card-deck-horizontal {
+    width: 100%;
+    gap: 8px;
+    padding: 4px 4px 11px;
+  }
+
+  .card-deck-horizontal .signal-card {
+    flex-basis: min(78vw, 270px);
+    width: min(78vw, 270px);
+    min-width: min(78vw, 270px);
+    min-height: 214px;
+  }
+}
+
+@media (max-width: 760px) and (orientation: landscape) {
+  .card-deck-horizontal .signal-card {
+    flex-basis: min(64vw, 236px);
+    width: min(64vw, 236px);
+    min-width: min(64vw, 236px);
+    min-height: 182px;
+  }
+}

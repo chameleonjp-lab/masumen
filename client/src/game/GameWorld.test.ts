@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "vitest";
 import { GameWorld } from "./GameWorld";
-import { CARD_CATALOG } from "./deck";
+import { CARD_CATALOG, CARD_OFFER_SIZE } from "./deck";
 import { createChainCard, findChainTechnique } from "./data/chainTechniques";
 import { getEnemyDefinition } from "./data/enemies";
 import { getPracticeStage } from "./data/practice";
@@ -92,7 +92,7 @@ describe("GameWorldの現行Wave基準", () => {
       );
       expect(snapshots.at(-1)?.mode).toBe("custom");
       expect(snapshots.at(-1)?.wave).toBe(wave);
-      expect(snapshots.at(-1)?.customHand).toHaveLength(5);
+      expect(snapshots.at(-1)?.customHand).toHaveLength(CARD_OFFER_SIZE);
       expect(snapshots.at(-1)?.enemies.length).toBeGreaterThan(0);
       world.controller.cancelCharge();
     }
@@ -118,7 +118,7 @@ describe("GameWorldの現行Wave基準", () => {
     ).toBe(true);
   });
 
-  it("starts from five catalog cards with stable instance identities", () => {
+  it("starts from ten catalog cards with stable instance identities", () => {
     let latest: BattleSnapshot | undefined;
     new GameWorld(
       snapshot => {
@@ -126,9 +126,9 @@ describe("GameWorldの現行Wave基準", () => {
       },
       () => undefined
     );
-    expect(latest?.customHand).toHaveLength(5);
+    expect(latest?.customHand).toHaveLength(CARD_OFFER_SIZE);
     expect(new Set(latest?.customHand.map(card => card.instanceId)).size).toBe(
-      5
+      CARD_OFFER_SIZE
     );
     expect(latest?.customHand.every(card => card.selectedCode)).toBe(true);
     expect("emotion" in (latest ?? {})).toBe(false);
@@ -415,13 +415,13 @@ describe("GameWorldの現行Wave基準", () => {
     expect(playerShots()).toHaveLength(4);
   });
 
-  it("shows a fresh random five-card offer after twenty seconds", () => {
+  it("shows a fresh random ten-card offer after twenty seconds", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(snapshot => {
       latest = snapshot;
     }, () => undefined);
     const initialIds = latest?.customHand.map(card => card.id) ?? [];
-    expect(initialIds).toHaveLength(5);
+    expect(initialIds).toHaveLength(CARD_OFFER_SIZE);
     expect(new Set(initialIds).size).toBe(initialIds.length);
 
     confirmCustomForTest(world);
@@ -435,7 +435,7 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.gauge).toBeCloseTo(100, 5);
     const nextIds = latest?.customHand.map(card => card.id) ?? [];
     expect(latest?.mode).toBe("custom");
-    expect(nextIds.length).toBeLessThanOrEqual(5);
+    expect(nextIds).toHaveLength(CARD_OFFER_SIZE);
     expect(nextIds.every(id => !initialIds.includes(id))).toBe(true);
     expect(new Set(nextIds).size).toBe(nextIds.length);
   });
@@ -1679,8 +1679,8 @@ describe("GameWorldの現行Wave基準", () => {
     world.update(1 / 60);
 
     expect(latest?.mode).toBe("intermission");
-    expect(latest?.lastWaveRecovery).toBe(33);
-    expect(latest?.playerHp).toBe(133);
+    expect(latest?.lastWaveRecovery).toBe(30);
+    expect(latest?.playerHp).toBe(130);
     expect(latest?.lastWaveScore?.wave).toBe(1);
     expect(latest?.lastWaveScore?.noDamagePoints).toBe(500);
     expect(latest?.scoreBreakdown?.waveClearPoints).toBe(300);
