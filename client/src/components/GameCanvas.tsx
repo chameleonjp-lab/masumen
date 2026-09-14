@@ -1,5 +1,6 @@
 /** Signal Relay Tactical component: the React frame supplies a clipped industrial HUD while Babylon owns the live arena. */
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -340,36 +341,6 @@ function KeyboardBindingPanel({
   );
 }
 
-interface HomeGateProps {
-  playerName: string;
-  onStart: () => void;
-  onShare: () => void;
-  shareStatus: string;
-}
-
-function HomeGate({ playerName, onStart, onShare, shareStatus }: HomeGateProps) {
-  return (
-    <section className="home-gate" role="dialog" aria-modal="true" aria-labelledby="home-gate-title">
-      <div className="home-gate__panel technical-panel">
-        <p className="eyebrow">グリッド・シグナル</p>
-        <h1 id="home-gate-title">アリーナへようこそ</h1>
-        <p className="home-gate__copy">
-          20秒ごとにカードを選び、敵の予兆を見て戦います。
-        </p>
-        <button type="button" className="engage-button home-gate__start" onClick={onStart}>
-          信号を開始 <span>↗</span>
-        </button>
-        {playerName && <p className="home-gate__saved">登録名：{playerName}</p>}
-        <div className="name-gate__links">
-          <button type="button" onClick={onShare}>ゲームを共有</button>
-          <a href={LAB_URL} target="_blank" rel="noreferrer">実験場へ</a>
-        </div>
-        {shareStatus && <p className="share-status" role="status">{shareStatus}</p>}
-      </div>
-    </section>
-  );
-}
-
 function NameGate({
   draft,
   error,
@@ -382,7 +353,7 @@ function NameGate({
     <section className="name-gate" role="dialog" aria-modal="true" aria-labelledby="name-gate-title">
       <div className="name-gate__panel technical-panel">
         <p className="eyebrow">プレイヤー登録</p>
-        <h1 id="name-gate-title">信号を入力して開始</h1>
+        <h1 id="name-gate-title">名前を入力して開始</h1>
         <p className="name-gate__copy">
           プレイヤー名を登録すると、戦闘結果をランキングへ送信できます。
         </p>
@@ -394,8 +365,12 @@ function NameGate({
           className="name-gate__input"
           value={draft}
           maxLength={20}
+          required
           autoComplete="nickname"
+          autoFocus
           placeholder="名前を入力"
+          aria-invalid={Boolean(error)}
+          aria-describedby="masumen-player-name-status"
           onChange={event => onDraftChange(event.target.value)}
           onKeyDown={event => {
             if (event.key === "Enter") {
@@ -404,7 +379,7 @@ function NameGate({
             }
           }}
         />
-        <p className="name-gate__status" role="status">
+        <p id="masumen-player-name-status" className="name-gate__status" role="status" aria-live="polite">
           {error || "名前を入力してからカード選択を開始してください"}
         </p>
         <button type="button" className="engage-button name-gate__submit" onClick={onSubmit}>
@@ -422,6 +397,7 @@ function NameGate({
 
 export default function GameCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cardDeckRef = useRef<HTMLDivElement>(null);
   const startedRef = useRef(false);
   const controllerRef = useRef<GameHandle["controller"] | null>(null);
   const [snapshot, setSnapshot] = useState<BattleSnapshot>(initialSnapshot);
@@ -430,7 +406,8 @@ export default function GameCanvas() {
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const [startup, setStartup] = useState<StartupState>({ status: "loading", stage: "engine" });
   const [playerName, setPlayerName] = useState(() => readPlayerName());
-  const [entryScreen, setEntryScreen] = useState<"home" | "name" | "game">("home");
+  const [entryScreen, setEntryScreen] = useState<"name" | "game">("name");
+  const [centerCardIndex, setCenterCardIndex] = useState(0);
   const inputReadyRef = useRef(false);
   const keyboardBindingsRef = useRef<KeyboardBindings>(readKeyboardBindings());
   inputReadyRef.current =
@@ -452,6 +429,37 @@ export default function GameCanvas() {
   const resultSubmissionKeyRef = useRef<string | null>(null);
   const touchInputRef = useRef(createTouchInputState());
   const moveRepeatRef = useRef<MovementRepeat | null>(null);
+  const customHandKey = snapshot.customHand
+    .map(card => `${card.instanceId}:${card.id}`)
+    .join("|");
+
+  const updateCenteredCard = useCallback(() => {
+    const deck = cardDeckRef.current;
+    if (!deck) return;
+    const deckRect = deck.getBoundingClientRect();
+    const centerX = deckRect.left + deckRect.width / 2;
+    let nearestIndex = -1;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    Array.from(deck.querySelectorAll<HTMLElement>("[data-card-index]")).forEach(card => {
+      const rect = card.getBoundingClientRect();
+      const distance = Math.abs(rect.left + rect.width / 2 - centerX);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = Number(card.dataset.cardIndex);
+      }
+    });
+    if (nearestIndex >= 0)
+      setCenterCardIndex(current => current === nearestIndex ? current : nearestIndex);
+  }, []);
+
+  const centerCard = useCallback((index: number, behavior: ScrollBehavior = "smooth") => {
+    const deck = cardDeckRef.current;
+    const card = deck?.querySelector<HTMLElement>(`[data-card-index="${index}"]`);
+    if (!deck || !card) return;
+    const left = card.offsetLeft - (deck.clientWidth - card.offsetWidth) / 2;
+    deck.scrollTo({ left: Math.max(0, left), behavior });
+    setCenterCardIndex(index);
+  }, []);
 
   const stopMoveRepeat = () => {
     moveRepeatRef.current?.stop();
@@ -659,6 +667,16 @@ export default function GameCanvas() {
     rankingRetryToken,
   ]);
 
+  useEffect(() => {
+    if (snapshot.mode !== "custom" || snapshot.customHand.length === 0) return;
+    setCenterCardIndex(0);
+    const frame = window.requestAnimationFrame(() => {
+      centerCard(0, "auto");
+      updateCenteredCard();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [centerCard, customHandKey, snapshot.customHand.length, snapshot.customHandNumber, snapshot.mode, snapshot.wave, updateCenteredCard]);
+
   const controller = controllerRef.current;
   const isCombatMode = snapshot.mode === "battle";
   const hpRatio = (snapshot.playerHp / snapshot.playerMaxHp) * 100;
@@ -668,16 +686,22 @@ export default function GameCanvas() {
       : isCombatMode && hpRatio <= 30
         ? "caution"
         : "normal";
-  const previewCardIndex = snapshot.focusedCard ?? snapshot.selected[0] ?? 0;
+  const activeCardIndex = snapshot.mode === "custom" ? centerCardIndex : snapshot.focusedCard;
+  const previewCardIndex = snapshot.mode === "custom"
+    ? centerCardIndex
+    : snapshot.focusedCard ?? snapshot.selected[0] ?? 0;
   const previewCard = snapshot.customHand[previewCardIndex];
   const previewPresentation = cardPresentation(previewCard);
   const focusedCard =
-    snapshot.focusedCard === null
+    activeCardIndex === null
       ? undefined
-      : snapshot.customHand[snapshot.focusedCard];
+      : snapshot.customHand[activeCardIndex];
   const focusedPresentation = cardPresentation(focusedCard);
   const focusedSelected =
-    snapshot.focusedCard !== null && snapshot.selected.includes(snapshot.focusedCard);
+    activeCardIndex !== null && snapshot.selected.includes(activeCardIndex);
+  const focusedCanJoin =
+    activeCardIndex !== null &&
+    canAppendSelection(snapshot.customHand, snapshot.selected, activeCardIndex);
   const nextQueuedCard = snapshot.queue[0];
   const nextQueuedPresentation = cardPresentation(nextQueuedCard);
   const cardVisualStyle = (presentation: ReturnType<typeof cardPresentation>) =>
@@ -763,16 +787,12 @@ export default function GameCanvas() {
     controllerRef.current?.restart();
   };
 
-  const startSignal = () => {
-    setNameDraft(playerName);
-    setNameError("");
-    setEntryScreen("name");
-  };
-
   const returnHome = () => {
     resetPointerInput();
     controllerRef.current?.restart();
-    setEntryScreen("home");
+    setNameDraft(playerName);
+    setNameError("");
+    setEntryScreen("name");
   };
 
   const shareHome = () => {
@@ -799,26 +819,17 @@ export default function GameCanvas() {
         state={startup}
         hasName={entryScreen === "game" && Boolean(playerName)}
         nameGate={
-          entryScreen === "home" ? (
-            <HomeGate
-              playerName={playerName}
-              onStart={startSignal}
-              onShare={shareHome}
-              shareStatus={nameShareStatus}
-            />
-          ) : (
-            <NameGate
-              draft={nameDraft}
-              error={nameError}
-              shareStatus={nameShareStatus}
-              onDraftChange={value => {
-                setNameDraft(value);
-                if (nameError) setNameError("");
-              }}
-              onSubmit={submitPlayerName}
-              onShare={shareHome}
-            />
-          )
+          <NameGate
+            draft={nameDraft}
+            error={nameError}
+            shareStatus={nameShareStatus}
+            onDraftChange={value => {
+              setNameDraft(value);
+              if (nameError) setNameError("");
+            }}
+            onSubmit={submitPlayerName}
+            onShare={shareHome}
+          />
         }
       >
       <div className="screen-noise" aria-hidden="true" />
@@ -1034,31 +1045,17 @@ export default function GameCanvas() {
             <span>
               表示された10枚を横にスライドして確認し、1〜5枚を選べます。選択した順番に使用します。
             </span>
-            <div className="card-inspector" aria-live="polite">
-              {focusedCard ? (
-                <>
-                  <b>{focusedCard.name}</b>
-                  <span>{focusedPresentation.summary}</span>
-                  <small>
-                    {focusedPresentation.impactLabel} / {focusedPresentation.targetLabel}
-                  </small>
-                  <em>
-                    {focusedSelected ? "選択中。再度押すと解除できます" : "未選択。押して選択できます"}
-                  </em>
-                </>
-              ) : (
-                <span>カードを選択してください。選択中のカードを再度押すと解除できます。</span>
-              )}
-            </div>
           </div>
           <div
+            ref={cardDeckRef}
             className="card-deck card-deck-horizontal"
             aria-label="表示された10枚。横にスライドして確認できます。"
+            onScroll={updateCenteredCard}
           >
             {snapshot.customHand.map((card, index) => {
               const presentation = cardPresentation(card);
               const selected = snapshot.selected.includes(index);
-              const focused = snapshot.focusedCard === index;
+              const focused = centerCardIndex === index;
               const canJoin =
                 selected ||
                 canAppendSelection(snapshot.customHand, snapshot.selected, index);
@@ -1078,10 +1075,16 @@ export default function GameCanvas() {
                 <button
                   type="button"
                   key={`${card.id}-${index}`}
+                  data-card-index={index}
                   className={`signal-card ${selected ? "selected" : ""} ${focused ? "focused" : ""} ${!canJoin ? "unavailable" : ""} ${card.tier === "mega" ? "mega-card" : ""} ${card.isOverload ? "overload-card" : ""}`}
                   style={cardVisualStyle(presentation)}
-                  onClick={() => controller?.toggleCard(index)}
+                  onClick={event => {
+                    centerCard(index);
+                    controller?.toggleCard(index);
+                    event.currentTarget.focus({ preventScroll: true });
+                  }}
                   aria-pressed={selected}
+                  aria-current={focused ? "true" : undefined}
                   aria-describedby={descriptionId}
                   aria-label={`${card.name}。${presentation.summary}。${selectionMessage}`}
                 >
@@ -1116,6 +1119,26 @@ export default function GameCanvas() {
                 </button>
               );
             })}
+          </div>
+          <div className="card-inspector card-inspector-bottom" aria-label="中央カードの効果" aria-live="polite">
+            {focusedCard ? (
+              <>
+                <b>{focusedCard.name}</b>
+                <span>{focusedPresentation.summary}</span>
+                <small>
+                  {focusedPresentation.impactLabel} / {focusedPresentation.targetLabel}
+                </small>
+                <em>
+                  {focusedSelected
+                    ? "選択中。再度押すと解除できます"
+                    : focusedCanJoin
+                      ? "中央のカード。押して選択できます"
+                      : "選択上限の5枚に達しています"}
+                </em>
+              </>
+            ) : (
+              <span>中央に表示されたカードの効果を確認できます。</span>
+            )}
           </div>
           <section
             className="custom-range-preview"

@@ -335,7 +335,7 @@ export class BattleDeck {
   private offered: FolderEntry[] = [];
   private used: FolderEntry[] = [];
   private presentedHands = new Set<string>();
-  /** Card IDs already shown in this run; physical duplicate copies are not re-offered. */
+  /** Card IDs already shown in this Wave; physical duplicate copies are not re-offered. */
   private presentedCardIds = new Set<string>();
 
   public constructor(
@@ -357,8 +357,10 @@ export class BattleDeck {
     this.remaining = this.random.shuffle(this.entries);
     this.offered = [];
     this.used = [];
-    // 提示済みカードIDはラン全体で保持し、ウェーブをまたいでも重複させない。
+    // 提示済みカードと使用済みカードはウェーブごとに初期化する。
+    // これにより、カタログを使い切った後半ウェーブでも新しい10枚を提示できる。
     this.presentedHands.clear();
+    this.presentedCardIds.clear();
   }
 
   public drawHand(options: {

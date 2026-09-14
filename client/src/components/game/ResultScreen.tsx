@@ -177,7 +177,7 @@ export default function ResultScreen({
           もう一度 <span>↗</span>
         </button>
         <button type="button" onClick={onHome}>
-          ホームへ戻る
+          名前入力へ戻る
         </button>
       </div>
     </section>
