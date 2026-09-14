@@ -3797,7 +3797,7 @@ export class GameWorld {
     const hand = this.battleDeck.drawHand({ avoidSignatures });
     this.previousWaveHandSignature = folderHandSignature(hand);
     this.customHandNumber += 1;
-    // 5枚の提示は公開カタログからのみ行い、追加の不利益カードは混ぜません。
+    // 10枚の提示は公開カタログからのみ行い、追加の不利益カードは混ぜません。
     const chance = 0;
     const availableOverloads = OVERLOAD_CARDS.filter(
       card => !this.presentedOverloadCardIds.has(card.id),
@@ -3988,9 +3988,7 @@ export class GameWorld {
       this.dreamAuraUntil = 0;
       this.overdrivePrompt = null;
       const beforeRecovery = this.playerHp;
-      this.healPlayer(
-        Math.ceil(this.playerMaxHp * COMBAT_BALANCE.wave.recoveryRatio)
-      );
+      this.healPlayer(COMBAT_BALANCE.wave.recoveryAmount);
       this.lastWaveRecovery = Math.max(0, this.playerHp - beforeRecovery);
       this.message =
         "ウェーブ 0" +

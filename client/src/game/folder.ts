@@ -1,4 +1,4 @@
-import { CARD_CATALOG } from "./deck";
+import { CARD_CATALOG, CARD_OFFER_SIZE } from "./deck";
 import { Random } from "./core/Random";
 import { getAllowedCodes, getFolderCardClass } from "./data/cardCodes";
 import type {
@@ -8,7 +8,7 @@ import type {
 } from "./types";
 
 export const FOLDER_SIZE = 30;
-export const HAND_SIZE = 5;
+export const HAND_SIZE = CARD_OFFER_SIZE;
 export const FOLDER_STORAGE_KEY = "grid-signal-arena-save-v1";
 
 export interface FolderEntry {

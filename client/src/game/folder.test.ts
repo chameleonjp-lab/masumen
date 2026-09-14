@@ -6,6 +6,7 @@ import {
   createStandardFolder,
   defaultSaveData,
   folderHandSignature,
+  HAND_SIZE,
   loadSaveData,
   validateFolder,
 } from "./folder";
@@ -107,32 +108,35 @@ describe("30枚フォルダと保存データ", () => {
 });
 
 describe("再現可能な戦闘デッキ", () => {
-  it("replays the same five-card hand from the same seed", () => {
+  it("replays the same ten-card hand from the same seed", () => {
     const folder = createStandardFolder("replay");
     const first = new BattleDeck(folder, 12345).drawHand();
     const second = new BattleDeck(folder, 12345).drawHand();
     expect(first.map(card => `${card.id}:${card.selectedCode}`)).toEqual(
       second.map(card => `${card.id}:${card.selectedCode}`)
     );
-    expect(new Set(first.map(card => card.instanceId)).size).toBe(5);
+    expect(first).toHaveLength(HAND_SIZE);
+    expect(new Set(first.map(card => card.instanceId)).size).toBe(HAND_SIZE);
   });
 
   it("does not repeat a physical hand while the Wave is being offered", () => {
     const folder = createStandardFolder("variation");
     const deck = new BattleDeck(folder, 12345);
-    const hands = Array.from({ length: 5 }, () => deck.drawHand());
+    const hands = Array.from({ length: 3 }, () => deck.drawHand());
     const signatures = hands.map(hand => folderHandSignature(hand));
 
-    expect(hands.every(hand => hand.length === 5)).toBe(true);
+    expect(hands.slice(0, 2).every(hand => hand.length === HAND_SIZE)).toBe(true);
     expect(
-      hands.every(hand => new Set(hand.map(card => card.instanceId)).size === 5)
+      hands.every(
+        hand => new Set(hand.map(card => card.instanceId)).size === hand.length
+      )
     ).toBe(true);
     expect(new Set(signatures).size).toBe(hands.length);
     const shownIds = hands.flatMap(hand => hand.map(card => card.id));
     expect(new Set(shownIds).size).toBe(shownIds.length);
 
     const finalHand = deck.drawHand();
-    expect(finalHand.length).toBeLessThanOrEqual(5);
+    expect(finalHand.length).toBeLessThanOrEqual(HAND_SIZE);
     expect(finalHand.every(card => !shownIds.includes(card.id))).toBe(true);
   });
 
@@ -148,23 +152,23 @@ describe("再現可能な戦闘デッキ", () => {
     expect(drawSequence()).toEqual(drawSequence());
   });
 
-  it("draws five unique catalog cards without repeating an ID in the run", () => {
+  it("draws ten unique catalog cards without repeating an ID in the run", () => {
     const deck = new BattleDeck(createStandardFolder("catalog"), 314159, {
       pool: CARD_CATALOG,
     });
     const hands = Array.from({ length: 4 }, () => deck.drawHand());
     const ids = hands.flatMap(hand => hand.map(card => card.id));
 
-    expect(hands.every(hand => hand.length === 5)).toBe(true);
-    expect(hands.every(hand => new Set(hand.map(card => card.id)).size === 5)).toBe(true);
+    expect(hands.every(hand => hand.length === HAND_SIZE)).toBe(true);
+    expect(hands.every(hand => new Set(hand.map(card => card.id)).size === HAND_SIZE)).toBe(true);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
   it("moves only selected cards to used and returns the rest", () => {
     const deck = new BattleDeck(createStandardFolder("used"), 7);
     const hand = deck.drawHand();
-    expect(hand).toHaveLength(5);
-    expect(deck.counts()).toEqual({ remaining: 25, offered: 5, used: 0 });
+    expect(hand).toHaveLength(HAND_SIZE);
+    expect(deck.counts()).toEqual({ remaining: 20, offered: HAND_SIZE, used: 0 });
     const selected = deck.commitSelection([0, 2]);
     expect(selected).toHaveLength(2);
     expect(deck.counts()).toEqual({ remaining: 28, offered: 0, used: 2 });
