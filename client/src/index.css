@@ -2042,3 +2042,95 @@ select {
   .dpad.dpad-large button:nth-child(3) { top: 42px; }
   .dpad.dpad-large button:nth-child(4) { left: 48px; }
 }
+
+/* 次のカード選択までの残り時間を、戦闘画面の上部中央に固定表示する。 */
+.custom-countdown {
+  position: absolute;
+  top: max(72px, calc(env(safe-area-inset-top, 0px) + 58px));
+  left: 50%;
+  z-index: 4;
+  width: min(280px, 30vw);
+  padding: 8px 12px 10px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.custom-countdown-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  color: #8eaaa6;
+  font: 500 8px/1.2 "IBM Plex Mono", monospace;
+  letter-spacing: .08em;
+}
+
+.custom-countdown-heading strong {
+  color: #e4c37b;
+  font: 600 13px/1 "Space Grotesk", "Zen Kaku Gothic New", sans-serif;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.custom-countdown-meter {
+  height: 7px;
+  margin-top: 7px;
+}
+
+.custom-countdown-meter span {
+  background: linear-gradient(90deg, #2ad4d9, #e4a33a);
+  box-shadow: 0 0 10px rgba(42, 212, 217, .58);
+}
+
+.custom-countdown.is-urgent .custom-countdown-heading strong {
+  color: #ff8065;
+}
+
+.custom-countdown.is-urgent .custom-countdown-meter span {
+  background: linear-gradient(90deg, #ff9b5c, #ff5e3b);
+  box-shadow: 0 0 12px rgba(255, 94, 59, .72);
+}
+
+@media (max-width: 900px), (pointer: coarse) {
+  .custom-countdown {
+    top: max(132px, calc(env(safe-area-inset-top, 0px) + 122px));
+    width: min(250px, 46vw);
+  }
+}
+
+@media (max-width: 760px) and (orientation: portrait) {
+  .custom-countdown {
+    top: max(190px, calc(env(safe-area-inset-top, 0px) + 182px));
+    width: min(250px, 62vw);
+    padding: 7px 10px 8px;
+  }
+
+  .custom-countdown-heading {
+    font-size: 7px;
+  }
+
+  .custom-countdown-heading strong {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 760px) and (orientation: landscape) {
+  .custom-countdown {
+    top: max(68px, calc(env(safe-area-inset-top, 0px) + 58px));
+    width: min(220px, 32vw);
+    padding: 6px 9px 7px;
+  }
+
+  .custom-countdown-heading {
+    font-size: 7px;
+  }
+
+  .custom-countdown-heading strong {
+    font-size: 11px;
+  }
+
+  .custom-countdown-meter {
+    height: 5px;
+    margin-top: 5px;
+  }
+}

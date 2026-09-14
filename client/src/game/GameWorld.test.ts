@@ -480,6 +480,7 @@ describe("GameWorldの現行Wave基準", () => {
       enemy.nextAttackAt = Number.POSITIVE_INFINITY;
     });
     advanceAtFixedRate(world, 2);
+    expect(latest?.customRemaining).toBeCloseTo(18, 5);
     world.controller.openCustom();
     expect(latest?.mode).toBe("battle");
     expect(latest?.message).toContain("あと");
@@ -488,6 +489,28 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.mode).toBe("custom");
     expect(latest?.mode).toBe("custom");
     expect((world as unknown as { isCharging: boolean }).isCharging).toBe(false);
+  });
+
+  it("resumes battle when the timed selection has no cards", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    confirmCustomForTest(world);
+
+    const internal = world as unknown as {
+      battleDeck: { drawHand: () => Card[] };
+      customElapsedMs: number;
+    };
+    internal.customElapsedMs = 20000;
+    internal.battleDeck = { drawHand: () => [] };
+
+    world.controller.openCustom();
+
+    expect(latest?.mode).toBe("battle");
+    expect(latest?.customHand).toHaveLength(0);
+    expect(latest?.message).toContain("カードなしで戦闘再開");
+    expect(latest?.customRemaining).toBeCloseTo(20, 5);
   });
 
   it("opens the timed selection while the player is stunned without clearing stun", () => {

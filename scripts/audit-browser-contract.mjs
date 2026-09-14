@@ -92,6 +92,9 @@ for (const required of [
   "centerCardIndex",
   "onScroll={updateCenteredCard}",
   "card-inspector-bottom",
+  "custom-countdown",
+  "customRemaining",
+  'role="progressbar"',
   "20秒後に再選択",
   'className="action-buttons"',
 ]) {
@@ -105,6 +108,8 @@ for (const forbidden of ["アリーナへようこそ", "信号を開始", "信�
 for (const required of [
   "customElapsedMs",
   "20秒経過 — 次のカードを選択してください",
+  "resumeBattleWithoutCards",
+  "カードなしで戦闘再開",
   "COMBAT_BALANCE.normalShot.burstSize",
   "COMBAT_BALANCE.normalShot.burstIntervalMs",
 ]) {
@@ -165,6 +170,9 @@ for (const required of [
   "flex-wrap: nowrap",
   "scroll-snap-align: center",
   "scroll-padding-inline",
+  ".custom-countdown",
+  ".custom-countdown-meter",
+  "left: 50%",
   ".pause-button { min-height: 44px; }",
   ".feedback-controls button { min-height: 44px; }",
 ]) {
