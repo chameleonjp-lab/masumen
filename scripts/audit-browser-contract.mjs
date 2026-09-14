@@ -129,6 +129,15 @@ for (const required of [
   if (!gameCanvas.includes(required))
     throw new Error(`Mobile input/card contract missing: ${required}`);
 }
+for (const forbidden of [
+  "追加できません",
+  "追加不可：",
+  "同名・同じ接続コード・共通コード",
+  "同名、同じ接続コード、または共通コード",
+]) {
+  if (gameCanvas.includes(forbidden))
+    throw new Error(`Card selection must not ship the legacy restriction: ${forbidden}`);
+}
 for (const required of ["onRetryRanking", "ランキングを再試行"])
   if (!resultScreen.includes(required))
     throw new Error(`Result ranking retry contract missing: ${required}`);

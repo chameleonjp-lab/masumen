@@ -289,6 +289,30 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.selectionError).toBeNull();
   });
 
+  it("starts battle with any selected count from one through five", () => {
+    for (let count = 1; count <= 5; count += 1) {
+      let latest: BattleSnapshot | undefined;
+      const world = new GameWorld(
+        snapshot => {
+          latest = snapshot;
+        },
+        () => undefined
+      );
+
+      for (let index = 0; index < count; index += 1)
+        world.controller.toggleCard(index);
+
+      expect(latest?.selected).toEqual(
+        Array.from({ length: count }, (_, index) => index)
+      );
+      expect(latest?.selectionError).toBeNull();
+
+      world.controller.confirmCustom();
+      expect(latest?.mode).toBe("battle");
+      expect(latest?.queue).toHaveLength(count);
+    }
+  });
+
   it("keeps battle time stable across render rates", () => {
     const run = (renderRate: number): BattleSnapshot => {
       let latest: BattleSnapshot | undefined;

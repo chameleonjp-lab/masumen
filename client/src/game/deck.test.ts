@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CARD_CATALOG,
   canAppendSelection,
+  MAX_CARD_SELECTION,
   drawHand,
   validateSelection,
 } from "./deck";
@@ -19,11 +20,20 @@ describe("現行カードカタログの基準", () => {
     }
   });
 
-  it("keeps the current selection cap at five cards", () => {
-    const hand = drawHand(0);
+  it("allows every selection size from one through five and caps only at five", () => {
+    const hand = CARD_CATALOG.slice(0, MAX_CARD_SELECTION + 1);
+    for (let count = 1; count <= MAX_CARD_SELECTION; count += 1) {
+      const selected = Array.from({ length: count }, (_, index) => index);
+      expect(validateSelection(hand, selected)).toMatchObject({
+        valid: true,
+        rule: null,
+      });
+    }
     expect(canAppendSelection(hand, [], 0)).toBe(true);
-    expect(canAppendSelection(hand, [0, 1, 2, 3, 4], 0)).toBe(false);
+    expect(canAppendSelection(hand, [0, 1, 2, 3], 4)).toBe(true);
+    expect(canAppendSelection(hand, [0, 1, 2, 3, 4], 5)).toBe(false);
     expect(validateSelection(hand, []).valid).toBe(false);
+    expect(validateSelection(hand, [0, 1, 2, 3, 4, 5]).valid).toBe(false);
   });
 
   it("allows every displayed card regardless of name or connection code", () => {

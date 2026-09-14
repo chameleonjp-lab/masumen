@@ -1,5 +1,10 @@
 /** Signal Relay Tactical core: Japanese battle-chip cards resolve through shared target shapes, status effects, and counter windows. */
-import { validateSelection, CARD_CATALOG } from "./deck";
+import {
+  canAppendSelection,
+  validateSelection,
+  CARD_CATALOG,
+  MAX_CARD_SELECTION,
+} from "./deck";
 import { FixedStepClock } from "./core/FixedStepClock";
 import { Random } from "./core/Random";
 import { COMBAT_BALANCE } from "./data/balance";
@@ -3898,18 +3903,17 @@ export class GameWorld {
       this.message = `${card.name} の選択を解除`;
     } else {
       const nextSelection = [...this.selected, index];
-      const validation = validateSelection(this.customHand, nextSelection);
-      if (validation.valid) {
+      if (canAppendSelection(this.customHand, this.selected, index)) {
         this.selected = nextSelection;
         this.focusedCard = index;
         this.selectionError = null;
         this.message = `${card.name} を ${this.selected.length} 番目に選択`;
       } else {
-        // A rejected card still becomes the preview target so the player can
-        // see why it cannot be added. Selection itself remains unchanged.
+        // The only normal rejection is the five-card cap. Selection itself
+        // remains unchanged while the preview target still follows the tap.
         this.focusedCard = index;
-        this.selectionError = validation.reason;
-        this.message = validation.reason;
+        this.selectionError = `選択できるカードは最大${MAX_CARD_SELECTION}枚です`;
+        this.message = this.selectionError;
       }
     }
     this.notify();

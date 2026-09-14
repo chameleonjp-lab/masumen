@@ -1,4 +1,4 @@
-/** Signal Relay Tactical deck: each five-card offer can be selected in full and used in tap order. */
+/** Signal Relay Tactical deck: each five-card offer supports one-to-five cards in tap order. */
 import type { Card } from "./types";
 import { enrichCard } from "./data/cardCombatData";
 
@@ -103,6 +103,8 @@ const megaCards: Card[] = [
 
 export const CARD_CATALOG = [...standardCards, ...megaCards].map(enrichCard);
 
+export const MAX_CARD_SELECTION = 5;
+
 export type SelectionRule = "name" | "code" | "wildcard" | "overload" | null;
 export interface SelectionValidation {
   valid: boolean;
@@ -127,9 +129,16 @@ export function drawHand(round: number): Card[] {
   return hand;
 }
 
-export function canAppendSelection(hand: Card[], selected: number[], candidate: number): boolean {
-  if (!hand[candidate] || selected.includes(candidate)) return false;
-  return validateSelection(hand, [...selected, candidate]).valid;
+export function canAppendSelection(
+  hand: readonly Card[],
+  selected: readonly number[],
+  candidate: number
+): boolean {
+  // Card names, connection codes, and card classes do not restrict the offer.
+  // The player may choose any unselected card until five cards are selected.
+  return Boolean(hand[candidate]) &&
+    !selected.includes(candidate) &&
+    selected.length < MAX_CARD_SELECTION;
 }
 
 export function validateSelection(
@@ -141,8 +150,12 @@ export function validateSelection(
   // card classes no longer block the player's chosen execution order.
   if (selected.length === 0)
     return { valid: false, rule: null, reason: "1枚以上選択してください" };
-  if (selected.length > 5)
-    return { valid: false, rule: null, reason: "選択できるカードは最大5枚です" };
+  if (selected.length > MAX_CARD_SELECTION)
+    return {
+      valid: false,
+      rule: null,
+      reason: `選択できるカードは最大${MAX_CARD_SELECTION}枚です`,
+    };
   if (new Set(selected).size !== selected.length)
     return { valid: false, rule: null, reason: "同じ手札を重ねて選べません" };
 
