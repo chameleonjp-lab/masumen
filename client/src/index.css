@@ -1819,12 +1819,8 @@ select {
 .keyboard-binding-list { display: grid; gap: 6px; margin-top: 10px; }
 .keyboard-binding-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #dcefed; font-size: 11px; }
 .keyboard-binding-row button { min-width: 92px; min-height: 44px; padding: 8px 12px; color: #f2c365; border: 1px solid rgba(228,163,58,.55); background: rgba(8,18,24,.8); }
-.home-gate, .name-gate { position: absolute; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px; background: rgba(4,12,17,.74); }
-.home-gate__panel, .name-gate__panel { width: min(520px, 100%); padding: clamp(24px, 5vw, 48px); pointer-events: auto; }
-.home-gate__panel h1 { margin: 0; font: 700 clamp(34px, 7vw, 64px)/.95 "Space Grotesk", "Zen Kaku Gothic New", sans-serif; letter-spacing: -.06em; }
-.home-gate__copy { margin: 16px 0 28px; color: #b9ceca; font-size: 14px; line-height: 1.8; }
-.home-gate__start { width: 100%; }
-.home-gate__saved { color: #8da7a3; font-size: 11px; }
+.name-gate { position: absolute; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px; background: rgba(4,12,17,.74); }
+.name-gate__panel { width: min(520px, 100%); padding: clamp(24px, 5vw, 48px); pointer-events: auto; }
 @media (max-width: 760px) {
   .action-buttons { --action-size: 56px; }
 }
@@ -1849,16 +1845,18 @@ select {
 
 /* 10枚を横一列で確認し、横スライドから最大5枚を選択する。 */
 .card-deck-horizontal {
+  --card-width: clamp(220px, 22vw, 250px);
   display: flex;
   flex-wrap: nowrap;
   align-items: stretch;
   gap: 10px;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 4px 6px 12px;
+  padding: 4px max(6px, calc((100% - var(--card-width)) / 2)) 12px;
   overscroll-behavior-x: contain;
   scrollbar-color: rgba(42, 212, 217, .65) rgba(8, 24, 29, .7);
   scrollbar-width: thin;
+  scroll-padding-inline: max(6px, calc((100% - var(--card-width)) / 2));
   scroll-snap-type: x proximity;
   touch-action: pan-x;
 }
@@ -1877,34 +1875,170 @@ select {
 }
 
 .card-deck-horizontal .signal-card {
-  flex: 0 0 clamp(220px, 22vw, 250px);
-  width: clamp(220px, 22vw, 250px);
-  min-width: clamp(220px, 22vw, 250px);
+  flex: 0 0 var(--card-width);
+  width: var(--card-width);
+  min-width: var(--card-width);
   min-height: 236px;
-  scroll-snap-align: start;
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
   touch-action: pan-x;
+}
+
+.card-inspector-bottom {
+  position: relative;
+  z-index: 1;
+  align-items: center;
+  min-height: 48px;
+  margin-top: 10px;
+  width: min(1080px, 100%);
+  margin-right: auto;
+  margin-left: auto;
+  padding: 9px 12px;
+  border: 1px solid rgba(42, 212, 217, .28);
+  background: linear-gradient(100deg, rgba(10, 34, 40, .9), rgba(8, 20, 27, .72));
+}
+
+.card-inspector-bottom > span {
+  flex: 1 1 auto;
+  min-width: 180px;
+}
+
+.card-inspector-bottom small {
+  margin-top: 0;
+  color: #c8ded8;
+}
+
+.card-inspector-bottom em {
+  white-space: nowrap;
+}
+
+/* 戦闘中の三角配置は維持したまま、タッチ対象を一回り大きくする。 */
+@media (pointer: coarse) {
+  .dpad.dpad-large {
+    width: 162px;
+    height: 150px;
+  }
+
+  .dpad.dpad-large button {
+    width: 54px;
+    height: 50px;
+    font-size: 20px;
+  }
+
+  .dpad.dpad-large button:nth-child(1) { top: 0; left: 54px; }
+  .dpad.dpad-large button:nth-child(2) { top: 50px; left: 0; }
+  .dpad.dpad-large button:nth-child(3) { top: 50px; right: 0; }
+  .dpad.dpad-large button:nth-child(4) { bottom: 0; left: 54px; }
+
+  .action-buttons {
+    --action-size: 62px;
+    gap: 7px;
+  }
+
+  .action-buttons button {
+    width: var(--action-size);
+    min-width: var(--action-size);
+    height: var(--action-size);
+    min-height: var(--action-size);
+    font-size: 11px;
+  }
 }
 
 @media (max-width: 900px), (pointer: coarse) {
   .card-deck-horizontal {
+    --card-width: min(78vw, 270px);
     width: 100%;
     gap: 8px;
-    padding: 4px 4px 11px;
+    padding: 4px max(4px, calc((100% - var(--card-width)) / 2)) 11px;
+    scroll-padding-inline: max(4px, calc((100% - var(--card-width)) / 2));
   }
 
   .card-deck-horizontal .signal-card {
-    flex-basis: min(78vw, 270px);
-    width: min(78vw, 270px);
-    min-width: min(78vw, 270px);
+    flex-basis: var(--card-width);
+    width: var(--card-width);
+    min-width: var(--card-width);
     min-height: 214px;
+  }
+
+  .card-inspector-bottom {
+    flex-wrap: wrap;
+    gap: 3px 8px;
   }
 }
 
 @media (max-width: 760px) and (orientation: landscape) {
+  .card-deck-horizontal {
+    --card-width: min(64vw, 236px);
+  }
+
   .card-deck-horizontal .signal-card {
-    flex-basis: min(64vw, 236px);
-    width: min(64vw, 236px);
-    min-width: min(64vw, 236px);
+    flex-basis: var(--card-width);
+    width: var(--card-width);
+    min-width: var(--card-width);
     min-height: 182px;
   }
+
+  .card-deck-horizontal {
+    padding-inline: max(4px, calc((100% - var(--card-width)) / 2));
+    scroll-padding-inline: max(4px, calc((100% - var(--card-width)) / 2));
+  }
+
+  .card-inspector-bottom {
+    min-height: 34px;
+    margin-top: 6px;
+    padding: 6px 9px;
+    font-size: 7px;
+  }
+
+  .card-inspector-bottom > span {
+    min-width: 120px;
+  }
+
+  .card-inspector-bottom small,
+  .card-inspector-bottom em {
+    font-size: 6px;
+  }
+}
+
+@media (pointer: coarse) and (max-width: 430px) and (orientation: portrait) {
+  .action-buttons {
+    --action-size: 58px;
+  }
+
+  .dpad.dpad-large {
+    width: 156px;
+    height: 144px;
+  }
+
+  .dpad.dpad-large button {
+    width: 52px;
+    height: 48px;
+  }
+
+  .dpad.dpad-large button:nth-child(1) { left: 52px; }
+  .dpad.dpad-large button:nth-child(2),
+  .dpad.dpad-large button:nth-child(3) { top: 48px; }
+  .dpad.dpad-large button:nth-child(4) { left: 52px; }
+}
+
+@media (pointer: coarse) and (max-width: 360px) and (orientation: portrait) {
+  .action-buttons {
+    --action-size: 52px;
+    gap: 5px;
+  }
+
+  .dpad.dpad-large {
+    width: 132px;
+    height: 132px;
+  }
+
+  .dpad.dpad-large button {
+    width: 48px;
+    height: 48px;
+  }
+
+  .dpad.dpad-large button:nth-child(1) { left: 48px; }
+  .dpad.dpad-large button:nth-child(2),
+  .dpad.dpad-large button:nth-child(3) { top: 42px; }
+  .dpad.dpad-large button:nth-child(4) { left: 48px; }
 }

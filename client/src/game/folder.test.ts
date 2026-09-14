@@ -152,6 +152,19 @@ describe("再現可能な戦闘デッキ", () => {
     expect(drawSequence()).toEqual(drawSequence());
   });
 
+  it("resets the presented catalog for each Wave", () => {
+    const deck = new BattleDeck(createStandardFolder("wave-reset"), 90210, {
+      pool: CARD_CATALOG,
+    });
+    const firstWave = deck.drawHand();
+    deck.resetWave(90210);
+    const secondWave = deck.drawHand();
+
+    expect(firstWave).toHaveLength(HAND_SIZE);
+    expect(secondWave).toHaveLength(HAND_SIZE);
+    expect(secondWave.map(card => card.id)).toEqual(firstWave.map(card => card.id));
+  });
+
   it("draws ten unique catalog cards without repeating an ID in the run", () => {
     const deck = new BattleDeck(createStandardFolder("catalog"), 314159, {
       pool: CARD_CATALOG,

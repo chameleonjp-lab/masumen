@@ -83,17 +83,24 @@ for (const required of ["syncProjectileVisuals(snapshot)", "projectileVisuals.cl
 if (!gameCanvas.includes("<StartupGate") || !startupUI.includes('state.status !== "ready"'))
   throw new Error("Startup screens must be exclusive");
 for (const required of [
-  "信号を開始",
+  "名前を入力して開始",
   "entryScreen",
   "KeyboardBindingPanel",
   "getKeyboardBindings",
   "表示された10枚を横にスライドして確認し、1〜5枚を選べます",
   "card-deck-horizontal",
+  "centerCardIndex",
+  "onScroll={updateCenteredCard}",
+  "card-inspector-bottom",
   "20秒後に再選択",
   'className="action-buttons"',
 ]) {
   if (!gameCanvas.includes(required))
     throw new Error(`Current flow/control contract missing: ${required}`);
+}
+for (const forbidden of ["アリーナへようこそ", "信号を開始", "信号を入力して開始"]) {
+  if (gameCanvas.includes(forbidden))
+    throw new Error(`Public start flow must not ship the legacy welcome copy: ${forbidden}`);
 }
 for (const required of [
   "customElapsedMs",
@@ -118,7 +125,8 @@ for (const required of [
   "touchActionForPointer",
   'aria-label=\"通常攻撃\"',
   'aria-label=\"チャージショット\"',
-  'onClick={() => controller?.toggleCard(index)}',
+  "controller?.toggleCard(index)",
+  "data-card-index={index}",
   "cardPresentation(card)",
   "card-state",
   "card-stats",
@@ -155,6 +163,8 @@ for (const required of [
   ".card-deck-horizontal",
   "overflow-x: auto",
   "flex-wrap: nowrap",
+  "scroll-snap-align: center",
+  "scroll-padding-inline",
   ".pause-button { min-height: 44px; }",
   ".feedback-controls button { min-height: 44px; }",
 ]) {

@@ -115,7 +115,7 @@ export function shareStatusText(status: "shared" | "copied" | "cancelled" | "fai
 }
 
 export function homeShareText(): string {
-  return `【グリッド・シグナル・アリーナ】位置、連結、カウンターで戦うカードアクションに挑戦！\n${GAME_URL}\n#グリッドシグナルアリーナ #カメレオンJP`;
+  return `【マスメン】カードを使いながら5ウェーブを戦い抜け！\n${GAME_URL}`;
 }
 
 export function resultShareText(snapshot: {
@@ -128,12 +128,8 @@ export function resultShareText(snapshot: {
   cardsUsed: number;
 }): string {
   return [
-    `【グリッド・シグナル・アリーナ】${readPlayerName() || "プレイヤー"}の戦闘結果`,
-    `${snapshot.score.toLocaleString()}点 / ランク ${snapshot.rank}`,
-    `到達ウェーブ ${snapshot.reachedWave}・時間 ${Math.floor(snapshot.elapsed)}秒・カウンター ${snapshot.counters}`,
-    `同時撃破 ${snapshot.simultaneousDefeats}・使用カード ${snapshot.cardsUsed}`,
-    "信号をつなぎ、敵陣を制圧した！",
+    "【マスメン】カードを使いながら5ウェーブを戦い抜け！",
+    `スコア：${snapshot.score.toLocaleString()}点`,
     GAME_URL,
-    "#グリッドシグナルアリーナ #カメレオンJP",
   ].join("\n");
 }

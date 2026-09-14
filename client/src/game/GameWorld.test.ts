@@ -188,6 +188,30 @@ describe("GameWorldの現行Wave基準", () => {
     expect(repeatedRun).toEqual(firstRun);
   });
 
+  it("resets selected cards and keeps ten cards available through Wave four", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as { mode: BattleSnapshot["mode"] };
+
+    for (let wave = 1; wave <= 4; wave += 1) {
+      expect(latest?.wave).toBe(wave);
+      expect(latest?.mode).toBe("custom");
+      expect(latest?.customHand).toHaveLength(CARD_OFFER_SIZE);
+      world.controller.toggleCard(0);
+      expect(latest?.selected).toEqual([0]);
+      world.controller.confirmCustom();
+      expect(latest?.mode).toBe("battle");
+
+      if (wave < 4) {
+        internal.mode = "intermission";
+        world.controller.nextWave();
+        expect(latest?.selected).toEqual([]);
+      }
+    }
+  });
+
   it("derives the overload replacement stream from the run seed", () => {
     installWindowStub("?seed=11");
     const first = new GameWorld(() => undefined, () => undefined) as unknown as {
