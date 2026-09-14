@@ -3874,6 +3874,10 @@ export class GameWorld {
     this.cancelCharge();
     this.hitstopRemainingMs = 0;
     this.customHand = this.drawCustomHand();
+    if (this.customHand.length === 0) {
+      this.resumeBattleWithoutCards();
+      return;
+    }
     this.selected = [];
     this.focusedCard = null;
     this.selectionError = null;
@@ -3892,6 +3896,29 @@ export class GameWorld {
       return;
     }
     this.beginCustom("カード選択 — 次のカードを選んでください");
+  }
+  private ensureWaveBattleStarted(): void {
+    if (this.waveBattleStarted) return;
+    const now = this.gameTimeMs;
+    this.enemies.forEach((enemy, index) => {
+      if (enemy.state !== "deleted")
+        enemy.nextAttackAt = now + 1050 + index * 510;
+    });
+    this.waveBattleStarted = true;
+  }
+  private resumeBattleWithoutCards(): void {
+    this.customHand = [];
+    this.selected = [];
+    this.focusedCard = null;
+    this.selectionError = null;
+    this.mode = "battle";
+    this.clock.discardPendingTime();
+    this.customSystem.resetGauge();
+    this.customElapsedMs = 0;
+    this.syncCustomRemaining();
+    this.ensureWaveBattleStarted();
+    this.message = `ウェーブ 0${this.wave} — カードなしで戦闘再開`;
+    this.notify();
   }
   private toggleCard(index: number): void {
     if (this.mode !== "custom" || !this.customHand[index]) return;
@@ -3920,6 +3947,10 @@ export class GameWorld {
   }
   private confirmCustom(): void {
     if (this.mode !== "custom") return;
+    if (this.customHand.length === 0) {
+      this.resumeBattleWithoutCards();
+      return;
+    }
     const validation = validateSelection(this.customHand, this.selected);
     if (!validation.valid) {
       this.selectionError = validation.reason;
@@ -3957,16 +3988,9 @@ export class GameWorld {
         : this.queue.length > 0
           ? `ウェーブ 0${this.wave} — 接続開始`
           : `ウェーブ 0${this.wave} — カードなしで戦闘開始`;
-    if (!this.waveBattleStarted) {
-      // P0-2: only the first confirmation of a Wave establishes its opening
-      // stagger. Resuming from custom must leave windups and cooldowns intact.
-      const now = this.gameTimeMs;
-      this.enemies.forEach((enemy, index) => {
-        if (enemy.state !== "deleted")
-          enemy.nextAttackAt = now + 1050 + index * 510;
-      });
-      this.waveBattleStarted = true;
-    }
+    // P0-2: only the first confirmation of a Wave establishes its opening
+    // stagger. Resuming from custom must leave windups and cooldowns intact.
+    this.ensureWaveBattleStarted();
     this.notify();
   }
   private finishWave(): void {

@@ -14,6 +14,7 @@ import {
   CARD_OFFER_SIZE,
   MAX_CARD_SELECTION,
 } from "@/game/deck";
+import { COMBAT_BALANCE } from "@/game/data/balance";
 import { createGameEngine } from "@/game/engine";
 import { startGameRuntime, type StartupState } from "@/game/startup";
 import { StartupGate } from "@/components/game/StartupScreen";
@@ -74,6 +75,9 @@ const initialSnapshot: BattleSnapshot = {
   paused: false,
   customRemaining: 20,
 };
+
+const CARD_SELECTION_INTERVAL_SECONDS =
+  COMBAT_BALANCE.custom.intervalMs / 1000;
 
 function meterStyle(value: number) {
   return { transform: `scaleX(${Math.max(0, Math.min(1, value / 100))})` };
@@ -692,6 +696,9 @@ export default function GameCanvas() {
     : snapshot.focusedCard ?? snapshot.selected[0] ?? 0;
   const previewCard = snapshot.customHand[previewCardIndex];
   const previewPresentation = cardPresentation(previewCard);
+  const customCountdownSeconds = Math.max(0, snapshot.customRemaining);
+  const customCountdownPercent =
+    (customCountdownSeconds / CARD_SELECTION_INTERVAL_SECONDS) * 100;
   const focusedCard =
     activeCardIndex === null
       ? undefined
@@ -946,6 +953,29 @@ export default function GameCanvas() {
           <p>{snapshot.message}</p>
           <time>{timecode(snapshot.elapsed)}</time>
         </section>
+
+        {isCombatMode && (
+          <section
+            className={`custom-countdown technical-panel ${customCountdownSeconds <= 5 ? "is-urgent" : ""}`}
+            aria-label="カード選択までのカウントダウン"
+          >
+            <div className="custom-countdown-heading">
+              <span>次のカード選択まで</span>
+              <strong>{customCountdownSeconds.toFixed(1)}秒</strong>
+            </div>
+            <div
+              className="meter custom-countdown-meter"
+              role="progressbar"
+              aria-label="カード選択までの残り時間"
+              aria-valuemin={0}
+              aria-valuemax={CARD_SELECTION_INTERVAL_SECONDS}
+              aria-valuenow={customCountdownSeconds}
+              aria-valuetext={`カード選択まで${customCountdownSeconds.toFixed(1)}秒`}
+            >
+              <span style={meterStyle(customCountdownPercent)} />
+            </div>
+          </section>
+        )}
 
         <section className="run-console technical-panel">
           <p className="eyebrow">プレイ記録</p>
