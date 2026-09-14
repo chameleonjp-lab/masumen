@@ -1,6 +1,6 @@
 /** Signal Relay Tactical sound design: procedural Web Audio avoids persistent assets and resets cleanly every run. */
 import { getCardSoundRecipe } from "./cardAudioRecipes";
-import type { CardFamily, CardStatus, CardTier } from "./types";
+import type { CardFamily, CardStatus, CardTier, ProjectileMotion } from "./types";
 
 type AudioContextWithWebkit = Window & { webkitAudioContext?: typeof AudioContext };
 
@@ -21,8 +21,61 @@ export class CardAudio {
     }
     if (this.context.state === "suspended") void this.context.resume();
   };
-  public playCard(cardId: string, family: CardFamily, tier: CardTier, status?: CardStatus): void {
+  public playPlayerAttack(charged: boolean): void {
     if (!this.permit()) return;
+    if (charged) {
+      this.tone(150, 0.24, "sawtooth", 0.065);
+      this.tone(360, 0.2, "square", 0.05, 0.045);
+      this.noise(0.14, 0.035, 0.02);
+      return;
+    }
+    this.tone(560, 0.08, "square", 0.04);
+    this.tone(860, 0.1, "sine", 0.026, 0.035);
+  }
+  public playEnemyAttack(
+    kind: "projectile" | "melee" | "field",
+    motion?: ProjectileMotion
+  ): void {
+    if (!this.permit(true)) return;
+    if (kind === "melee") {
+      this.noise(0.13, 0.055);
+      this.tone(190, 0.2, "sawtooth", 0.06);
+      this.tone(92, 0.24, "square", 0.035, 0.035);
+      return;
+    }
+    if (kind === "field") {
+      this.tone(125, 0.28, "triangle", 0.055);
+      this.tone(250, 0.2, "sine", 0.026, 0.08);
+      this.noise(0.16, 0.035, 0.04);
+      return;
+    }
+    if (motion === "homing") {
+      this.tone(300, 0.2, "sine", 0.035);
+      this.tone(720, 0.16, "square", 0.026, 0.07);
+      return;
+    }
+    if (motion === "wave") {
+      this.tone(120, 0.32, "triangle", 0.05);
+      this.noise(0.2, 0.03, 0.06);
+      return;
+    }
+    if (motion === "reflect") {
+      this.tone(620, 0.12, "square", 0.04);
+      this.tone(310, 0.22, "sine", 0.035, 0.07);
+      return;
+    }
+    this.tone(240, 0.16, "square", 0.045);
+    this.tone(110, 0.24, "sawtooth", 0.035, 0.05);
+  }
+  public playPlayerHit(damage: number): void {
+    if (!this.permit(true)) return;
+    const severity = Math.min(1, Math.max(0, damage / 100));
+    this.noise(0.11 + severity * 0.04, 0.06 + severity * 0.02);
+    this.tone(220 - severity * 80, 0.18, "sawtooth", 0.055);
+    this.tone(110 - severity * 25, 0.2, "square", 0.032, 0.035);
+  }
+  public playCard(cardId: string, family: CardFamily, tier: CardTier, status?: CardStatus): void {
+    if (!this.permit(true)) return;
     const recipe = getCardSoundRecipe(cardId);
     if (recipe) {
       recipe.notes.forEach((note, index) => this.tone(note, recipe.duration, recipe.wave, recipe.volume, index * recipe.rhythm));

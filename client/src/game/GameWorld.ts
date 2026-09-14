@@ -876,6 +876,16 @@ export class GameWorld {
     const lockedRow = targets[0]?.row ?? lockedTarget.row;
     const lockedColumn = targets[0]?.col ?? lockedTarget.col;
 
+    if (action.damage > 0 && action.kind !== "support") {
+      this.onEvent({
+        type: "enemy-attack",
+        enemyId: enemy.id,
+        at: { ...enemy.grid },
+        kind: action.kind,
+        motion: action.motion,
+      });
+    }
+
     if (
       action.id === "wave-runner-water-wave" ||
       action.id === "wave-runner-frost-surge" ||
@@ -1258,6 +1268,13 @@ export class GameWorld {
     enemy: Enemy,
     projectile: ProjectileState
   ): void {
+    this.onEvent({
+      type: "enemy-attack",
+      enemyId: enemy.id,
+      at: { ...enemy.grid },
+      kind: "projectile",
+      motion: "reflect",
+    });
     this.spawnProjectile({
       owner: "enemy",
       motion: "straight",
@@ -1471,7 +1488,7 @@ export class GameWorld {
     } else {
       this.nextFireAt = now + interval;
     }
-    this.onEvent({ type: "attack", charged: false });
+    this.onEvent({ type: "attack", charged: false, source: "player" });
     this.spawnProjectile({
       owner: "player",
       motion: "straight",
@@ -1518,7 +1535,7 @@ export class GameWorld {
     this.charging = 0;
     const charged = charge >= 1;
     this.nextFireAt = this.gameTimeMs + 240;
-    this.onEvent({ type: "attack", charged });
+    this.onEvent({ type: "attack", charged, source: "player" });
     this.spawnProjectile({
       owner: "player",
       motion: "straight",
@@ -1637,7 +1654,11 @@ export class GameWorld {
     const attackTiles = this.dispatchCardAttack(card, power);
     const displayTiles =
       attackTiles.length > 0 ? attackTiles : resolution.tiles;
-    this.onEvent({ type: "attack", charged: card.tier === "mega" });
+    this.onEvent({
+      type: "attack",
+      charged: card.tier === "mega",
+      source: "card",
+    });
     this.emitCardEvents(card, displayTiles);
     const hitstopDuration = card.tier === "mega" ? 105 : 55;
     this.hitstopRemainingMs = Math.max(

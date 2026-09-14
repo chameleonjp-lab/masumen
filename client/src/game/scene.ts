@@ -1364,7 +1364,12 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
     if (vibrationEnabled && canVibrate) canVibrate.call(navigator, pattern);
   };
   const handleEvent = (event: BattleEvent) => {
-    if (event.type === "attack") attackSpriteUntil = performance.now() + (event.charged ? 360 : 210);
+    if (event.type === "attack") {
+      attackSpriteUntil = performance.now() + (event.charged ? 360 : 210);
+      if (event.source !== "card") audio.playPlayerAttack(event.charged);
+    }
+    if (event.type === "enemy-attack")
+      audio.playEnemyAttack(event.kind, event.motion);
     if (event.type === "card") {
       makeDirectionGuide(event);
       makeCardEffect(event);
@@ -1402,7 +1407,10 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
       makeImpact(event.at, event.side === "player" ? (event.cardId ? Color3.FromHexString(getCardVfxRecipe(event.cardId)?.accent ?? "#2AD4D9") : event.charged ? EMBER : TEAL) : EMBER, Boolean(event.counter));
       makeEnemyHitReaction(event);
     }
-    if (event.type === "player-reaction") makePlayerReaction(event);
+    if (event.type === "player-reaction") {
+      makePlayerReaction(event);
+      if (event.kind === "damage") audio.playPlayerHit(event.damage ?? 0);
+    }
     if (event.type === "deleted") {
       makeDeletedEffect(event);
       audio.playDeleted(event.id);

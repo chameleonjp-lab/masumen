@@ -439,6 +439,67 @@ describe("GameWorldの現行Wave基準", () => {
     expect(playerShots()).toHaveLength(4);
   });
 
+  it("emits separate audio routing events for player, enemy, card, and damage actions", () => {
+    const events: BattleEvent[] = [];
+    const world = new GameWorld(() => undefined, event => events.push(event));
+    confirmCustomForTest(world);
+    world.controller.fire();
+    expect(events).toContainEqual({
+      type: "attack",
+      charged: false,
+      source: "player",
+    });
+
+    const damageInternal = world as unknown as {
+      applyPlayerHit: (damage: number, enemyId?: string) => void;
+    };
+    damageInternal.applyPlayerHit(10, "bulwark");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "player-reaction",
+        kind: "damage",
+        damage: 10,
+      })
+    );
+
+    const cardEvents: BattleEvent[] = [];
+    const cardWorld = new GameWorld(() => undefined, event => cardEvents.push(event));
+    queueCardForTest(cardWorld, "sanctum");
+    cardWorld.controller.useSkill();
+    expect(cardEvents).toContainEqual(
+      expect.objectContaining({ type: "attack", source: "card" })
+    );
+    expect(cardEvents).toContainEqual(
+      expect.objectContaining({ type: "card", cardId: "sanctum" })
+    );
+
+    const enemyEvents: BattleEvent[] = [];
+    const enemyWorld = new GameWorld(() => undefined, event => enemyEvents.push(event));
+    const enemyInternal = enemyWorld as unknown as {
+      enemies: Array<{ id: string; grid: GridPosition }>;
+      executeEnemyAction: (
+        enemy: unknown,
+        action: unknown,
+        now: number,
+        targets: GridPosition[]
+      ) => void;
+    };
+    const bulwark = enemyInternal.enemies.find(enemy => enemy.id === "bulwark");
+    const cannon = getEnemyDefinition("bulwark")?.actions.find(
+      action => action.id === "bulwark-lane-cannon"
+    );
+    if (!bulwark || !cannon) throw new Error("敵攻撃音の検査用データがありません");
+    enemyInternal.executeEnemyAction(bulwark, cannon, 0, [{ col: 1, row: 1 }]);
+    expect(enemyEvents).toContainEqual(
+      expect.objectContaining({
+        type: "enemy-attack",
+        enemyId: "bulwark",
+        kind: "projectile",
+        motion: "straight",
+      })
+    );
+  });
+
   it("shows a fresh random ten-card offer after twenty seconds", () => {
     let latest: BattleSnapshot | undefined;
     const world = new GameWorld(snapshot => {
