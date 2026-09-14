@@ -340,7 +340,14 @@ export interface BattleSnapshot {
   usedChainTechniques?: string[];
 }
 export type BattleEvent =
-  | { type: "attack"; charged: boolean }
+  | { type: "attack"; charged: boolean; source?: "player" | "card" }
+  | {
+      type: "enemy-attack";
+      enemyId: string;
+      at: GridPosition;
+      kind: "projectile" | "melee" | "field";
+      motion?: ProjectileMotion;
+    }
   | {
       type: "projectile";
       from: GridPosition;

@@ -76,6 +76,16 @@ for (const required of [
 
 for (const required of ["createEnemyVisualMap(scene)", "transientResources.release", "objectMeshes.sync", "clearBattleVisuals()"])
   if (!scene.includes(required)) throw new Error(`Renderer ownership contract missing: ${required}`);
+for (const required of [
+  "audio.playPlayerAttack",
+  "audio.playEnemyAttack",
+  "audio.playPlayerHit",
+  "audio.playCard",
+  'type: "enemy-attack"',
+  'source: "player"',
+  'source: "card"',
+])
+  if (!(scene + gameWorld).includes(required)) throw new Error(`Combat audio contract missing: ${required}`);
 for (const required of ["projectileRenderPosition", "projectile.travelProgress", "projectile.flightMs", "projectile.target"])
   if (!projectileVisuals.includes(required)) throw new Error(`Projectile rendering contract missing: ${required}`);
 for (const required of ["syncProjectileVisuals(snapshot)", "projectileVisuals.clear()"])
