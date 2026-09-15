@@ -1819,8 +1819,11 @@ select {
 .keyboard-binding-list { display: grid; gap: 6px; margin-top: 10px; }
 .keyboard-binding-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #dcefed; font-size: 11px; }
 .keyboard-binding-row button { min-width: 92px; min-height: 44px; padding: 8px 12px; color: #f2c365; border: 1px solid rgba(228,163,58,.55); background: rgba(8,18,24,.8); }
+.keyboard-binding-reset { width: 100%; min-height: 44px; margin-top: 10px; padding: 8px 12px; color: #b9ceca; border: 1px solid rgba(131,205,205,.34); background: rgba(8,18,24,.7); font: 600 10px/1.2 "IBM Plex Mono", "Zen Kaku Gothic New", sans-serif; }
+.keyboard-binding-row button[aria-pressed="true"] { color: #071316; border-color: #ff7a61; background: #ff8065; }
+.name-gate .keyboard-bindings { width: 100%; margin: 18px 0 0; }
 .name-gate { position: absolute; inset: 0; z-index: 8; display: grid; place-items: center; padding: 24px; background: rgba(4,12,17,.74); }
-.name-gate__panel { width: min(520px, 100%); padding: clamp(24px, 5vw, 48px); pointer-events: auto; }
+.name-gate__panel { width: min(520px, 100%); max-height: calc(100dvh - 32px); overflow-y: auto; overscroll-behavior: contain; padding: clamp(24px, 5vw, 48px); pointer-events: auto; }
 @media (max-width: 760px) {
   .action-buttons { --action-size: 56px; }
 }

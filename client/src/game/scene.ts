@@ -21,6 +21,11 @@ import { CardAudio } from "./cardAudio";
 import { cardPreviewTiles } from "./data/cardCombatData";
 import { getCardVfxRecipe } from "./cardVisuals";
 import { CARD_CATALOG } from "./deck";
+import {
+  DEFAULT_KEYBOARD_BINDINGS,
+  normaliseKeyboardKey,
+  type KeyboardBindings,
+} from "./keyboardBindings";
 import type {
   BattleEvent,
   BattleSnapshot,
@@ -39,11 +44,7 @@ const GRAPHITE = Color3.FromHexString("#10171F");
 
 export interface SceneCallbacks {
   canAcceptInput?: () => boolean;
-  getKeyboardBindings?: () => {
-    fire: string;
-    charge: string;
-    skill: string;
-  };
+  getKeyboardBindings?: () => KeyboardBindings;
   onSnapshot?: (snapshot: BattleSnapshot) => void;
 }
 
@@ -1460,8 +1461,6 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
 
   const keyMoveRepeat = createMovementRepeat();
   let activeMoveKey: string | null = null;
-  const normaliseKeyboardKey = (key: string): string =>
-    key === " " ? key : key.toLowerCase();
   const moveDirections: Record<string, GridPosition> = {
     arrowup: { col: 0, row: 1 },
     arrowdown: { col: 0, row: -1 },
@@ -1488,11 +1487,7 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
       );
       return;
     }
-    const bindings = callbacks.getKeyboardBindings?.() ?? {
-      fire: "z",
-      charge: " ",
-      skill: "x",
-    };
+    const bindings = callbacks.getKeyboardBindings?.() ?? DEFAULT_KEYBOARD_BINDINGS;
     const key = normaliseKeyboardKey(event.key);
     if (key === bindings.fire || key === bindings.charge || key === bindings.skill) {
       event.preventDefault();
@@ -1505,7 +1500,7 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
   };
   const keyUp = (event: KeyboardEvent) => {
     if (activeMoveKey === event.key.toLowerCase()) stopKeyMove();
-    const chargeKey = callbacks.getKeyboardBindings?.().charge ?? " ";
+    const chargeKey = callbacks.getKeyboardBindings?.().charge ?? DEFAULT_KEYBOARD_BINDINGS.charge;
     if (normaliseKeyboardKey(event.key) === normaliseKeyboardKey(chargeKey)) {
       if (!acceptsInput(event)) {
         world.controller.cancelCharge();

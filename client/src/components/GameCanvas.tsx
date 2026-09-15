@@ -25,6 +25,18 @@ import type { BattleSnapshot, GameHandle, GridPosition } from "@/game/types";
 import ResultScreen from "@/components/game/ResultScreen";
 import { createMovementRepeat, type MovementRepeat } from "@/game/movementRepeat";
 import {
+  DEFAULT_KEYBOARD_BINDINGS,
+  findKeyboardBindingConflict,
+  isAssignableKeyboardKey,
+  keyboardActionLabel,
+  keyboardLabel,
+  normaliseKeyboardKey,
+  readKeyboardBindings,
+  writeKeyboardBindings,
+  type KeyboardAction,
+  type KeyboardBindings,
+} from "@/game/keyboardBindings";
+import {
   beginTouchAction,
   createTouchInputState,
   endTouchAction,
@@ -242,53 +254,12 @@ interface NameGateProps {
   onDraftChange: (value: string) => void;
   onSubmit: () => void;
   onShare: () => void;
-}
-
-type KeyboardAction = "fire" | "charge" | "skill";
-type KeyboardBindings = Record<KeyboardAction, string>;
-
-const KEYBOARD_BINDINGS_KEY = "grid-signal-arena-keyboard-v1";
-const DEFAULT_KEYBOARD_BINDINGS: KeyboardBindings = {
-  fire: "z",
-  charge: " ",
-  skill: "x",
-};
-const RESERVED_KEYBOARD_KEYS = new Set([
-  "arrowup",
-  "arrowdown",
-  "arrowleft",
-  "arrowright",
-  "enter",
-  "escape",
-  "tab",
-]);
-
-function normaliseKey(value: string): string {
-  return value === " " ? value : value.toLowerCase();
-}
-
-function readKeyboardBindings(): KeyboardBindings {
-  if (typeof window === "undefined") return { ...DEFAULT_KEYBOARD_BINDINGS };
-  try {
-    const saved = JSON.parse(
-      window.localStorage.getItem(KEYBOARD_BINDINGS_KEY) ?? "null"
-    ) as Partial<KeyboardBindings> | null;
-    return {
-      fire: typeof saved?.fire === "string" ? normaliseKey(saved.fire) : DEFAULT_KEYBOARD_BINDINGS.fire,
-      charge: typeof saved?.charge === "string" ? normaliseKey(saved.charge) : DEFAULT_KEYBOARD_BINDINGS.charge,
-      skill: typeof saved?.skill === "string" ? normaliseKey(saved.skill) : DEFAULT_KEYBOARD_BINDINGS.skill,
-    };
-  } catch {
-    return { ...DEFAULT_KEYBOARD_BINDINGS };
-  }
-}
-
-function writeKeyboardBindings(bindings: KeyboardBindings): void {
-  try {
-    window.localStorage.setItem(KEYBOARD_BINDINGS_KEY, JSON.stringify(bindings));
-  } catch {
-    // Private browsing may deny local storage; the current session still works.
-  }
+  pcPlatform: boolean;
+  keyboardBindings: KeyboardBindings;
+  capturingKey: KeyboardAction | null;
+  captureError: string;
+  onCapture: (action: KeyboardAction) => void;
+  onResetKeyboardBindings: () => void;
 }
 
 function isPcPlatform(): boolean {
@@ -299,20 +270,12 @@ function isPcPlatform(): boolean {
   return navigator.maxTouchPoints === 0 && !coarsePointer;
 }
 
-function keyboardLabel(key: string): string {
-  if (key === " ") return "スペース";
-  if (key === "arrowup") return "上矢印";
-  if (key === "arrowdown") return "下矢印";
-  if (key === "arrowleft") return "左矢印";
-  if (key === "arrowright") return "右矢印";
-  return key.length === 1 ? key.toUpperCase() : key;
-}
-
 interface KeyboardBindingPanelProps {
   bindings: KeyboardBindings;
   capturing: KeyboardAction | null;
   captureError: string;
   onCapture: (action: KeyboardAction) => void;
+  onReset: () => void;
 }
 
 function KeyboardBindingPanel({
@@ -320,6 +283,7 @@ function KeyboardBindingPanel({
   capturing,
   captureError,
   onCapture,
+  onReset,
 }: KeyboardBindingPanelProps) {
   const rows: ReadonlyArray<[KeyboardAction, string]> = [
     ["fire", "通常攻撃"],
@@ -329,18 +293,26 @@ function KeyboardBindingPanel({
   return (
     <section className="keyboard-bindings" aria-label="キーボード設定">
       <p className="eyebrow">PC操作 / キー設定</p>
-      <small>ボタンを押してから、割り当てたいキーを押してください。</small>
+      <small>ボタンを押してから割り当てたいキーを押してください。Escでキャンセルできます。</small>
       {captureError && <small className="keyboard-binding-error" role="status">{captureError}</small>}
       <div className="keyboard-binding-list">
         {rows.map(([action, label]) => (
           <div className="keyboard-binding-row" key={action}>
             <span>{label}</span>
-            <button type="button" onClick={() => onCapture(action)}>
+            <button
+              type="button"
+              aria-pressed={capturing === action}
+              aria-label={`${label}のキーを設定`}
+              onClick={() => onCapture(action)}
+            >
               {capturing === action ? "キー入力待ち" : keyboardLabel(bindings[action])}
             </button>
           </div>
         ))}
       </div>
+      <button type="button" className="keyboard-binding-reset" onClick={onReset}>
+        初期設定に戻す
+      </button>
     </section>
   );
 }
@@ -352,6 +324,12 @@ function NameGate({
   onDraftChange,
   onSubmit,
   onShare,
+  pcPlatform,
+  keyboardBindings,
+  capturingKey,
+  captureError,
+  onCapture,
+  onResetKeyboardBindings,
 }: NameGateProps) {
   return (
     <section className="name-gate" role="dialog" aria-modal="true" aria-labelledby="name-gate-title">
@@ -389,6 +367,15 @@ function NameGate({
         <button type="button" className="engage-button name-gate__submit" onClick={onSubmit}>
           カード選択へ進む <span>↗</span>
         </button>
+        {pcPlatform && (
+          <KeyboardBindingPanel
+            bindings={keyboardBindings}
+            capturing={capturingKey}
+            captureError={captureError}
+            onCapture={onCapture}
+            onReset={onResetKeyboardBindings}
+          />
+        )}
         <div className="name-gate__links">
           <button type="button" onClick={onShare}>ゲームをシェア</button>
           <a href={LAB_URL} target="_blank" rel="noreferrer">実験場へ</a>
@@ -549,19 +536,22 @@ export default function GameCanvas() {
         setCaptureError("");
         return;
       }
-      const key = normaliseKey(event.key);
-      if (RESERVED_KEYBOARD_KEYS.has(key)) {
+      const key = normaliseKeyboardKey(event.key);
+      if (!isAssignableKeyboardKey(key)) {
         event.preventDefault();
         event.stopPropagation();
-        setCaptureError("矢印キーと決定キーは移動・選択に使うため設定できません。");
+        setCaptureError("矢印キー・決定キー・キャンセルキーなどは設定できません。");
         return;
       }
-      const conflict = (Object.entries(keyboardBindingsRef.current) as Array<[KeyboardAction, string]>)
-        .find(([action, binding]) => action !== capturingKey && binding === key);
+      const conflict = findKeyboardBindingConflict(
+        capturingKey,
+        key,
+        keyboardBindingsRef.current,
+      );
       if (conflict) {
         event.preventDefault();
         event.stopPropagation();
-        setCaptureError(`そのキーは${conflict[0] === "fire" ? "通常攻撃" : conflict[0] === "charge" ? "チャージ" : "カード使用"}に設定済みです。`);
+        setCaptureError(`そのキーは${keyboardActionLabel(conflict)}に設定済みです。`);
         return;
       }
       const next = { ...keyboardBindingsRef.current, [capturingKey]: key };
@@ -731,6 +721,29 @@ export default function GameCanvas() {
     controller?.setVibrationEnabled?.(next);
   };
 
+  const beginKeyboardCapture = (action: KeyboardAction) => {
+    setCaptureError("");
+    setCapturingKey(action);
+  };
+
+  const clearKeyboardCapture = () => {
+    setCapturingKey(null);
+    setCaptureError("");
+  };
+
+  const resetKeyboardBindings = () => {
+    const next = { ...DEFAULT_KEYBOARD_BINDINGS };
+    keyboardBindingsRef.current = next;
+    setKeyboardBindings(next);
+    clearKeyboardCapture();
+    writeKeyboardBindings(next);
+  };
+
+  const togglePause = () => {
+    if (snapshot.paused) clearKeyboardCapture();
+    controller?.togglePause();
+  };
+
   const beginPointerAction = (
     event: ReactPointerEvent<HTMLButtonElement>,
     action: TouchAction,
@@ -781,6 +794,7 @@ export default function GameCanvas() {
   };
 
   const submitPlayerName = () => {
+    clearKeyboardCapture();
     const name = savePlayerName(nameDraft);
     if (!name) {
       setNameError("プレイヤー名を入力してください");
@@ -796,6 +810,7 @@ export default function GameCanvas() {
 
   const returnHome = () => {
     resetPointerInput();
+    clearKeyboardCapture();
     controllerRef.current?.restart();
     setNameDraft(playerName);
     setNameError("");
@@ -836,6 +851,12 @@ export default function GameCanvas() {
             }}
             onSubmit={submitPlayerName}
             onShare={shareHome}
+            pcPlatform={pcPlatform}
+            keyboardBindings={keyboardBindings}
+            capturingKey={capturingKey}
+            captureError={captureError}
+            onCapture={beginKeyboardCapture}
+            onResetKeyboardBindings={resetKeyboardBindings}
           />
         }
       >
@@ -853,7 +874,7 @@ export default function GameCanvas() {
           <button
             type="button"
             className="pause-button"
-            onClick={() => controller?.togglePause()}
+            onClick={togglePause}
             aria-pressed={snapshot.paused}
             aria-label="一時停止メニューを開く"
           >
@@ -1406,16 +1427,14 @@ export default function GameCanvas() {
               bindings={keyboardBindings}
               capturing={capturingKey}
               captureError={captureError}
-              onCapture={action => {
-                setCaptureError("");
-                setCapturingKey(action);
-              }}
+              onCapture={beginKeyboardCapture}
+              onReset={resetKeyboardBindings}
             />
           )}
           <button
             type="button"
             className="engage-button"
-            onClick={() => controller?.togglePause()}
+            onClick={togglePause}
           >
             再開 <span>↗</span>
           </button>
