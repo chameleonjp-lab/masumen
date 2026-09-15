@@ -622,7 +622,7 @@ export class GameWorld {
     const panelUpdate = this.panelSystem.update(now);
     this.syncBoardOccupancy();
     if (panelUpdate.restoredTerritoryColumns.length > 0)
-      this.returnPlayerToSafeTerritory();
+      this.ensurePlayerOnSafeTerritory();
     const projectileResolutions = this.projectileSystem.advance(now, deltaMs, {
       collision: (projectile, positions) =>
         this.resolveProjectileCollision(projectile, positions),
@@ -659,6 +659,7 @@ export class GameWorld {
         this.markPracticeProgress("emotion");
     }
     this.syncBoardOccupancy();
+    this.ensurePlayerOnSafeTerritory();
     const allEnemiesDefeated =
       this.enemies.length > 0 &&
       this.enemies.every(enemy => enemy.state === "deleted");
@@ -1415,6 +1416,19 @@ export class GameWorld {
     this.playerGrid = fallback;
     this.panelSystem.occupy(this.playerGrid, "player");
     this.message = "区画復元 — 緊急帰還";
+  }
+
+  private ensurePlayerOnSafeTerritory(): void {
+    // 突進斬の演出中だけは一時的な敵陣滞在を許可する。
+    // それ以外の更新境界では、どのカード効果・敵攻撃の順序でも自陣へ戻す。
+    const activeDash = this.pendingMelee.some(
+      attack =>
+        attack.dashApplied &&
+        attack.dashTo !== null &&
+        sameTile(attack.dashTo, this.playerGrid) &&
+        this.gameTimeMs < attack.recoveryAt
+    );
+    if (!activeDash) this.returnPlayerToSafeTerritory();
   }
 
   private move(dx: number, dy: number): void {
@@ -2311,10 +2325,18 @@ export class GameWorld {
     for (const attack of this.pendingMelee) {
       const firstStage = attack.stages[0];
       if (!attack.dashApplied && attack.dashTo && firstStage && now >= firstStage.activeAt) {
+        if (!this.canEnterTemporaryMeleePosition(attack.dashTo)) {
+          // 予告後に敵や設置物が着地点を塞いだ場合は突進せず、元の自陣を維持する。
+          attack.dashApplied = true;
+          continue;
+        }
         const previous = { ...this.playerGrid };
         this.panelSystem.vacate(previous, now);
         this.playerGrid = { ...attack.dashTo };
-        this.panelSystem.occupy(this.playerGrid, "player");
+        if (!this.panelSystem.occupy(this.playerGrid, "player")) {
+          this.playerGrid = previous;
+          this.panelSystem.occupy(this.playerGrid, "player");
+        }
         attack.dashApplied = true;
       }
       for (const stage of attack.stages) {
@@ -3435,11 +3457,14 @@ export class GameWorld {
     const destinationPanel = this.panelSystem.get(destination);
     if (
       !destinationPanel ||
+      destinationPanel.owner !== "player" ||
       destinationPanel.terrain === "hole" ||
       destinationPanel.occupantId !== null ||
       destinationPanel.objectId !== null
-    )
+    ) {
+      this.ensurePlayerOnSafeTerritory();
       return;
+    }
     const previous = { ...this.playerGrid };
     this.panelSystem.vacate(previous, this.gameTimeMs);
     this.playerGrid = { ...destination };
@@ -4027,6 +4052,7 @@ export class GameWorld {
     this.objectTriggerCount.clear();
     this.panelSystem.reset();
     this.syncBoardOccupancy();
+    this.ensurePlayerOnSafeTerritory();
     this.mode = this.wave >= FINAL_WAVE ? "result" : "intermission";
     if (this.mode === "intermission") {
       this.pendingChainEffects = [];
@@ -4210,6 +4236,7 @@ export class GameWorld {
     this.objectTriggerCount.clear();
     this.panelSystem.reset();
     this.syncBoardOccupancy();
+    this.ensurePlayerOnSafeTerritory();
     this.mode = "result";
     this.outcome = outcome;
     if (outcome === "victory") {
