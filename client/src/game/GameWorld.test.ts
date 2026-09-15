@@ -886,6 +886,47 @@ describe("GameWorldの現行Wave基準", () => {
     expect(latest?.playerGrid).toEqual({ col: 1, row: 0 });
   });
 
+  it("keeps rush and overdrive transfers inside player territory", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      enemies: Array<{ grid: GridPosition }>;
+      syncBoardOccupancy: () => void;
+    };
+    internal.enemies.forEach((enemy, index) => {
+      enemy.grid = { col: 5, row: index % 3 };
+    });
+    internal.syncBoardOccupancy();
+
+    queueCardForTest(world, "rush");
+    world.controller.useSkill();
+
+    const playerPanel = latest?.panels.find(panel => panel.occupantId === "player");
+    expect(playerPanel?.owner).toBe("player");
+    expect(latest?.playerGrid.col).toBeLessThanOrEqual(2);
+  });
+
+  it("repairs an enemy-territory position at the next battle update", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      mode: BattleSnapshot["mode"];
+      playerGrid: GridPosition;
+    };
+    internal.mode = "battle";
+    internal.playerGrid = { col: 5, row: 2 };
+
+    world.update(1 / 60);
+
+    const playerPanel = latest?.panels.find(panel => panel.occupantId === "player");
+    expect(playerPanel?.owner).toBe("player");
+    expect(latest?.playerGrid.col).toBeLessThanOrEqual(2);
+  });
+
   it.each(["phase", "rush"])(
     "keeps %s phase protection for five seconds and clears it at the boundary",
     cardId => {
@@ -995,6 +1036,43 @@ describe("GameWorldの現行Wave基準", () => {
     advanceAtFixedRate(world, 0.3);
     world.controller.move(0, 0);
     expect(latest?.playerGrid).toEqual({ col: 1, row: 1 });
+  });
+
+  it("returns safely when a dash is interrupted by wave completion", () => {
+    let latest: BattleSnapshot | undefined;
+    const world = new GameWorld(snapshot => {
+      latest = snapshot;
+    }, () => undefined);
+    const internal = world as unknown as {
+      enemies: Array<{
+        id: string;
+        hp: number;
+        grid: GridPosition;
+        state: string;
+      }>;
+      playerGrid: GridPosition;
+      syncBoardOccupancy: () => void;
+    };
+    const target = internal.enemies.find(enemy => enemy.id === "scanner");
+    const guard = internal.enemies.find(enemy => enemy.id === "bulwark");
+    if (!target || !guard) throw new Error("突進中断検査用の敵編成が不正です");
+    guard.grid = { col: 5, row: 0 };
+    target.grid = { col: 5, row: 1 };
+    internal.syncBoardOccupancy();
+
+    queueCardForTest(world, "dashslash");
+    world.controller.useSkill();
+    advanceAtFixedRate(world, 0.2);
+    internal.playerGrid = { col: 4, row: 1 };
+
+    internal.enemies.forEach(enemy => {
+      enemy.state = "deleted";
+    });
+    world.update(1 / 60);
+
+    expect(latest?.mode).toBe("intermission");
+    expect(latest?.playerGrid.col).toBeLessThanOrEqual(2);
+    expect(latest?.panels.find(panel => panel.occupantId === "player")?.owner).toBe("player");
   });
 
   it("keeps PR8 installation cards as visible or hidden board objects", () => {

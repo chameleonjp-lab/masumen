@@ -67,4 +67,11 @@ describe("結果画面のランキング通信復帰", () => {
 
     expect(html).not.toContain("ランキングを再試行");
   });
+
+  it("結果画面からホームへ戻る導線を表示する", () => {
+    const html = renderResult("オンラインランキングに反映しました");
+
+    expect(html).toContain("ホームに戻る");
+    expect(html).not.toContain("名前入力へ戻る");
+  });
 });

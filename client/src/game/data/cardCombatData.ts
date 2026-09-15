@@ -213,8 +213,10 @@ export function cardTransferTarget(
       const panel = panels.find(
         candidate => candidate.col === position.col && candidate.row === position.row
       );
-      return isAvailablePanel(panel);
-    }) ?? target
+      // 転送後も通常移動できるよう、プレイヤー所有の安全マスだけを選ぶ。
+      // 敵陣へ直接移すと、左右・上下の移動条件を満たせず身動きが取れなくなる。
+      return panel?.owner === "player" && isAvailablePanel(panel);
+    }) ?? { ...origin }
   );
 }
 

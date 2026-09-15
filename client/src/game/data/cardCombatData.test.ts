@@ -133,6 +133,7 @@ describe("card combat data", () => {
       panel({ col: 3, row: 0 }),
       panel({ col: 3, row: 1 }),
       panel({ col: 2, row: 1, owner: "player", occupantId: "player" }),
+      panel({ col: 1, row: 1, owner: "player" }),
     ];
 
     expect(nearestEnemyPosition(origin, enemies)).toEqual({ col: 2, row: 0 });
@@ -140,10 +141,22 @@ describe("card combat data", () => {
     expect(cardPreviewTiles(timer, origin, enemies, panels)).toEqual([
       { col: 3, row: 0 },
     ]);
-    expect(cardTransferTarget(origin, enemies, panels)).toEqual({ col: 3, row: 0 });
+    expect(cardTransferTarget(origin, enemies, panels)).toEqual({ col: 1, row: 1 });
     expect(cardPreviewTiles(rush, origin, enemies, panels)).toEqual([
-      { col: 3, row: 0 },
+      { col: 1, row: 1 },
     ]);
+  });
+
+  it("never selects an enemy-owned panel as a transfer destination", () => {
+    const origin = { col: 1, row: 1 };
+    const target = { col: 5, row: 1 };
+    const panels = [
+      panel({ col: 5, row: 1, occupantId: "enemy" }),
+      panel({ col: 4, row: 0 }),
+      panel({ col: 1, row: 1, owner: "player" }),
+    ];
+
+    expect(cardTransferTarget(origin, [target], panels)).toEqual({ col: 1, row: 1 });
   });
 
   it("previews only the empty panels selected by the reverse-phase hole", () => {
