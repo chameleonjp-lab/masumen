@@ -33,6 +33,7 @@ const gameWorld = await read("client/src/game/GameWorld.ts");
 const folder = await read("client/src/game/folder.ts");
 const enemies = await read("client/src/game/data/enemies.ts");
 const cardPresentation = await read("client/src/game/cardPresentation.ts");
+const keyboardBindings = await read("client/src/game/keyboardBindings.ts");
 const styles = await read("client/src/index.css");
 const engine = await read("client/src/game/engine.ts");
 const startup = await read("client/src/game/startup.ts");
@@ -97,6 +98,8 @@ for (const required of [
   "entryScreen",
   "KeyboardBindingPanel",
   "getKeyboardBindings",
+  "onResetKeyboardBindings",
+  "初期設定に戻す",
   "表示された10枚を横にスライドして確認し、1〜5枚を選べます",
   "card-deck-horizontal",
   "centerCardIndex",
@@ -192,6 +195,16 @@ for (const required of [
 for (const required of ["readableDescription", "cardTargetLabel", "getCardVfxRecipe"]) {
   if (!cardPresentation.includes(required))
     throw new Error(`Card presentation contract missing: ${required}`);
+}
+for (const required of [
+  "sanitiseKeyboardBindings",
+  "isAssignableKeyboardKey",
+  "findKeyboardBindingConflict",
+  "localStorage.getItem",
+  "localStorage.setItem",
+]) {
+  if (!keyboardBindings.includes(required))
+    throw new Error(`PC keyboard contract missing: ${required}`);
 }
 
 console.log(`browser contract ok: ${assetEntries.length} bundled assets, ${visualEntries.length} visual/audio recipes, scene cleanup covered`);
