@@ -820,7 +820,7 @@ export default function GameCanvas() {
         ref={canvasRef}
         className="game-canvas"
         style={{ touchAction: "none" }}
-        aria-label="グリッド・シグナル・アリーナの戦闘フィールド"
+        aria-label="マスメンの戦闘フィールド"
       />
       <StartupGate
         state={startup}
@@ -842,10 +842,10 @@ export default function GameCanvas() {
       <div className="screen-noise" aria-hidden="true" />
       <div className="signal-hud">
         <header className="terminal-brand">
-          <img src={ASSET_URLS.mark} alt="グリッド・シグナル・アリーナ" />
+          <img src={ASSET_URLS.mark} alt="マスメン" />
           <div>
-            <p>グリッド・シグナル</p>
-            <strong>アリーナ</strong>
+            <p>5ウェーブ・バトル</p>
+            <strong>マスメン</strong>
           </div>
           <span className="brand-node" />
         </header>
