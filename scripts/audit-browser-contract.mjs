@@ -33,6 +33,7 @@ const gameWorld = await read("client/src/game/GameWorld.ts");
 const folder = await read("client/src/game/folder.ts");
 const enemies = await read("client/src/game/data/enemies.ts");
 const cardPresentation = await read("client/src/game/cardPresentation.ts");
+const platform = await read("client/src/game/platform.ts");
 const styles = await read("client/src/index.css");
 const engine = await read("client/src/game/engine.ts");
 const startup = await read("client/src/game/startup.ts");
@@ -192,6 +193,17 @@ for (const required of [
 for (const required of ["readableDescription", "cardTargetLabel", "getCardVfxRecipe"]) {
   if (!cardPresentation.includes(required))
     throw new Error(`Card presentation contract missing: ${required}`);
+}
+for (const required of [
+  'const GAME_SLUG = "masumen"',
+  "submit_score",
+  "get_best_score_ranking",
+  "normalizeRanking",
+  "rank_no",
+  "best_score",
+]) {
+  if (!platform.includes(required))
+    throw new Error(`Ranking platform contract missing: ${required}`);
 }
 
 console.log(`browser contract ok: ${assetEntries.length} bundled assets, ${visualEntries.length} visual/audio recipes, scene cleanup covered`);
