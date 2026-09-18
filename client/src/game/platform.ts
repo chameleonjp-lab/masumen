@@ -53,14 +53,14 @@ async function callRpc<T>(functionName: string, body: Record<string, unknown>): 
   return (await response.json()) as T;
 }
 
-function normalizeRanking(payload: unknown): RankingRow[] {
+export function normalizeRanking(payload: unknown): RankingRow[] {
   if (!Array.isArray(payload)) return [];
   return payload.slice(0, 10).map((row, index) => {
     const item = row as Record<string, unknown>;
     return {
-      rank: Number(item.rank) || index + 1,
+      rank: Number(item.rank_no ?? item.rank) || index + 1,
       displayName: cleanPlayerName(String(item.display_name ?? item.player_name ?? "プレイヤー")) || "プレイヤー",
-      score: Number(item.score) || 0,
+      score: Number(item.best_score ?? item.score) || 0,
     };
   });
 }
