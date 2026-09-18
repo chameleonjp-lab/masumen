@@ -55,6 +55,16 @@ for (const source of [assets, scene, index, viteConfig]) {
     throw new Error("Production client must not depend on Manus-only runtime or storage paths");
 }
 if (!index.includes("./assets/relay-mark.svg")) throw new Error("Entry page favicon must be bundled");
+if (!index.includes("<title>マスメン</title>")) throw new Error("Entry page title must use マスメン");
+if (index.includes("グリッド・シグナル・アリーナ")) throw new Error("Entry page must not use the legacy game name");
+for (const required of [
+  'aria-label="マスメンの戦闘フィールド"',
+  'alt="マスメン"',
+  "<strong>マスメン</strong>",
+]) {
+  if (!gameCanvas.includes(required)) throw new Error(`Game brand contract missing: ${required}`);
+}
+if (gameCanvas.includes("グリッド・シグナル")) throw new Error("Game shell must not use the legacy game name");
 if (index.includes("VITE_ANALYTICS_ENDPOINT") || index.includes("/umami"))
   throw new Error("Entry page must not emit an unconfigured analytics request");
 if (!viteConfig.includes('base: "./"')) throw new Error("Vite base must support repository subpaths");
