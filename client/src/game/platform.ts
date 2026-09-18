@@ -44,13 +44,70 @@ function apiHeaders(): HeadersInit {
 }
 
 async function callRpc<T>(functionName: string, body: Record<string, unknown>): Promise<T> {
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${functionName}`, {
-    method: "POST",
-    headers: apiHeaders(),
-    body: JSON.stringify(body),
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${functionName}`, {
+      method: "POST",
+      headers: apiHeaders(),
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`ランキング通信に失敗しました (${response.status})`);
+    return (await response.json()) as T;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function createRequestId(): string {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, token => {
+    const random = Math.floor(Math.random() * 16);
+    const value = token === "x" ? random : (random & 0x3) | 0x8;
+    return value.toString(16);
   });
-  if (!response.ok) throw new Error(`ランキング通信に失敗しました (${response.status})`);
-  return (await response.json()) as T;
+}
+
+interface StartMasumenPlayResponse {
+  accepted: boolean;
+  play_id?: string;
+  reason?: string;
+}
+
+interface FinishMasumenPlayResponse {
+  accepted: boolean;
+  duplicate?: boolean;
+  reason?: string;
+}
+
+export async function startMasumenPlay(playerName: string): Promise<string> {
+  const payload = await callRpc<StartMasumenPlayResponse>("start_masumen_play_v1", {
+    p_start_id: createRequestId(),
+    p_display_name: cleanPlayerName(playerName),
+    p_client_version: CLIENT_VERSION,
+  });
+  if (!payload.accepted || typeof payload.play_id !== "string") {
+    throw new Error(payload.reason ?? "プレイ開始を記録できませんでした");
+  }
+  return payload.play_id;
+}
+
+export async function finishMasumenPlay(input: {
+  playId: string;
+  playerName: string;
+  resultType: "clear" | "game_over" | "retire";
+  reachedWave: number;
+  score: number;
+}): Promise<void> {
+  const payload = await callRpc<FinishMasumenPlayResponse>("finish_masumen_play_v1", {
+    p_play_id: input.playId,
+    p_display_name: cleanPlayerName(input.playerName),
+    p_result_type: input.resultType,
+    p_reached_wave: Math.max(1, Math.round(input.reachedWave)),
+    p_score: Math.max(0, Math.round(input.score)),
+    p_client_version: CLIENT_VERSION,
+  });
+  if (!payload.accepted) throw new Error(payload.reason ?? "スコアを登録できませんでした");
 }
 
 export function normalizeRanking(payload: unknown): RankingRow[] {
@@ -65,6 +122,14 @@ export function normalizeRanking(payload: unknown): RankingRow[] {
   });
 }
 
+export async function loadRanking(): Promise<RankingRow[]> {
+  const payload = await callRpc<unknown>("get_best_score_ranking", {
+    p_game_slug: GAME_SLUG,
+    p_limit: 10,
+  });
+  return normalizeRanking(payload);
+}
+
 export async function submitAndLoadRanking(score: number, playerName: string): Promise<RankingRow[]> {
   await callRpc<unknown>("submit_score", {
     p_display_name: cleanPlayerName(playerName),
@@ -72,11 +137,7 @@ export async function submitAndLoadRanking(score: number, playerName: string): P
     p_score: Math.max(0, Math.round(score)),
     p_client_version: CLIENT_VERSION,
   });
-  const payload = await callRpc<unknown>("get_best_score_ranking", {
-    p_game_slug: GAME_SLUG,
-    p_limit: 10,
-  });
-  return normalizeRanking(payload);
+  return loadRanking();
 }
 
 export async function shareOrCopy(text: string): Promise<"shared" | "copied" | "cancelled" | "failed"> {

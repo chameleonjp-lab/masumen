@@ -206,6 +206,11 @@ for (const required of ["readableDescription", "cardTargetLabel", "getCardVfxRec
 }
 for (const required of [
   'const GAME_SLUG = "masumen"',
+  "start_masumen_play_v1",
+  "finish_masumen_play_v1",
+  "startMasumenPlay",
+  "finishMasumenPlay",
+  "loadRanking",
   "submit_score",
   "get_best_score_ranking",
   "normalizeRanking",
@@ -214,6 +219,10 @@ for (const required of [
 ]) {
   if (!platform.includes(required))
     throw new Error(`Ranking platform contract missing: ${required}`);
+}
+for (const required of ["ランキング上位10名", "online-ranking"]) {
+  if (!resultScreen.includes(required))
+    throw new Error(`Result screen ranking contract missing: ${required}`);
 }
 
 console.log(`browser contract ok: ${assetEntries.length} bundled assets, ${visualEntries.length} visual/audio recipes, scene cleanup covered`);
