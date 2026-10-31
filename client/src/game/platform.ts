@@ -3,7 +3,7 @@ export const LAB_URL = "https://chameleonjp-lab.github.io/chameleonjp_lab/rankin
 const SUPABASE_URL = "https://mlpnjgezrnhdxsxolyzj.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_drzcy0v97knU6FgjqSgBHw_0A9XPdFM";
 const GAME_SLUG = "masumen";
-const CLIENT_VERSION = "masumen-2026-08-31-platform";
+export const CLIENT_VERSION = "masumen-2026-08-31-platform";
 const PLAYER_NAME_KEY = "masumen.player-name";
 
 export interface RankingRow {
@@ -60,7 +60,8 @@ async function callRpc<T>(functionName: string, body: Record<string, unknown>): 
   }
 }
 
-function createRequestId(): string {
+export function createRequestId(): string {
+  try { if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID(); } catch { /* Keep the existing fallback for older browsers. */ }
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, token => {
     const random = Math.floor(Math.random() * 16);
     const value = token === "x" ? random : (random & 0x3) | 0x8;
@@ -68,46 +69,39 @@ function createRequestId(): string {
   });
 }
 
-interface StartMasumenPlayResponse {
-  accepted: boolean;
-  play_id?: string;
-  reason?: string;
+function responseError(reason: unknown): Error {
+  const error = new Error(typeof reason === "string" ? reason : "ランキング応答を確認できませんでした");
+  // Transport/malformed acknowledgements stay retryable. Permanent protocol
+  // rejections retain the original pending result without changing its identity.
+  Object.assign(error, { permanent: ["required_input_missing", "invalid_input", "invalid_score", "score_out_of_range", "start_id_conflict", "play_payload_mismatch", "play_already_finished"].includes(String(reason)) });
+  return error;
 }
-
-interface FinishMasumenPlayResponse {
-  accepted: boolean;
-  duplicate?: boolean;
-  reason?: string;
-}
-
-export async function startMasumenPlay(playerName: string): Promise<string> {
-  const payload = await callRpc<StartMasumenPlayResponse>("start_masumen_play_v1", {
-    p_start_id: createRequestId(),
-    p_display_name: cleanPlayerName(playerName),
-    p_client_version: CLIENT_VERSION,
+export async function startMasumenPlay(playerName: string, startId = createRequestId(), clientVersion = CLIENT_VERSION): Promise<string> {
+  const name = cleanPlayerName(playerName);
+  const payload = await callRpc<Record<string, unknown>>("start_masumen_play_v1", {
+    p_start_id: startId, p_display_name: name, p_client_version: clientVersion,
   });
-  if (!payload.accepted || typeof payload.play_id !== "string") {
-    throw new Error(payload.reason ?? "プレイ開始を記録できませんでした");
-  }
+  if (payload.accepted !== true) throw responseError(payload.reason);
+  if (payload.start_id !== startId || typeof payload.play_id !== "string" ||
+      !/^[0-9a-f-]{36}$/i.test(payload.play_id) || payload.game_slug !== GAME_SLUG ||
+      payload.display_name !== name || payload.normalized_name !== name ||
+      payload.client_version !== clientVersion || typeof payload.duplicate !== "boolean") throw responseError(null);
   return payload.play_id;
 }
 
 export async function finishMasumenPlay(input: {
-  playId: string;
-  playerName: string;
-  resultType: "clear" | "game_over" | "retire";
-  reachedWave: number;
-  score: number;
+  playId: string; playerName: string; resultType: "clear" | "game_over" | "retire";
+  reachedWave: number; score: number; clientVersion?: string;
 }): Promise<void> {
-  const payload = await callRpc<FinishMasumenPlayResponse>("finish_masumen_play_v1", {
-    p_play_id: input.playId,
-    p_display_name: cleanPlayerName(input.playerName),
-    p_result_type: input.resultType,
-    p_reached_wave: Math.max(1, Math.round(input.reachedWave)),
-    p_score: Math.max(0, Math.round(input.score)),
-    p_client_version: CLIENT_VERSION,
+  const payload = await callRpc<Record<string, unknown>>("finish_masumen_play_v1", {
+    p_play_id: input.playId, p_display_name: cleanPlayerName(input.playerName),
+    p_result_type: input.resultType, p_reached_wave: input.reachedWave,
+    p_score: input.score, p_client_version: input.clientVersion ?? CLIENT_VERSION,
   });
-  if (!payload.accepted) throw new Error(payload.reason ?? "スコアを登録できませんでした");
+  if (payload.accepted !== true) throw responseError(payload.reason);
+  if (payload.play_id !== input.playId || payload.game_slug !== GAME_SLUG ||
+      payload.result_type !== input.resultType || payload.reached_wave !== input.reachedWave ||
+      payload.score !== input.score || typeof payload.duplicate !== "boolean") throw responseError(null);
 }
 
 export function normalizeRanking(payload: unknown): RankingRow[] {
@@ -144,8 +138,10 @@ export async function shareOrCopy(text: string): Promise<"shared" | "copied" | "
   if (typeof window !== "undefined") {
     const intent = new URL("https://x.com/intent/tweet");
     intent.searchParams.set("text", text);
-    const composer = window.open(intent.href, "_blank");
-    if (composer) { composer.opener = null; return "shared"; }
+    try {
+      const composer = window.open(intent.href, "_blank");
+      if (composer) { composer.opener = null; return "shared"; }
+    } catch { /* A blocked composer still offers a copy fallback. */ }
   }
 
   try {

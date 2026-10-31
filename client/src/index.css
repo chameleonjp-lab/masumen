@@ -2142,3 +2142,5 @@ select {
 .name-gate__sound input { min-width:120px; }
 .name-gate__label, .name-gate__links button, .name-gate__links a { font-size:14px; line-height:1.5; }
 .name-gate__panel { max-height:calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y:auto; }
+.pending-results { display:grid; gap:8px; margin-top:16px; }
+.pending-results button { min-height:44px; padding:10px; overflow-wrap:anywhere; color:#e1f6f0; background:#102a30; border:1px solid #5a9494; text-align:left; }

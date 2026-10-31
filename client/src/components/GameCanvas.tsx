@@ -8,7 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type SyntheticEvent,
 } from "react";
-import { createPlaySession } from "@/game/playSession";
+import { createPlaySession, readPendingPlays, restorePlaySession, type PendingPlay } from "@/game/playSession";
 import { ASSET_URLS } from "@/game/assets";
 import {
   canAppendSelection,
@@ -250,6 +250,8 @@ interface NameGateProps {
   soundVolume: number;
   onSoundToggle: () => void;
   onVolumeChange: (value: number) => void;
+  pendingPlays: PendingPlay[];
+  onPendingResult: (entry: PendingPlay) => void;
 }
 
 type KeyboardAction = "fire" | "charge" | "skill";
@@ -361,7 +363,7 @@ function NameGate({
   onDraftChange,
   onSubmit,
   onShare,
-  soundEnabled, soundVolume, onSoundToggle, onVolumeChange,
+  soundEnabled, soundVolume, onSoundToggle, onVolumeChange, pendingPlays, onPendingResult,
 }: NameGateProps) {
   return (
     <section className="name-gate" role="dialog" aria-modal="true" aria-labelledby="name-gate-title">
@@ -405,7 +407,14 @@ function NameGate({
           <button type="button" className="sound-toggle" aria-pressed={soundEnabled} onClick={onSoundToggle}>効果音 {soundEnabled ? "オン" : "オフ"}</button>
           <label className="volume-control">音量 <input aria-label="音量" type="range" min="0" max="100" value={soundVolume} onChange={event => onVolumeChange(Number(event.target.value))} /></label>
         </div>
-        {shareStatus && <p className="share-status" role="status">{shareStatus}</p>}
+        {pendingPlays.length > 0 && <section className="pending-results" aria-label="送信待ちの結果">
+          <p>送信待ちの結果</p>
+          {pendingPlays.map(entry => <button type="button" key={entry.startId} onClick={() => onPendingResult(entry)}>
+            {entry.playerName}：{entry.result.score}点 — 結果を確認
+            {entry.persisted === false && <small> このタブでのみ保持しています。閉じる前に再送してください。</small>}
+          </button>)}
+        </section>}
+        {shareStatus && <><p className="share-status" role="status">{shareStatus}</p><textarea className="result-share-text" readOnly value={homeShareText()} aria-label="ホームのシェア文" /></>}
       </div>
     </section>
   );
@@ -442,6 +451,10 @@ export default function GameCanvas() {
   const [ranking, setRanking] = useState<RankingRow[]>([]);
   const [rankingStatus, setRankingStatus] = useState("ランキング登録：待機中");
   const [rankingRetryToken, setRankingRetryToken] = useState(0);
+  const [pendingPlays, setPendingPlays] = useState(() => readPendingPlays());
+  const [submissionError, setSubmissionError] = useState(false);
+  const [storageWarning, setStorageWarning] = useState(false);
+  const restoredResultRef = useRef(false);
   const playSessionRef = useRef<ReturnType<typeof createPlaySession> | null>(null);
   const [rankingLoading, setRankingLoading] = useState(false);
   const [rankingError, setRankingError] = useState(false);
@@ -512,7 +525,7 @@ export default function GameCanvas() {
         canAcceptInput: () => inputReadyRef.current,
         getKeyboardBindings: () => keyboardBindingsRef.current,
         onSnapshot: nextSnapshot => {
-          if (disposed) return;
+          if (disposed || restoredResultRef.current) return;
           if ((nextSnapshot.mode !== "battle" && nextSnapshot.mode !== "practice") || nextSnapshot.paused)
             resetPointerInput();
           setSnapshot(nextSnapshot);
@@ -650,6 +663,7 @@ export default function GameCanvas() {
     let active = true;
     setRankingLoading(true);
     setRankingError(false);
+    setSubmissionError(false);
     setRankingStatus(play.playerName ? "記録を送信中…" : "名前なしのため公開登録しません");
     const result = {
       score: snapshot.score,
@@ -658,21 +672,24 @@ export default function GameCanvas() {
     };
     void (async () => {
       let sent = false;
-      try { await play.submit(result); sent = Boolean(play.playerName); }
+      try { await play.submit(result, snapshot); sent = Boolean(play.playerName); }
       catch { /* Keep the confirmed result visible even when submission fails. */ }
-      if (!active) return;
+      if (!active || playSessionRef.current !== play) return;
       const status = !play.playerName ? "名前なしのため公開登録しません" : sent
-        ? "記録を送信しました" : "記録の送信を確認できません（重複防止のため自動再送しません）";
+        ? "記録を送信しました" : play.status() === "rejected" ? "記録を受け付けられませんでした。今回の結果は保持しています" : "記録の送信を確認できません。同じ記録を再送できます";
+      setSubmissionError(Boolean(play.playerName) && !sent && play.status() !== "rejected");
+      setPendingPlays(readPendingPlays());
+      setStorageWarning(!sent && Boolean(play.playerName) && !play.isPersistent());
       setRankingStatus(status);
       try {
         const rows = await loadRanking();
-        if (!active) return;
+        if (!active || playSessionRef.current !== play) return;
         setRanking(rows);
       } catch {
-        if (!active) return;
+        if (!active || playSessionRef.current !== play) return;
         setRankingError(true);
         setRankingStatus(status + "。ランキングは現在利用できません");
-      } finally { if (active) setRankingLoading(false); }
+      } finally { if (active && playSessionRef.current === play) setRankingLoading(false); }
     })();
     return () => { active = false; };
   }, [snapshot.mode, snapshot.score, snapshot.outcome, snapshot.reachedWave, snapshot.wave, rankingRetryToken]);
@@ -789,6 +806,7 @@ export default function GameCanvas() {
   };
 
   const beginMasumenPlay = (name: string) => {
+    restoredResultRef.current = false;
     playSessionRef.current = createPlaySession(name);
     setRanking([]);
     setEntryScreen("game");
@@ -808,10 +826,38 @@ export default function GameCanvas() {
   const returnHome = () => {
     resetPointerInput();
     playSessionRef.current = null;
+    restoredResultRef.current = false;
+    setPendingPlays(readPendingPlays());
     controllerRef.current?.restart();
     setNameDraft(playerName);
     setNameError("");
     setEntryScreen("name");
+  };
+
+  const openPendingResult = (entry: PendingPlay) => {
+    const play = restorePlaySession(entry.startId);
+    if (!play) return;
+    resetPointerInput();
+    restoredResultRef.current = true;
+    playSessionRef.current = play;
+    const saved = entry.presentation;
+    // Only result presentation is restored. Never resume or award gameplay again.
+    setSnapshot({ ...initialSnapshot, ...(saved ?? {}), mode: "result", score: entry.result.score,
+      reachedWave: entry.result.reachedWave, wave: entry.result.reachedWave,
+      outcome: entry.result.resultType === "clear" ? "victory" : saved?.outcome === "draw" ? "draw" : "defeat" });
+    setRanking([]);
+    setEntryScreen("game");
+    setRankingRetryToken(token => token + 1);
+  };
+  const retrySubmission = () => {
+    const play = playSessionRef.current;
+    if (!play) return;
+    setSubmissionError(false);
+    setRankingStatus("記録を送信中…");
+    void play.retry().catch(() => {}).finally(() => {
+      if (playSessionRef.current === play) setRankingRetryToken(token => token + 1);
+      setPendingPlays(readPendingPlays());
+    });
   };
 
   const shareHome = () => {
@@ -845,6 +891,7 @@ export default function GameCanvas() {
             shareStatus={nameShareStatus}
             onDraftChange={value => {
               setNameDraft(value);
+              setPlayerName(savePlayerName(value));
               if (nameError) setNameError("");
             }}
             onSubmit={submitPlayerName}
@@ -853,6 +900,8 @@ export default function GameCanvas() {
             soundVolume={soundVolume}
             onSoundToggle={toggleSound}
             onVolumeChange={updateVolume}
+            pendingPlays={pendingPlays}
+            onPendingResult={openPendingResult}
           />
         }
       >
@@ -1478,6 +1527,9 @@ export default function GameCanvas() {
           rankingError={rankingError}
           ranking={ranking}
           rankingStatus={rankingStatus}
+          submissionError={submissionError}
+          storageWarning={storageWarning}
+          onRetrySubmission={retrySubmission}
           onRestart={() => {
             beginMasumenPlay(playerName);
           }}

@@ -20,6 +20,9 @@ interface ResultScreenProps {
   onRestart: () => void;
   onHome: () => void;
   onRetryRanking: () => void;
+  submissionError?: boolean;
+  storageWarning?: boolean;
+  onRetrySubmission?: () => void;
 }
 
 function timecode(seconds: number): string {
@@ -51,7 +54,7 @@ export default function ResultScreen({
   rankingError = false,
   onRestart,
   onHome,
-  onRetryRanking,
+  onRetryRanking, submissionError, onRetrySubmission, storageWarning,
 }: ResultScreenProps) {
   const breakdown = snapshot.scoreBreakdown;
   const chains = snapshot.usedChainTechniques ?? [];
@@ -158,6 +161,8 @@ export default function ResultScreen({
           Xでシェア
         </button>
         <p className="share-status" role="status">{shareStatus || rankingStatus}</p>
+        {storageWarning && <p role="status">このタブでのみ結果を保持しています。閉じる前に再送してください。</p>}
+        {submissionError && <button type="button" onClick={onRetrySubmission}>記録の送信を再試行</button>}
         {rankingError && (
           <button type="button" onClick={onRetryRanking}>
             ランキングを再試行

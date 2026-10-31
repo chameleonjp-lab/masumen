@@ -6,9 +6,9 @@
 
 着手基準 `ff38362c6b5af061025da790782771aa16fc5d9e`、関連オープンPRなし。既存docs、combat仕様、コード、ActionsとPages APIを確認した。Pagesの公開元はworkflow。Codeberg版からの新しい切替は不要で、登録データの更新はしない。
 
-Supabase `mlpnjgezrnhdxsxolyzj`、game_slug `masumen`、`start_masumen_play_v1` / `finish_masumen_play_v1` と既存legacy `submit_score` を維持。表示は既存 `get_best_score_ranking` の集計済み行から30行を取得する。ランキングの参加者は既存DBの名前キーであり、同名の別人・改名を分離する契約は未実装。無断で過去記録の所有者を推定しない。
+Supabase `mlpnjgezrnhdxsxolyzj`、game_slug `masumen`、`start_masumen_play_v1` / `finish_masumen_play_v1` を維持（曖昧な失敗後のlegacy `submit_score` fallbackは廃止）。表示は既存 `get_best_score_ranking` の集計済み行から30行を取得する。ランキングの参加者は既存DBの名前キーであり、同名の別人・改名を分離する契約は未実装。無断で過去記録の所有者を推定しない。
 
-採点、整数丸め、5ウェーブ、敵・カード・時間・難易度・不正記録条件は変更していない。`masumen.player-name`、既存GameWorldの自己ベスト・ボス履歴、`grid-signal-arena-keyboard-v1` は維持。音設定のみ新しい `masumen.sound.v1` に保存する（旧版に永続音設定なし）。originが異なる旧ページのlocalStorageを読む移行は未実装であり、旧データは削除しない。
+採点、整数丸め、5ウェーブ、敵・カード・時間・難易度・不正記録条件は変更していない。`masumen.player-name`、既存GameWorldの自己ベスト・ボス履歴、`grid-signal-arena-keyboard-v1` は維持。音設定は新しい `masumen.sound.v1` に保存する（旧版に永続音設定なし）。originが異なる旧ページのlocalStorageを読む移行は未実装であり、旧データは削除しない。
 
 ## 対応表
 
@@ -18,14 +18,14 @@ Supabase `mlpnjgezrnhdxsxolyzj`、game_slug `masumen`、`start_masumen_play_v1` 
 | 2 記録・ルール | 既存維持 | 既存採点・保存先・キーを変更せず |
 | 3 正式URL | 既存で対応済み | GitHub正式ページが現行登録URL。リンク切替なし |
 | 4 多言語 | 未完了 | 現状は日本語。15言語化は大量のカード/敵/戦闘の動的文章も必要。選択肢だけ追加して対応済みとはしない |
-| 5 名前・登録 | 今回実装／一部未完了 | ホーム任意、空白は登録せず、本編・結果・ランキング・共有可。開始名とremote playを固定、通信を待たず開始。安全な永続再送/参加者契約の移行は残件 |
+| 5 名前・登録 | 今回実装／一部未完了 | ホーム任意、空白は登録せず、本編・結果・ランキング・共有可。開始名とremote playを固定、通信を待たず開始。UUID別の確定結果保持・同じstart/finishの再送・再読込後の結果再表示を追加。参加者契約は残件 |
 | 6 ランキング | 今回実装／一部未完了 | ホーム・結果から実際の詳細URL、集計RPC上位30。読込/空/失敗/読取のみ再試行。参加者名キー問題は残件 |
 | 7 X共有 | 今回実装 | ホーム紹介と今回スコア、正式URL、黒白「Xでシェア」。本人の投稿確定、コピー代替。翻訳は項目4残件 |
 | 8 効果音 | 既存＋今回実装 | 既存の戦闘SE/カード音色維持。最大24声、ended切断・停止・破棄、非表示中の音抑制 |
 | 9 音設定 | 今回実装 | 初回ON/70%、OFF/0保持、ホーム操作追加、ミュートを最初に操作するとunlockしない、音声失敗は開始を止めない |
 | 10 文言・画面 | 今回実装／一部未確認 | 必須名の説明を除去、公開範囲の説明、ホーム文字/44px操作/スクロール、IME確定で開始させない。実機未確認 |
 | 11 自動公開 | 今回実装／本番確認待ち | PRは検証のみ、main pushで同一SHAを検証build後配備。既存manual-only Pages経路を修正し、古いSHAの再実行を拒否 |
-| 12 検証 | 実施／一部未確認 | 単体238件、tsc、既存全監査、build。Chromium/WebKitの匿名/空白/音OFF・縦横ホームを確認。実機/聴取/母語評価未実施 |
+| 12 検証 | 実施／一部未確認 | 単体244件、tsc、既存全監査、build。Chromium/WebKitの匿名/空白/音OFF・縦横ホーム、開始名/版/同じIDでlost ACKの再読込再送・上位30・保存拒否警告・X代替を確認。実機/聴取/母語評価未実施 |
 | 13 PR/記録 | 今回実装 | 本書・PRで実装範囲と未完了を明記 |
 
 15言語基準はサイノメ main `79b1e5733e725cd1148b10fa5699ba846e2bf57d` の ja/en/es/pt-BR/zh-Hans/fr/de/ko/ru/it/zh-Hant/id/tr/vi/th。マスメンの翻訳は未完了であり、このPRは依頼全項目の完了を表すものではない。
@@ -36,7 +36,11 @@ Supabase `mlpnjgezrnhdxsxolyzj`、game_slug `masumen`、`start_masumen_play_v1` 
 
 `createPlaySession` はstart応答・確定結果・名前を同じオブジェクトへ保持する。開始通信は待たずゲームを始める。結果再表示とランキング再試行は同じsubmission Promiseを参照し、二重送信しない。サーバーが応答しない場合も確定結果と共有を保持する。送信確認失敗とランキング読取失敗は別表示。
 
-startに失敗した場合の既存legacy経路は維持するが、submit_scoreに冪等キーがないので曖昧な失敗を自動再送しない。ページ再読み込み後の未送信結果復元と安全な再送キューは未完了。finishの結果確認も含め、サーバー契約へ冪等キーを追加する移行が必要。本番DBへの新規スキーマ/データ操作は行っていない。
+確定結果を `masumen.pending-play.v1:<start UUID>` へ追加保存し、他プレイの保存や旧キーを上書きしない。開始時のUUID・名前・client_version、確定score/result_type/reached_waveと画面情報を固定する。実プレイ開始時に従来のstartを呼び、開始ACKが失われても同じUUIDで再送する。finishも同じplay_idで再送し、既存サーバーのduplicate応答を使う。通信失敗後に別のlegacy submitへ書き込むfallbackは削除した。既存startのプレイ回数、finishの採点・初回/自己ベスト更新を維持するため、新DBや合成セッションは不要。
+
+名前・ID・バージョン・結果の一致を確認したACKだけを認める。ランキング読取再試行は結果書込を増やさず、結果の送信再試行は専用ボタンで行う。再読込後はホームの「送信待ちの結果」から当時の名前と確定結果を開き、同じ記録を再送できる。完了ACKが失われても2回の通信でサーバー上は1つの論理記録になることをモックで検証した。拒否されたpayloadは別名/別IDへ置換せず保存し、終わっていないプレイを正常クリアへ変換しない。
+
+localStorage拒否/容量不足の場合はメモリ保持だけになり、再読込後は復元できない。この場合はホーム・結果に「このタブでのみ保持」「閉じる前に再送」を表示する。通信成功したIDだけを削除し、他タブ/他プレイの未送信結果を消さない。未確定で中断したセッションの参照は次プレイで解放し、既存の暫定retire記録は変更しない。本番DBへのスキーマ/データ変更は行っていない。
 
 ## 効果音表
 
@@ -58,5 +62,5 @@ OFF/0/画面非表示/pagehideでは発声済み音を止める。表示復帰�
 1. PRの検証成功後、ユーザーがmainへマージ。Pages buildジョブがunit/tsc/既存監査/buildを実行し、その成果物のみdeploy。PRにはpages書込み権限と本番deployなし。公開直前のmain SHA一致に失敗すると公開しない。
 2. 正式URLでマージ版の任意名説明、ホーム音設定、結果上位30・詳細リンクを確認する。配備SHAはActions/Pages deploymentにて確認する。この段階はマージ前には未実施。
 3. iPhone Safariで縦横/短い画面、ソフトキーボード、IME Enter、空白/名前変更/消去、音OFF/0→再読込、Xから復帰を確認。実機での確認とPlaywright viewport確認は別。
-4. 通信の検証はRPCをモックする。名前なしのstart/finish/submitは0回、名ありの確定結果は1回、ランキング再試行は読取のみ。既存unitにこの回数と開始名固定を追加。
+4. 通信の検証はRPCをモックする。名前なしのstart/finish/submitは0回、名ありの確定結果は同じstart UUID/play_idで再送して論理記録1件、ランキング再試行は読取のみ。ACK消失・再読込・開始名/版固定・複数タブ保存・永続不可をunit/ブラウザで確認。
 5. 問題時はこのPRをrevertするPRをmainへマージし、同じ検証・公開経路で戻す。DB/参加者/設定/自己ベストの消去は不要。
