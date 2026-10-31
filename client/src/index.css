@@ -2134,3 +2134,11 @@ select {
     margin-top: 5px;
   }
 }
+
+.x-share-action { background:#000 !important; color:#fff !important; min-height:44px; white-space:normal; overflow-wrap:anywhere; padding:12px; }
+
+.name-gate__sound { display:flex; flex-wrap:wrap; gap:10px; margin-top:14px; }
+.name-gate__sound button, .name-gate__sound label { min-height:44px; font-size:14px; }
+.name-gate__sound input { min-width:120px; }
+.name-gate__label, .name-gate__links button, .name-gate__links a { font-size:14px; line-height:1.5; }
+.name-gate__panel { max-height:calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow-y:auto; }

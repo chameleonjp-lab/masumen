@@ -125,3 +125,13 @@ describe("CardAudioの戦闘SE", () => {
     expect(context.bufferSourceCount).toBe(bufferSourceCount);
   });
 });
+
+it('volume zero avoids creating or resuming audio', () => {
+  vi.stubGlobal('window',{AudioContext:StubAudioContext});
+  const audio = new CardAudio(); audio.setVolume(0); audio.unlock(); audio.playEnemyAttack('melee');
+  expect(contexts).toHaveLength(0);
+});
+it('blocked audio constructor does not escape into gameplay', () => {
+  vi.stubGlobal('window',{AudioContext:class {constructor(){throw new Error('blocked')}}});
+  const audio=new CardAudio();expect(()=>audio.unlock()).not.toThrow();expect(()=>audio.playEnemyAttack('melee')).not.toThrow();
+});

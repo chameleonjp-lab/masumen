@@ -38,13 +38,14 @@ const resultSnapshot: BattleSnapshot = {
   outcome: "victory",
 };
 
-function renderResult(rankingStatus: string) {
+function renderResult(rankingStatus: string, rankingError = false) {
   return renderToStaticMarkup(
     createElement(ResultScreen, {
       snapshot: resultSnapshot,
       playerName: "テスト隊員",
       ranking: [],
       rankingStatus,
+      rankingError,
       onRestart: vi.fn(),
       onHome: vi.fn(),
       onRetryRanking: vi.fn(),
@@ -55,7 +56,7 @@ function renderResult(rankingStatus: string) {
 describe("結果画面のランキング通信復帰", () => {
   it("通信失敗時は再試行ボタンを表示する", () => {
     const html = renderResult(
-      "ランキングは現在利用できません（結果は表示されています）"
+      "ランキングは現在利用できません（結果は表示されています）", true
     );
 
     expect(html).toContain("ランキングを再試行");

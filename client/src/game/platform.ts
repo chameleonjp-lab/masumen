@@ -1,5 +1,5 @@
 export const GAME_URL = "https://chameleonjp-lab.github.io/masumen/";
-export const LAB_URL = "https://chameleonjp-lab.github.io/chameleonjp_lab/";
+export const LAB_URL = "https://chameleonjp-lab.github.io/chameleonjp_lab/ranking.html?game=masumen";
 const SUPABASE_URL = "https://mlpnjgezrnhdxsxolyzj.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_drzcy0v97knU6FgjqSgBHw_0A9XPdFM";
 const GAME_SLUG = "masumen";
@@ -112,7 +112,7 @@ export async function finishMasumenPlay(input: {
 
 export function normalizeRanking(payload: unknown): RankingRow[] {
   if (!Array.isArray(payload)) return [];
-  return payload.slice(0, 10).map((row, index) => {
+  return payload.slice(0, 30).map((row, index) => {
     const item = row as Record<string, unknown>;
     return {
       rank: Number(item.rank_no ?? item.rank) || index + 1,
@@ -125,7 +125,7 @@ export function normalizeRanking(payload: unknown): RankingRow[] {
 export async function loadRanking(): Promise<RankingRow[]> {
   const payload = await callRpc<unknown>("get_best_score_ranking", {
     p_game_slug: GAME_SLUG,
-    p_limit: 10,
+    p_limit: 30,
   });
   return normalizeRanking(payload);
 }
@@ -141,14 +141,13 @@ export async function submitAndLoadRanking(score: number, playerName: string): P
 }
 
 export async function shareOrCopy(text: string): Promise<"shared" | "copied" | "cancelled" | "failed"> {
-  if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
-    try {
-      await navigator.share({ text });
-      return "shared";
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return "cancelled";
-    }
+  if (typeof window !== "undefined") {
+    const intent = new URL("https://x.com/intent/tweet");
+    intent.searchParams.set("text", text);
+    const composer = window.open(intent.href, "_blank");
+    if (composer) { composer.opener = null; return "shared"; }
   }
+
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
@@ -193,4 +192,15 @@ export function resultShareText(snapshot: {
     `スコア：${snapshot.score.toLocaleString()}点`,
     GAME_URL,
   ].join("\n");
+}
+
+const SOUND_PREFERENCE_KEY = 'masumen.sound.v1';
+export function readSoundPreferences(): {enabled:boolean;volume:number} {
+  try {
+    const value = JSON.parse(localStorage.getItem(SOUND_PREFERENCE_KEY) ?? '{}');
+    return {enabled:typeof value?.enabled === 'boolean' ? value.enabled : true,volume:typeof value?.volume === 'number' && Number.isFinite(value.volume) && value.volume >= 0 && value.volume <= 100 ? value.volume : 70};
+  } catch { return {enabled:true,volume:70}; }
+}
+export function saveSoundPreferences(value: {enabled:boolean;volume:number}): void {
+  try { localStorage.setItem(SOUND_PREFERENCE_KEY, JSON.stringify(value)); } catch { /* Session choice still applies. */ }
 }

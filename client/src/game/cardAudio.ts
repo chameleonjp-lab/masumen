@@ -9,18 +9,35 @@ export class CardAudio {
   private enabled = true;
   private volume = 0.7;
   private lastSoundAt = 0;
+  private voices = new Map<AudioScheduledSourceNode, GainNode>();
 
-  public setEnabled(enabled: boolean): void { this.enabled = enabled; if (enabled) this.unlock(); }
-  public setVolume(volume: number): void { this.volume = Math.max(0, Math.min(1, volume)); }
+  public setEnabled(enabled: boolean): void { this.enabled = enabled; if (!enabled) this.stopVoices(); }
+  public setVolume(volume: number): void { if (!Number.isFinite(volume)) return; this.volume = Math.max(0, Math.min(1, volume)); if (this.volume === 0) this.stopVoices(); }
   public unlock = (): void => {
-    if (!this.enabled) return;
-    if (!this.context) {
-      const Ctor = window.AudioContext ?? (window as AudioContextWithWebkit).webkitAudioContext;
-      if (!Ctor) return;
-      this.context = new Ctor();
-    }
-    if (this.context.state === "suspended") void this.context.resume();
+    if (!this.enabled || this.volume === 0) return;
+    try {
+      if (!this.context || this.context.state === 'closed') {
+        const Ctor = window.AudioContext ?? (window as AudioContextWithWebkit).webkitAudioContext;
+        if (!Ctor) return;
+        this.context = new Ctor();
+      }
+      if (this.context.state !== 'running') void this.context.resume().catch(() => {});
+    } catch { this.context = null; }
   };
+  public stop(): void { this.stopVoices(); }
+  private stopVoices(): void {
+    for (const source of Array.from(this.voices.keys())) this.releaseVoice(source, true);
+  }
+  private releaseVoice(source: AudioScheduledSourceNode, stop = false): void {
+    const gain=this.voices.get(source);if (!gain) return;
+    this.voices.delete(source);source.onended=null;
+    if (stop) { try { source.stop(); } catch {} }
+    try { source.disconnect(); gain.disconnect(); } catch {}
+  }
+  private trackVoice(source: AudioScheduledSourceNode, gain: GainNode): void {
+    while(this.voices.size >= 24) this.releaseVoice(this.voices.keys().next().value!,true);
+    this.voices.set(source,gain);source.onended=()=>this.releaseVoice(source);
+  }
   public playPlayerAttack(charged: boolean): void {
     if (!this.permit()) return;
     if (charged) {
@@ -101,11 +118,10 @@ export class CardAudio {
     if (id === "mortar") { this.tone(74, 0.52, "sawtooth", 0.085); this.noise(0.36, 0.07); return; }
     this.tone(920, 0.3, "sine", 0.04); this.tone(470, 0.4, "triangle", 0.045, 0.06); this.noise(0.2, 0.035);
   }
-  public dispose(): void { this.context?.close(); this.context = null; }
+  public dispose(): void { this.stopVoices(); void this.context?.close().catch(() => {}); this.context = null; }
 
   private permit(force = false): boolean {
-    if (!this.enabled) return false;
-    this.unlock();
+    if (!this.enabled || this.volume === 0 || (typeof document !== "undefined" && document.hidden)) return false;
     if (!this.context || this.context.state !== "running") return false;
     const now = performance.now(); if (!force && now - this.lastSoundAt < 38) return false; this.lastSoundAt = now; return true;
   }
@@ -114,13 +130,13 @@ export class CardAudio {
     const now = this.context.currentTime + delay; const oscillator = this.context.createOscillator(); const gain = this.context.createGain();
     oscillator.type = type; oscillator.frequency.setValueAtTime(frequency, now); oscillator.frequency.exponentialRampToValueAtTime(Math.max(35, frequency * 0.62), now + duration);
     gain.gain.setValueAtTime(0.0001, now); gain.gain.exponentialRampToValueAtTime(volume * this.volume, now + 0.012); gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-    oscillator.connect(gain).connect(this.context.destination); oscillator.start(now); oscillator.stop(now + duration + 0.02);
+    oscillator.connect(gain).connect(this.context.destination); this.trackVoice(oscillator,gain); oscillator.start(now); oscillator.stop(now + duration + 0.02);
   }
   private noise(duration: number, volume: number, delay = 0): void {
     if (!this.context) return;
     const frames = Math.max(1, Math.floor(this.context.sampleRate * duration)); const buffer = this.context.createBuffer(1, frames, this.context.sampleRate); const data = buffer.getChannelData(0);
     for (let index = 0; index < frames; index += 1) data[index] = (Math.random() * 2 - 1) * (1 - index / frames);
     const source = this.context.createBufferSource(); const gain = this.context.createGain(); const now = this.context.currentTime + delay;
-    source.buffer = buffer; gain.gain.setValueAtTime(volume * this.volume, now); gain.gain.exponentialRampToValueAtTime(0.0001, now + duration); source.connect(gain).connect(this.context.destination); source.start(now); source.stop(now + duration);
+    source.buffer = buffer; gain.gain.setValueAtTime(volume * this.volume, now); gain.gain.exponentialRampToValueAtTime(0.0001, now + duration); source.connect(gain).connect(this.context.destination); this.trackVoice(source,gain); source.start(now); source.stop(now + duration);
   }
 }

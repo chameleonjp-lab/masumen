@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type SyntheticEvent,
 } from "react";
+import { createPlaySession } from "@/game/playSession";
 import { ASSET_URLS } from "@/game/assets";
 import {
   canAppendSelection,
@@ -34,15 +35,14 @@ import {
 import {
   homeShareText,
   LAB_URL,
-  finishMasumenPlay,
   loadRanking,
   readPlayerName,
+  readSoundPreferences,
+  saveSoundPreferences,
   resultShareText,
   savePlayerName,
   shareOrCopy,
   shareStatusText,
-  startMasumenPlay,
-  submitAndLoadRanking,
   type RankingRow,
 } from "@/game/platform";
 
@@ -246,6 +246,10 @@ interface NameGateProps {
   onDraftChange: (value: string) => void;
   onSubmit: () => void;
   onShare: () => void;
+  soundEnabled: boolean;
+  soundVolume: number;
+  onSoundToggle: () => void;
+  onVolumeChange: (value: number) => void;
 }
 
 type KeyboardAction = "fire" | "charge" | "skill";
@@ -357,46 +361,49 @@ function NameGate({
   onDraftChange,
   onSubmit,
   onShare,
+  soundEnabled, soundVolume, onSoundToggle, onVolumeChange,
 }: NameGateProps) {
   return (
     <section className="name-gate" role="dialog" aria-modal="true" aria-labelledby="name-gate-title">
       <div className="name-gate__panel technical-panel">
-        <p className="eyebrow">プレイヤー登録</p>
-        <h1 id="name-gate-title">名前を入力して開始</h1>
+        <p className="eyebrow">プレイの準備</p>
+        <h1 id="name-gate-title">マスメン</h1>
         <p className="name-gate__copy">
-          プレイヤー名を登録すると、戦闘結果をランキングへ送信できます。
+          名前を入力すると、名前と記録がランキングに公開されます。空欄でも遊べます。
         </p>
         <label className="name-gate__label" htmlFor="masumen-player-name">
-          プレイヤー名（必須）
+          プレイヤー名（任意）
         </label>
         <input
           id="masumen-player-name"
           className="name-gate__input"
           value={draft}
           maxLength={20}
-          required
           autoComplete="nickname"
-          autoFocus
           placeholder="名前を入力"
           aria-invalid={Boolean(error)}
           aria-describedby="masumen-player-name-status"
           onChange={event => onDraftChange(event.target.value)}
           onKeyDown={event => {
-            if (event.key === "Enter") {
+            if (event.key === "Enter" && !event.nativeEvent.isComposing && event.keyCode !== 229) {
               event.preventDefault();
               onSubmit();
             }
           }}
         />
         <p id="masumen-player-name-status" className="name-gate__status" role="status" aria-live="polite">
-          {starting ? "プレイ開始を記録しています…" : error || "名前を入力してからカード選択を開始してください"}
+          {starting ? "プレイ開始を記録しています…" : error || "カードを選んで、5ウェーブを戦い抜こう"}
         </p>
         <button type="button" className="engage-button name-gate__submit" onClick={onSubmit} disabled={starting}>
           {starting ? "開始処理中…" : "カード選択へ進む"} <span>↗</span>
         </button>
         <div className="name-gate__links">
-          <button type="button" onClick={onShare}>ゲームをシェア</button>
-          <a href={LAB_URL} target="_blank" rel="noreferrer">実験場へ</a>
+          <button type="button" onClick={onShare} className="x-share-action">Xでシェア</button>
+          <a href={LAB_URL} target="_blank" rel="noreferrer">ランキング</a>
+        </div>
+        <div className="name-gate__sound">
+          <button type="button" className="sound-toggle" aria-pressed={soundEnabled} onClick={onSoundToggle}>効果音 {soundEnabled ? "オン" : "オフ"}</button>
+          <label className="volume-control">音量 <input aria-label="音量" type="range" min="0" max="100" value={soundVolume} onChange={event => onVolumeChange(Number(event.target.value))} /></label>
         </div>
         {shareStatus && <p className="share-status" role="status">{shareStatus}</p>}
       </div>
@@ -410,8 +417,8 @@ export default function GameCanvas() {
   const startedRef = useRef(false);
   const controllerRef = useRef<GameHandle["controller"] | null>(null);
   const [snapshot, setSnapshot] = useState<BattleSnapshot>(initialSnapshot);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [soundVolume, setSoundVolume] = useState(70);
+  const [soundEnabled, setSoundEnabled] = useState(() => readSoundPreferences().enabled);
+  const [soundVolume, setSoundVolume] = useState(() => readSoundPreferences().volume);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const [startup, setStartup] = useState<StartupState>({ status: "loading", stage: "engine" });
   const [playerName, setPlayerName] = useState(() => readPlayerName());
@@ -421,12 +428,11 @@ export default function GameCanvas() {
   const keyboardBindingsRef = useRef<KeyboardBindings>(readKeyboardBindings());
   inputReadyRef.current =
     startup.status === "ready" &&
-    entryScreen === "game" &&
-    Boolean(playerName);
+    entryScreen === "game";
   const [nameDraft, setNameDraft] = useState(() => readPlayerName());
   const [nameError, setNameError] = useState("");
   const [nameShareStatus, setNameShareStatus] = useState("");
-  const [startingPlay, setStartingPlay] = useState(false);
+  const startingPlay = false;
   const [keyboardBindings, setKeyboardBindings] = useState<KeyboardBindings>(
     () => keyboardBindingsRef.current
   );
@@ -436,9 +442,9 @@ export default function GameCanvas() {
   const [ranking, setRanking] = useState<RankingRow[]>([]);
   const [rankingStatus, setRankingStatus] = useState("ランキング登録：待機中");
   const [rankingRetryToken, setRankingRetryToken] = useState(0);
-  const resultSubmissionKeyRef = useRef<string | null>(null);
-  const playIdRef = useRef<string | null>(null);
-  const playStartPromiseRef = useRef<Promise<void> | null>(null);
+  const playSessionRef = useRef<ReturnType<typeof createPlaySession> | null>(null);
+  const [rankingLoading, setRankingLoading] = useState(false);
+  const [rankingError, setRankingError] = useState(false);
   const touchInputRef = useRef(createTouchInputState());
   const moveRepeatRef = useRef<MovementRepeat | null>(null);
   const customHandKey = snapshot.customHand
@@ -638,59 +644,38 @@ export default function GameCanvas() {
   }, []);
 
   useEffect(() => {
-    if (snapshot.mode !== "result") {
-      resultSubmissionKeyRef.current = null;
-      return;
-    }
-    if (!playerName) return;
-    const resultKey = [
-      snapshot.score,
-      snapshot.elapsed,
-      snapshot.wave,
-      snapshot.rank,
-      snapshot.outcome,
-      snapshot.reachedWave ?? 0,
-    ].join(":");
-    if (resultSubmissionKeyRef.current === resultKey) return;
-    resultSubmissionKeyRef.current = resultKey;
+    if (snapshot.mode !== "result") return;
+    const play = playSessionRef.current;
+    if (!play) return;
     let active = true;
-    setRanking([]);
-    const playId = playIdRef.current;
-    const resultType = snapshot.outcome === "victory" ? "clear" : "game_over";
-    const rankingRequest = playId
-      ? finishMasumenPlay({
-          playId,
-          playerName,
-          resultType,
-          reachedWave: snapshot.reachedWave ?? snapshot.wave,
-          score: snapshot.score,
-        }).then(() => loadRanking())
-      : submitAndLoadRanking(snapshot.score, playerName);
-    setRankingStatus("ランキングを読み込み中…");
-    void rankingRequest
-      .then(rows => {
+    setRankingLoading(true);
+    setRankingError(false);
+    setRankingStatus(play.playerName ? "記録を送信中…" : "名前なしのため公開登録しません");
+    const result = {
+      score: snapshot.score,
+      resultType: snapshot.outcome === "victory" ? "clear" as const : "game_over" as const,
+      reachedWave: snapshot.reachedWave ?? snapshot.wave,
+    };
+    void (async () => {
+      let sent = false;
+      try { await play.submit(result); sent = Boolean(play.playerName); }
+      catch { /* Keep the confirmed result visible even when submission fails. */ }
+      if (!active) return;
+      const status = !play.playerName ? "名前なしのため公開登録しません" : sent
+        ? "記録を送信しました" : "記録の送信を確認できません（重複防止のため自動再送しません）";
+      setRankingStatus(status);
+      try {
+        const rows = await loadRanking();
         if (!active) return;
         setRanking(rows);
-        setRankingStatus("オンラインランキングに反映しました");
-      })
-      .catch(() => {
+      } catch {
         if (!active) return;
-        setRankingStatus("ランキングは現在利用できません（結果は表示されています）");
-      });
-    return () => {
-      active = false;
-    };
-  }, [
-    playerName,
-    snapshot.elapsed,
-    snapshot.mode,
-    snapshot.outcome,
-    snapshot.rank,
-    snapshot.reachedWave,
-    snapshot.score,
-    snapshot.wave,
-    rankingRetryToken,
-  ]);
+        setRankingError(true);
+        setRankingStatus(status + "。ランキングは現在利用できません");
+      } finally { if (active) setRankingLoading(false); }
+    })();
+    return () => { active = false; };
+  }, [snapshot.mode, snapshot.score, snapshot.outcome, snapshot.reachedWave, snapshot.wave, rankingRetryToken]);
 
   useEffect(() => {
     if (snapshot.mode !== "custom" || snapshot.customHand.length === 0) return;
@@ -740,10 +725,12 @@ export default function GameCanvas() {
   const toggleSound = () => {
     const next = !soundEnabled;
     setSoundEnabled(next);
+    saveSoundPreferences({enabled:next,volume:soundVolume});
     controller?.setSoundEnabled?.(next);
   };
   const updateVolume = (value: number) => {
     setSoundVolume(value);
+    saveSoundPreferences({enabled:soundEnabled,volume:value});
     controller?.setSoundVolume?.(value / 100);
   };
   const toggleVibration = () => {
@@ -801,25 +788,9 @@ export default function GameCanvas() {
     }
   };
 
-  const beginMasumenPlay = async (name: string) => {
-    if (playStartPromiseRef.current) return;
-    playIdRef.current = null;
-    setStartingPlay(true);
-    const request = startMasumenPlay(name)
-      .then(playId => {
-        playIdRef.current = playId;
-      })
-      .catch(() => {
-        // The game remains playable when the ranking service is temporarily unavailable.
-        // Completed results use the legacy submission path as a fallback.
-        playIdRef.current = null;
-      })
-      .finally(() => {
-        playStartPromiseRef.current = null;
-        setStartingPlay(false);
-      });
-    playStartPromiseRef.current = request;
-    await request;
+  const beginMasumenPlay = (name: string) => {
+    playSessionRef.current = createPlaySession(name);
+    setRanking([]);
     setEntryScreen("game");
     controllerRef.current?.restart();
   };
@@ -827,10 +798,6 @@ export default function GameCanvas() {
   const submitPlayerName = () => {
     if (startingPlay) return;
     const name = savePlayerName(nameDraft);
-    if (!name) {
-      setNameError("プレイヤー名を入力してください");
-      return;
-    }
     setPlayerName(name);
     setNameDraft(name);
     setNameError("");
@@ -840,7 +807,7 @@ export default function GameCanvas() {
 
   const returnHome = () => {
     resetPointerInput();
-    playIdRef.current = null;
+    playSessionRef.current = null;
     controllerRef.current?.restart();
     setNameDraft(playerName);
     setNameError("");
@@ -869,7 +836,7 @@ export default function GameCanvas() {
       />
       <StartupGate
         state={startup}
-        hasName={entryScreen === "game" && Boolean(playerName)}
+        hasName={entryScreen === "game"}
         nameGate={
           <NameGate
             draft={nameDraft}
@@ -882,6 +849,10 @@ export default function GameCanvas() {
             }}
             onSubmit={submitPlayerName}
             onShare={shareHome}
+            soundEnabled={soundEnabled}
+            soundVolume={soundVolume}
+            onSoundToggle={toggleSound}
+            onVolumeChange={updateVolume}
           />
         }
       >
@@ -1502,15 +1473,16 @@ export default function GameCanvas() {
       {snapshot.mode === "result" && (
         <ResultScreen
           snapshot={snapshot}
-          playerName={playerName}
+          playerName={playSessionRef.current?.playerName ?? ""}
+          rankingLoading={rankingLoading}
+          rankingError={rankingError}
           ranking={ranking}
           rankingStatus={rankingStatus}
           onRestart={() => {
-            if (playerName) void beginMasumenPlay(playerName);
+            beginMasumenPlay(playerName);
           }}
           onHome={returnHome}
           onRetryRanking={() => {
-            resultSubmissionKeyRef.current = null;
             setRankingRetryToken(token => token + 1);
           }}
         />

@@ -15,6 +15,8 @@ interface ResultScreenProps {
   playerName: string;
   ranking: RankingRow[];
   rankingStatus: string;
+  rankingLoading?: boolean;
+  rankingError?: boolean;
   onRestart: () => void;
   onHome: () => void;
   onRetryRanking: () => void;
@@ -45,6 +47,8 @@ export default function ResultScreen({
   playerName,
   ranking,
   rankingStatus,
+  rankingLoading = false,
+  rankingError = false,
   onRestart,
   onHome,
   onRetryRanking,
@@ -147,14 +151,14 @@ export default function ResultScreen({
       )}
 
       <section className="result-platform technical-panel" aria-label="結果の共有とランキング">
-        <p className="eyebrow">結果共有 / ランキング上位10名</p>
-        <p className="result-platform__player">{playerName} の結果</p>
+        <p className="eyebrow">結果共有 / ランキング上位30名</p>
+        <p className="result-platform__player">{playerName ? `${playerName} の結果` : "今回の結果"}</p>
         <textarea className="result-share-text" readOnly value={shareText} aria-label="結果のシェア文" />
-        <button type="button" className="engage-button result-share-button" onClick={shareResult}>
-          結果をシェア／コピー <span>↗</span>
+        <button type="button" className="engage-button result-share-button x-share-action" onClick={shareResult}>
+          Xでシェア
         </button>
         <p className="share-status" role="status">{shareStatus || rankingStatus}</p>
-        {rankingStatus.includes("利用できません") && (
+        {rankingError && (
           <button type="button" onClick={onRetryRanking}>
             ランキングを再試行
           </button>
@@ -165,10 +169,10 @@ export default function ResultScreen({
               <span>{row.rank}. {row.displayName}</span>
               <strong>{row.score.toLocaleString()}点</strong>
             </li>
-          )) : <li>ランキングを読み込み中…</li>}
+          )) : <li>{rankingLoading ? "ランキングを読み込み中…" : rankingError ? "ランキングを取得できませんでした" : "まだ記録がありません"}</li>}
         </ol>
         <a className="result-lab-link" href={LAB_URL} target="_blank" rel="noreferrer">
-          カメレオンJPの実験場へ
+          ランキング
         </a>
       </section>
 

@@ -63,8 +63,8 @@ describe("Supabaseランキングの表示変換", () => {
     ]);
   });
 
-  it("ランキングは上位10件だけを表示する", () => {
-    const rows = Array.from({ length: 12 }, (_, index) => ({
+  it("ランキングは上位30件だけを表示する", () => {
+    const rows = Array.from({ length: 32 }, (_, index) => ({
       rank_no: index + 1,
       display_name: `プレイヤー${index + 1}`,
       best_score: 12000 - index,
@@ -72,15 +72,15 @@ describe("Supabaseランキングの表示変換", () => {
 
     const ranking = normalizeRanking(rows);
 
-    expect(ranking).toHaveLength(10);
+    expect(ranking).toHaveLength(30);
     expect(ranking.at(-1)).toEqual({
-      rank: 10,
-      displayName: "プレイヤー10",
-      score: 11991,
+      rank: 30,
+      displayName: "プレイヤー30",
+      score: 11971,
     });
   });
 
-  it("ランキング取得を上位10件で依頼する", async () => {
+  it("ランキング取得を上位30件で依頼する", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
       ok: true,
       json: async () => [],
@@ -92,7 +92,7 @@ describe("Supabaseランキングの表示変換", () => {
     expect(url).toContain("/rpc/get_best_score_ranking");
     expect(JSON.parse(String(init?.body))).toEqual({
       p_game_slug: "masumen",
-      p_limit: 10,
+      p_limit: 30,
     });
   });
 
@@ -131,5 +131,19 @@ describe("Supabaseランキングの表示変換", () => {
       p_reached_wave: 3,
       p_score: 4321,
     });
+  });
+});
+
+describe('saved sound preferences', () => {
+  it('keeps explicit off and zero and defaults only invalid values', async () => {
+    const {readSoundPreferences, saveSoundPreferences}=await import('./platform');
+    const values = new Map<string,string>();
+    vi.stubGlobal('localStorage',{getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>values.set(key,value)});
+    expect(readSoundPreferences()).toEqual({enabled:true,volume:70});
+    saveSoundPreferences({enabled:false,volume:0});
+    expect(readSoundPreferences()).toEqual({enabled:false,volume:0});
+    saveSoundPreferences({enabled:true,volume:35});
+    expect(readSoundPreferences()).toEqual({enabled:true,volume:35});
+    vi.unstubAllGlobals();
   });
 });

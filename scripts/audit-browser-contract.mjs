@@ -104,7 +104,7 @@ for (const required of ["syncProjectileVisuals(snapshot)", "projectileVisuals.cl
 if (!gameCanvas.includes("<StartupGate") || !startupUI.includes('state.status !== "ready"'))
   throw new Error("Startup screens must be exclusive");
 for (const required of [
-  "名前を入力して開始",
+  "プレイヤー名（任意）",
   "entryScreen",
   "KeyboardBindingPanel",
   "getKeyboardBindings",
@@ -220,7 +220,7 @@ for (const required of [
   if (!platform.includes(required))
     throw new Error(`Ranking platform contract missing: ${required}`);
 }
-for (const required of ["ランキング上位10名", "online-ranking"]) {
+for (const required of ["ランキング上位30名", "online-ranking"]) {
   if (!resultScreen.includes(required))
     throw new Error(`Result screen ranking contract missing: ${required}`);
 }
