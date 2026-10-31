@@ -1,6 +1,7 @@
+import { setLanguage } from "@/i18n";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BattleSnapshot } from "@/game/types";
 import ResultScreen from "./ResultScreen";
 
@@ -76,3 +77,6 @@ describe("結果画面のランキング通信復帰", () => {
     expect(html).not.toContain("名前入力へ戻る");
   });
 });
+
+// These existing assertions verify the Japanese presentation explicitly.
+beforeEach(() => setLanguage("ja", { persist: false }));

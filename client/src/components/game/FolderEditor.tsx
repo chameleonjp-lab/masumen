@@ -1,3 +1,5 @@
+import { t, translateGameText } from "@/i18n";
+import { msg, useLanguage } from "@/i18n/react";
 import { useMemo, useState } from "react";
 import "./FolderEditor.css";
 import { CARD_CATALOG } from "@/game/deck";
@@ -49,13 +51,25 @@ function updateFolder(
   };
 }
 
+function folderDisplayName(folder: SavedFolder): string {
+  const defaults: Record<string, string> = {
+    standard: "標準フォルダ",
+    "custom-1": "ユーザー編集フォルダ1",
+    "custom-2": "ユーザー編集フォルダ2",
+  };
+  return defaults[folder.id] === folder.name ? t(folder.name) : folder.name;
+}
+
 export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
+  const language = useLanguage();
   const [saveData, setSaveData] = useState(() => loadSaveData());
   const [folderId, setFolderId] = useState(saveData.activeFolderId);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<CatalogFilter>("すべて");
   const [notice, setNotice] = useState("");
-  const folder = saveData.folders.find(item => item.id === folderId) ?? activeFolder(saveData);
+  const folder =
+    saveData.folders.find(item => item.id === folderId) ??
+    activeFolder(saveData);
   const validation = validateFolder(folder);
 
   const visibleCards = useMemo(() => {
@@ -65,22 +79,32 @@ export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
       const matchesFilter = filter === "すべて" || cardClass === filter;
       const matchesQuery =
         normalizedQuery.length === 0 ||
-        [card.name, card.id, card.family, card.code, ...getAllowedCodes(card)]
+        [
+          card.name,
+          t(card.name),
+          card.id,
+          card.family,
+          t(card.family),
+          card.code,
+          ...getAllowedCodes(card),
+        ]
           .join(" ")
           .toLowerCase()
           .includes(normalizedQuery);
       return matchesFilter && matchesQuery;
     });
-  }, [filter, query]);
+  }, [filter, query, language]);
 
   const commonCodes = useMemo(() => {
     const counts = new Map<ConnectionCode, number>();
-    folder.cards.forEach(entry => counts.set(entry.code, (counts.get(entry.code) ?? 0) + 1));
+    folder.cards.forEach(entry =>
+      counts.set(entry.code, (counts.get(entry.code) ?? 0) + 1)
+    );
     return Array.from(counts.entries())
       .filter(([, count]) => count >= 2)
       .map(([code]) => code)
       .join(" / ");
-  }, [folder.cards]);
+  }, [folder.cards, language]);
 
   const duplicateNames = useMemo(() => {
     const counts = new Map<string, number>();
@@ -90,10 +114,10 @@ export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
     });
     return Array.from(counts.entries())
       .filter(([, count]) => count >= 2)
-      .map(([name]) => name)
+      .map(([name]) => t(name))
       .slice(0, 3)
       .join(" / ");
-  }, [folder.cards]);
+  }, [folder.cards, language]);
 
   function apply(next: SaveDataV1): void {
     setSaveData(next);
@@ -113,7 +137,9 @@ export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
         ...current.cards,
         {
           instanceId: (() => {
-            const usedIds = new Set(current.cards.map(entry => entry.instanceId));
+            const usedIds = new Set(
+              current.cards.map(entry => entry.instanceId)
+            );
             let serial = current.cards.length + 1;
             while (usedIds.has(`${current.id}-${serial}`)) serial += 1;
             return `${current.id}-${serial}`;
@@ -148,12 +174,19 @@ export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
 
   function restoreStandard(): void {
     const standard = createStandardFolder(folder.id);
-    apply(updateFolder(saveData, folder.id, current => ({ ...standard, name: current.name })));
+    apply(
+      updateFolder(saveData, folder.id, current => ({
+        ...standard,
+        name: current.name,
+      }))
+    );
     setNotice("標準フォルダの内容へ戻しました。保存ボタンで確定します。");
   }
 
   function duplicate(): void {
-    const target = saveData.folders.find(item => item.id !== folder.id && item.id !== "standard");
+    const target = saveData.folders.find(
+      item => item.id !== folder.id && item.id !== "standard"
+    );
     if (!target) {
       setNotice("複製先のフォルダ枠がありません。");
       return;
@@ -161,7 +194,9 @@ export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
     const copied = cloneFolder(folder, target.id, target.name);
     apply({
       ...saveData,
-      folders: saveData.folders.map(item => (item.id === target.id ? copied : item)),
+      folders: saveData.folders.map(item =>
+        item.id === target.id ? copied : item
+      ),
     });
     setFolderId(target.id);
     setNotice(`${target.name}へ複製しました。保存ボタンで確定します。`);
@@ -180,20 +215,30 @@ export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
   }
 
   return (
-    <section className="folder-editor" aria-modal="true" role="dialog" aria-label="フォルダ編集">
+    <section
+      className="folder-editor"
+      aria-modal="true"
+      role="dialog"
+      aria-label={t("フォルダ編集")}
+    >
       <div className="folder-editor-panel">
         <header className="folder-editor-header">
           <div>
-            <p className="eyebrow">カードフォルダ / 30枚</p>
-            <h2>フォルダ編集</h2>
-            <span>使用する30枚と接続コードを準備します。</span>
+            <p className="eyebrow">{msg("カードフォルダ / 30枚")}</p>
+            <h2>{msg("フォルダ編集")}</h2>
+            <span>{msg("使用する30枚と接続コードを準備します。")}</span>
           </div>
-          <button type="button" className="folder-close" onClick={onClose} aria-label="フォルダ編集を閉じる">
+          <button
+            type="button"
+            className="folder-close"
+            onClick={onClose}
+            aria-label={t("フォルダ編集を閉じる")}
+          >
             ×
           </button>
         </header>
 
-        <nav className="folder-tabs" aria-label="フォルダ枠">
+        <nav className="folder-tabs" aria-label={t("フォルダ枠")}>
           {saveData.folders.map(item => (
             <button
               type="button"
@@ -204,7 +249,7 @@ export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
                 setNotice("");
               }}
             >
-              {item.name}
+              {folderDisplayName(item)}
             </button>
           ))}
         </nav>
@@ -213,49 +258,72 @@ export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
           <section className="folder-list-panel">
             <div className="folder-list-heading">
               <div>
-                <b>{folder.name}</b>
-                <span>{folder.cards.length} / 30枚</span>
+                <b>{folderDisplayName(folder)}</b>
+                <span>{msg("{0} / 30枚", folder.cards.length)}</span>
               </div>
               <div className="folder-actions">
-                <button type="button" onClick={restoreStandard} disabled={folder.id === "standard"}>
-                  標準へ戻す
+                <button
+                  type="button"
+                  onClick={restoreStandard}
+                  disabled={folder.id === "standard"}
+                >
+                  {msg("標準へ戻す")}
                 </button>
                 <button type="button" onClick={duplicate}>
-                  複製
+                  {msg("複製")}
                 </button>
               </div>
             </div>
             <div className="folder-validation" role="status">
               {validation.valid ? (
-                <span className="is-valid">検査済み — 戦闘を開始できます</span>
+                <span className="is-valid">
+                  {msg("検査済み — 戦闘を開始できます")}
+                </span>
               ) : (
-                validation.errors.map(error => <span key={error}>{error}</span>)
+                validation.errors.map(error => (
+                  <span key={error}>{translateGameText(error)}</span>
+                ))
               )}
             </div>
             <div className="folder-connection-summary">
-              <b>連結候補</b>
-              <span>同じコード: {commonCodes || "なし"}</span>
-              <span>同名カード: {duplicateNames || "なし"}</span>
+              <b>{msg("連結候補")}</b>
+              <span>{msg("同じコード: {0}", commonCodes || t("なし"))}</span>
+              <span>{msg("同名カード: {0}", duplicateNames || t("なし"))}</span>
             </div>
             <ol className="folder-slots">
               {folder.cards.map((entry, index) => {
-                const card = CARD_CATALOG.find(item => item.id === entry.cardId);
+                const card = CARD_CATALOG.find(
+                  item => item.id === entry.cardId
+                );
                 if (!card) return null;
                 const allowedCodes = getAllowedCodes(card);
                 return (
                   <li key={entry.instanceId}>
                     <span>{String(index + 1).padStart(2, "0")}</span>
-                    <strong>{card.name}</strong>
-                    <small>{card.family}</small>
+                    <strong>{t(card.name)}</strong>
+                    <small>{t(card.family)}</small>
                     <select
                       value={entry.code}
-                      onChange={event => changeCode(entry.instanceId, event.target.value as ConnectionCode)}
-                      aria-label={`${card.name}の接続コード`}
+                      onChange={event =>
+                        changeCode(
+                          entry.instanceId,
+                          event.target.value as ConnectionCode
+                        )
+                      }
+                      aria-label={t("{0}の接続コード", t(card.name))}
                     >
-                      {allowedCodes.map(code => <option key={code} value={code}>コード {code}</option>)}
+                      {allowedCodes.map(code => (
+                        <option key={code} value={code}>
+                          {msg("コード {0}", code)}
+                        </option>
+                      ))}
                     </select>
-                    <button type="button" onClick={() => removeCard(entry.instanceId)} aria-label={`${card.name}を削除`}>
-                      削除
+                    <button
+                      type="button"
+                      onClick={() => removeCard(entry.instanceId)}
+                      aria-label={t("{0}を削除", t(card.name))}
+                    >
+                      {msg("削除")}
                     </button>
                   </li>
                 );
@@ -268,13 +336,22 @@ export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
               <input
                 value={query}
                 onChange={event => setQuery(event.target.value)}
-                placeholder="名前・属性・特性・コードで検索"
-                aria-label="カード検索"
+                placeholder={t("名前・属性・特性・コードで検索")}
+                aria-label={t("カード検索")}
               />
-              <div className="catalog-filters" role="group" aria-label="カード分類">
+              <div
+                className="catalog-filters"
+                role="group"
+                aria-label={t("カード分類")}
+              >
                 {FILTERS.map(item => (
-                  <button type="button" key={item} className={filter === item ? "is-active" : ""} onClick={() => setFilter(item)}>
-                    {FILTER_LABELS[item]}
+                  <button
+                    type="button"
+                    key={item}
+                    className={filter === item ? "is-active" : ""}
+                    onClick={() => setFilter(item)}
+                  >
+                    {t(FILTER_LABELS[item])}
                   </button>
                 ))}
               </div>
@@ -284,11 +361,18 @@ export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
                 const cardClass = getFolderCardClass(card);
                 const allowedCodes = getAllowedCodes(card);
                 return (
-                  <button type="button" className={`catalog-card class-${cardClass}`} key={card.id} onClick={() => addCard(card.id)}>
-                    <span>{CLASS_LABELS[cardClass]}</span>
-                    <strong>{card.name}</strong>
-                    <small>{card.family} / {allowedCodes.join("・")}</small>
-                    <em>追加</em>
+                  <button
+                    type="button"
+                    className={`catalog-card class-${cardClass}`}
+                    key={card.id}
+                    onClick={() => addCard(card.id)}
+                  >
+                    <span>{t(CLASS_LABELS[cardClass])}</span>
+                    <strong>{t(card.name)}</strong>
+                    <small>
+                      {t(card.family)} / {allowedCodes.join(t("・"))}
+                    </small>
+                    <em>{msg("追加")}</em>
                   </button>
                 );
               })}
@@ -297,11 +381,23 @@ export default function FolderEditor({ onClose, onSaved }: FolderEditorProps) {
         </div>
 
         <footer className="folder-editor-footer">
-          <span>{notice || "戦闘中は表示されたカードを自由に選び、タップした順番に送信できます。"}</span>
+          <span>
+            {translateGameText(notice) ||
+              t(
+                "戦闘中は表示されたカードを自由に選び、タップした順番に送信できます。"
+              )}
+          </span>
           <div>
-            <button type="button" onClick={onClose}>戻る</button>
-            <button type="button" className="engage-button" onClick={save} disabled={!validation.valid}>
-              保存して使用 <span>↗</span>
+            <button type="button" onClick={onClose}>
+              {msg("戻る")}
+            </button>
+            <button
+              type="button"
+              className="engage-button"
+              onClick={save}
+              disabled={!validation.valid}
+            >
+              {msg("保存して使用 {0}", <span>↗</span>)}
             </button>
           </div>
         </footer>

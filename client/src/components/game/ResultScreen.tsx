@@ -1,3 +1,5 @@
+import { t, translateGameText, formatNumber } from "@/i18n";
+import { msg } from "@/i18n/react";
 import { useState } from "react";
 import { CHAIN_TECHNIQUES } from "@/game/data/chainTechniques";
 import { scoreRate } from "@/game/systems/ScoreSystem";
@@ -54,13 +56,15 @@ export default function ResultScreen({
   rankingError = false,
   onRestart,
   onHome,
-  onRetryRanking, submissionError, onRetrySubmission, storageWarning,
+  onRetryRanking,
+  submissionError,
+  onRetrySubmission,
+  storageWarning,
 }: ResultScreenProps) {
   const breakdown = snapshot.scoreBreakdown;
   const chains = snapshot.usedChainTechniques ?? [];
   const delta = snapshot.personalBestDelta ?? 0;
-  const deltaLabel =
-    delta > 0 ? "+" + delta : delta < 0 ? String(delta) : "±0";
+  const deltaLabel = delta > 0 ? "+" + delta : delta < 0 ? String(delta) : "±0";
   const scorePercent = Math.round(scoreRate(snapshot.score) * 100);
   const [shareStatus, setShareStatus] = useState("");
   const shareText = resultShareText({
@@ -74,119 +78,170 @@ export default function ResultScreen({
   });
 
   const shareResult = () => {
-    void shareOrCopy(shareText).then(result => setShareStatus(shareStatusText(result)));
+    void shareOrCopy(shareText).then(result =>
+      setShareStatus(shareStatusText(result))
+    );
   };
 
   return (
     <section className="result-console result-console-rich" aria-live="polite">
-      <p className="eyebrow">戦闘結果 / {outcomeLabel(snapshot)}</p>
+      <p className="eyebrow">
+        {msg("戦闘結果 / {0}", t(outcomeLabel(snapshot)))}
+      </p>
       <h2>
         {snapshot.outcome === "victory"
-          ? "ネットワーク制圧完了"
+          ? t("ネットワーク制圧完了")
           : snapshot.outcome === "draw"
-            ? "相打ち — 敗北"
-            : "信号が途絶しました"}
+            ? t("相打ち — 敗北")
+            : t("信号が途絶しました")}
       </h2>
       <div className="rank-dial">
-        <span>ランク</span>
+        <span>{msg("ランク")}</span>
         <strong>{snapshot.rank}</strong>
       </div>
 
       <div className="result-summary-grid">
+        <span>{msg("最終スコア {0}", <b>{snapshot.score}</b>)}</span>
+        <span>{msg("合計時間 {0}", <b>{timecode(snapshot.elapsed)}</b>)}</span>
         <span>
-          最終スコア <b>{snapshot.score}</b>
+          {msg(
+            "到達ウェーブ {0}",
+            <b>{snapshot.reachedWave ?? snapshot.wave}</b>
+          )}
         </span>
-        <span>
-          合計時間 <b>{timecode(snapshot.elapsed)}</b>
-        </span>
-        <span>
-          到達ウェーブ <b>{snapshot.reachedWave ?? snapshot.wave}</b>
-        </span>
-        <span>
-          自己ベスト差 <b>{deltaLabel}</b>
-        </span>
-        <span>
-          得点率 <b>{scorePercent}%</b>
-        </span>
+        <span>{msg("自己ベスト差 {0}", <b>{deltaLabel}</b>)}</span>
+        <span>{msg("得点率 {0}", <b>{scorePercent}%</b>)}</span>
       </div>
 
       <div className="result-stat-grid">
         <span>
-          被ダメージ <b>{snapshot.totalDamageTaken ?? 0}</b>
+          {msg("被ダメージ {0}", <b>{snapshot.totalDamageTaken ?? 0}</b>)}
         </span>
+        <span>{msg("カウンター {0}", <b>{snapshot.counters}</b>)}</span>
         <span>
-          カウンター <b>{snapshot.counters}</b>
+          {msg("同時撃破 {0}", <b>{snapshot.simultaneousDefeats ?? 0}</b>)}
         </span>
-        <span>
-          同時撃破 <b>{snapshot.simultaneousDefeats ?? 0}</b>
-        </span>
-        <span>
-          使用カード <b>{snapshot.cardsUsed ?? 0}</b>
-        </span>
-        <span>
-          最高記録 <b>{snapshot.highScore}</b>
-        </span>
+        <span>{msg("使用カード {0}", <b>{snapshot.cardsUsed ?? 0}</b>)}</span>
+        <span>{msg("最高記録 {0}", <b>{snapshot.highScore}</b>)}</span>
       </div>
 
       {chains.length > 0 && (
         <div className="result-chains">
-          <span>使用した連結技</span>
-          <p>{chains.map(chainName).join(" / ")}</p>
+          <span>{msg("使用した連結技")}</span>
+          <p>
+            {chains
+              .map(chainName)
+              .map(name => t(name))
+              .join(" / ")}
+          </p>
         </div>
       )}
 
       {breakdown && (
         <div className="result-breakdown">
-          <span>スコア内訳</span>
+          <span>{msg("スコア内訳")}</span>
           <p>
-            敵撃破 +{breakdown.enemyDefeatPoints} / ウェーブ突破 +
-            {breakdown.waveClearPoints} / 時間 +{breakdown.timePoints}
+            {msg(
+              "敵撃破 +{0} / ウェーブ突破 + {1} / 時間 +{2}",
+              breakdown.enemyDefeatPoints,
+              breakdown.waveClearPoints,
+              breakdown.timePoints
+            )}
           </p>
           <p>
-            カウンター +{breakdown.counterPoints} / 同時撃破 +
-            {breakdown.simultaneousPoints} / 無被弾 +
-            {breakdown.noDamagePoints}
+            {msg(
+              "カウンター +{0} / 同時撃破 + {1} / 無被弾 + {2}",
+              breakdown.counterPoints,
+              breakdown.simultaneousPoints,
+              breakdown.noDamagePoints
+            )}
           </p>
-          <p>
-            被ダメージ -{breakdown.damagePenalty}
-          </p>
+          <p>{msg("被ダメージ -{0}", breakdown.damagePenalty)}</p>
         </div>
       )}
 
-      <section className="result-platform technical-panel" aria-label="結果の共有とランキング">
-        <p className="eyebrow">結果共有 / ランキング上位30名</p>
-        <p className="result-platform__player">{playerName ? `${playerName} の結果` : "今回の結果"}</p>
-        <textarea className="result-share-text" readOnly value={shareText} aria-label="結果のシェア文" />
-        <button type="button" className="engage-button result-share-button x-share-action" onClick={shareResult}>
-          Xでシェア
+      <section
+        className="result-platform technical-panel"
+        aria-label={t("結果の共有とランキング")}
+      >
+        <p className="eyebrow">{msg("結果共有 / ランキング上位30名")}</p>
+        <p className="result-platform__player">
+          {playerName ? t("{0} の結果", playerName) : t("今回の結果")}
+        </p>
+        <textarea
+          className="result-share-text"
+          readOnly
+          value={shareText}
+          aria-label={t("結果のシェア文")}
+        />
+        <button
+          type="button"
+          className="engage-button result-share-button x-share-action"
+          onClick={shareResult}
+        >
+          {msg("Xでシェア")}
         </button>
-        <p className="share-status" role="status">{shareStatus || rankingStatus}</p>
-        {storageWarning && <p role="status">このタブでのみ結果を保持しています。閉じる前に再送してください。</p>}
-        {submissionError && <button type="button" onClick={onRetrySubmission}>記録の送信を再試行</button>}
-        {rankingError && (
-          <button type="button" onClick={onRetryRanking}>
-            ランキングを再試行
+        <p className="ranking-status" role="status">
+          {translateGameText(rankingStatus)}
+        </p>
+        {shareStatus && (
+          <p className="share-status" role="status">
+            {translateGameText(shareStatus)}
+          </p>
+        )}
+        {storageWarning && (
+          <p role="status">
+            {msg(
+              "このタブでのみ結果を保持しています。閉じる前に再送してください。"
+            )}
+          </p>
+        )}
+        {submissionError && (
+          <button type="button" onClick={onRetrySubmission}>
+            {msg("記録の送信を再試行")}
           </button>
         )}
-        <ol className="online-ranking" aria-label="オンラインランキング">
-          {ranking.length > 0 ? ranking.map(row => (
-            <li key={`${row.rank}-${row.displayName}`}>
-              <span>{row.rank}. {row.displayName}</span>
-              <strong>{row.score.toLocaleString()}点</strong>
+        {rankingError && (
+          <button type="button" onClick={onRetryRanking}>
+            {msg("ランキングを再試行")}
+          </button>
+        )}
+        <ol className="online-ranking" aria-label={t("オンラインランキング")}>
+          {ranking.length > 0 ? (
+            ranking.map(row => (
+              <li key={`${row.rank}-${row.displayName}`}>
+                <span>
+                  {row.rank}. {row.displayName}
+                </span>
+                <strong>{msg("{0}点", formatNumber(row.score))}</strong>
+              </li>
+            ))
+          ) : (
+            <li>
+              {rankingLoading
+                ? t("ランキングを読み込み中…")
+                : rankingError
+                  ? t("ランキングを取得できませんでした")
+                  : t("まだ記録がありません")}
             </li>
-          )) : <li>{rankingLoading ? "ランキングを読み込み中…" : rankingError ? "ランキングを取得できませんでした" : "まだ記録がありません"}</li>}
+          )}
         </ol>
-        <a className="result-lab-link" href={LAB_URL} target="_blank" rel="noreferrer">
-          ランキング
+        <a
+          className="result-lab-link"
+          href={LAB_URL}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {msg("ランキング")}
         </a>
       </section>
 
       <div className="result-actions">
         <button type="button" className="engage-button" onClick={onRestart}>
-          もう一度 <span>↗</span>
+          {msg("もう一度 {0}", <span>↗</span>)}
         </button>
         <button type="button" onClick={onHome}>
-          ホームに戻る
+          {msg("ホームに戻る")}
         </button>
       </div>
     </section>

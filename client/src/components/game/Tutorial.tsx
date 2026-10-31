@@ -1,3 +1,5 @@
+import { t, translateGameText } from "@/i18n";
+import { msg } from "@/i18n/react";
 import { getPracticeStage, PRACTICE_STAGES } from "@/game/data/practice";
 
 interface TutorialProps {
@@ -36,30 +38,46 @@ export default function Tutorial({
       className="practice-console"
       aria-modal="true"
       role="dialog"
-      aria-label="練習モード"
+      aria-label={t("練習モード")}
     >
       <p className="eyebrow">
-        練習モード / {String(current.stage).padStart(2, "0")} / 07
+        {msg("練習モード / {0} / 07", String(current.stage).padStart(2, "0"))}
       </p>
-      <h2>{current.title}</h2>
-      <p className="practice-lesson">{current.lesson}</p>
+      <h2>{t(current.title)}</h2>
+      <p className="practice-lesson">{t(current.lesson)}</p>
       <div className="practice-objective">
-        <span>この段階の目標</span>
-        <strong>{current.objective}</strong>
+        <span>{msg("この段階の目標")}</span>
+        <strong>{t(current.objective)}</strong>
         <small>
           {cleared
-            ? "段階クリア — 次の段階へ進めます"
+            ? t("段階クリア — 次の段階へ進めます")
             : remaining.length === 0
-              ? `目標達成 — 敵を倒すと段階クリア（${completed}/${total}）`
-              : `${current.actionHint}（目標 ${completed}/${total}）`}
+              ? t(
+                  "目標達成 — 敵を倒すと段階クリア（{0}/{1}）",
+                  completed,
+                  total
+                )
+              : t(
+                  "{0}（目標 {1}/{2}）",
+                  t(current.actionHint),
+                  completed,
+                  total
+                )}
         </small>
         {!cleared && remaining.length > 0 ? (
-          <small>未達: {remaining.join(" / ")}</small>
+          <small>
+            {msg("未達: {0}", remaining.map(label => t(label)).join(" / "))}
+          </small>
         ) : null}
       </div>
       <p className="practice-supply">
-        補給: {supplyNames.length > 0 ? supplyNames.join(" / ") : "カードなし（通常射撃を使用）"}
-        {retryCount > 0 && ` ・ やり直し ${retryCount}回`}
+        {msg(
+          "補給: {0} {1}",
+          supplyNames.length > 0
+            ? supplyNames.map(name => t(name)).join(" / ")
+            : t("カードなし（通常射撃を使用）"),
+          retryCount > 0 && t(" ・ やり直し {0}回", retryCount)
+        )}
       </p>
       <ol className="practice-stages">
         {PRACTICE_STAGES.map(item => (
@@ -74,16 +92,16 @@ export default function Tutorial({
             key={item.stage}
           >
             <span>{item.stage}</span>
-            <b>{item.title}</b>
+            <b>{t(item.title)}</b>
           </li>
         ))}
       </ol>
       <div className="practice-actions">
         <button type="button" onClick={onExit}>
-          通常モードへ戻る
+          {msg("通常モードへ戻る")}
         </button>
         <button type="button" onClick={onRetry}>
-          この段階をやり直す
+          {msg("この段階をやり直す")}
         </button>
         <button
           type="button"
@@ -91,7 +109,7 @@ export default function Tutorial({
           disabled={!cleared}
           onClick={onNext}
         >
-          {finished ? "練習を終了" : "次の段階へ"} <span>↗</span>
+          {finished ? t("練習を終了") : t("次の段階へ")} <span>↗</span>
         </button>
       </div>
     </section>

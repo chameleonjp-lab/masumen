@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { setLanguage } from "@/i18n";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   GAME_URL,
   CLIENT_VERSION,
+  cleanPlayerName,
   finishMasumenPlay,
   homeShareText,
   loadRanking,
@@ -14,6 +16,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it("preserves complete emoji within the existing 20-unit name limit", () => {
+  expect(cleanPlayerName("a".repeat(19) + "😀")).toBe("a".repeat(19));
+  expect(cleanPlayerName("a".repeat(18) + "😀")).toBe("a".repeat(18) + "😀");
+  expect(cleanPlayerName("  山田   太郎  ")).toBe("山田 太郎");
+});
+
 describe("マスメンのシェア文", () => {
   it("uses a plain URL and the requested game invitation", () => {
     expect(homeShareText()).toBe(
@@ -22,7 +30,7 @@ describe("マスメンのシェア文", () => {
     expect(homeShareText()).not.toContain("#");
   });
 
-  it("keeps result sharing to the invitation, score, and plain URL", () => {
+  it("shares the current result and a plain canonical URL", () => {
     expect(
       resultShareText({
         score: 1234,
@@ -34,7 +42,7 @@ describe("マスメンのシェア文", () => {
         cardsUsed: 5,
       })
     ).toBe(
-      `【マスメン】カードを使いながら5ウェーブを戦い抜け！\nスコア：1,234点\n${GAME_URL}`
+      `【マスメン】今回の結果：1,234点\n${GAME_URL}`
     );
   });
 });
@@ -159,3 +167,6 @@ describe('strict acknowledgements for the existing idempotent protocol',()=>{
     await expect(finishMasumenPlay({playId:'30000000-0000-4000-8000-000000000003',playerName:'Alice',resultType:'clear',reachedWave:5,score:100,clientVersion:'captured'})).rejects.toThrow();
   });
 });
+
+// These existing assertions verify the Japanese presentation explicitly.
+beforeEach(() => setLanguage("ja", { persist: false }));
