@@ -8,7 +8,7 @@
 
 Supabase `mlpnjgezrnhdxsxolyzj`、game_slug `masumen`、`start_masumen_play_v1` / `finish_masumen_play_v1` を維持（曖昧な失敗後のlegacy `submit_score` fallbackは廃止）。表示は既存 `get_best_score_ranking` の集計済み行から30行を取得する。ランキングの参加者は既存DBの名前キーであり、同名の別人・改名を分離する契約は未実装。無断で過去記録の所有者を推定しない。
 
-採点、整数丸め、5ウェーブ、敵・カード・時間・難易度・不正記録条件は変更していない。`masumen.player-name`、既存GameWorldの自己ベスト・ボス履歴、`grid-signal-arena-keyboard-v1` は維持。音設定は新しい `masumen.sound.v1` に保存する（旧版に永続音設定なし）。originが異なる旧ページのlocalStorageを読む移行は未実装であり、旧データは削除しない。
+採点、整数丸め、4ウェーブ、敵・カード・時間・難易度・不正記録条件は変更していない。`masumen.player-name`、既存GameWorldの自己ベスト・ボス履歴、`grid-signal-arena-keyboard-v1` は維持。音設定は新しい `masumen.sound.v1` に保存する（旧版に永続音設定なし）。originが異なる旧ページのlocalStorageを読む移行は未実装であり、旧データは削除しない。
 
 ## 対応表
 
@@ -25,7 +25,7 @@ Supabase `mlpnjgezrnhdxsxolyzj`、game_slug `masumen`、`start_masumen_play_v1` 
 | 9 音設定 | 今回実装 | 初回ON/70%、OFF/0保持、ホーム操作追加、ミュートを最初に操作するとunlockしない、音声失敗は開始を止めない |
 | 10 文言・画面 | 今回実装／一部未確認 | 必須名の説明を除去、公開範囲の説明、ホーム文字/44px操作/スクロール、IME確定で開始させない。実機未確認 |
 | 11 自動公開 | 今回実装／本番確認待ち | PRは検証のみ、main pushで同一SHAを検証build後配備。既存manual-only Pages経路を修正し、古いSHAの再実行を拒否 |
-| 12 検証 | 実施／一部未確認 | 単体250件、tsc、既存全監査、build。Chromium/WebKitの匿名/空白/音OFF・縦横ホーム、開始名/版/同じIDでlost ACKの再読込再送・上位30・保存拒否警告・X代替を確認。15言語を両engineで確認、通常プレイの敗北→実際のsnapshot保存→再読込再送も確認。再現方法は browser-check-2026-10-31.md。実機/聴取/母語評価未実施 |
+| 12 検証 | 実施／一部未確認 | 単体251件、tsc、既存全監査、build。Chromium/WebKitの匿名/空白/音OFF・縦横ホーム、開始名/版/同じIDでlost ACKの再読込再送・上位30・保存拒否警告・X代替を確認。15言語を両engineで確認、通常プレイの敗北→実際のsnapshot保存→再読込再送も確認。再現方法は browser-check-2026-10-31.md。実機/聴取/母語評価未実施 |
 | 13 PR/記録 | 今回実装 | 本書・PRで実装範囲と未完了を明記 |
 
 15言語基準はサイノメ main `79b1e5733e725cd1148b10fa5699ba846e2bf57d` の ja/en/es/pt-BR/zh-Hans/fr/de/ko/ru/it/zh-Hant/id/tr/vi/th。その15言語を今回すべて追加した。翻訳の母語評価、同名別人の識別移行、実機と本番配備確認は別途必要であり、このPRは依頼全項目の完了を表すものではない。
@@ -72,3 +72,5 @@ OFF/0/画面非表示/pagehideでは発声済み音を止める。表示復帰�
 3. iPhone Safariで縦横/短い画面、ソフトキーボード、IME Enter、空白/名前変更/消去、音OFF/0→再読込、Xから復帰を確認。実機での確認とPlaywright viewport確認は別。
 4. 通信の検証はRPCをモックする。名前なしのstart/finish/submitは0回、名ありの確定結果は同じstart UUID/play_idで再送して論理記録1件、ランキング再試行は読取のみ。ACK消失・再読込・開始名/版固定・複数タブ保存・永続不可をunit/ブラウザで確認。
 5. 問題時はこのPRをrevertするPRをmainへマージし、同じ検証・公開経路で戻す。DB/参加者/設定/自己ベストの消去は不要。
+
+文言とルールの照合: 実装の GameWorld.FINAL_WAVE は着手時から4だが、既存ホーム・共有・HUDには5ウェーブと書かれていた。実際のルールを変更せず、4つの表示キーと全15訳を4ウェーブに修正した。READMEのWave1〜4は正しく、維持する。

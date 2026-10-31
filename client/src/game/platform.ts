@@ -246,7 +246,7 @@ export function shareStatusText(
 
 export function homeShareText(): string {
   return t(
-    "【マスメン】カードを使いながら5ウェーブを戦い抜け！\n{0}",
+    "【マスメン】カードを使いながら4ウェーブを戦い抜け！\n{0}",
     GAME_URL
   );
 }

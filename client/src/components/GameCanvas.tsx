@@ -494,7 +494,7 @@ function NameGate({
           {starting
             ? t("プレイ開始を記録しています…")
             : translateGameText(error) ||
-              t("カードを選んで、5ウェーブを戦い抜こう")}
+              t("カードを選んで、4ウェーブを戦い抜こう")}
         </p>
         <button
           type="button"
@@ -1163,7 +1163,7 @@ export default function GameCanvas() {
           <header className="terminal-brand">
             <img src={ASSET_URLS.mark} alt={t("マスメン")} />
             <div>
-              <p>{msg("5ウェーブ・バトル")}</p>
+              <p>{msg("4ウェーブ・バトル")}</p>
               <strong>{msg("マスメン")}</strong>
             </div>
             <span className="brand-node" />

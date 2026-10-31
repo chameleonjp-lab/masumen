@@ -25,7 +25,7 @@ it("preserves complete emoji within the existing 20-unit name limit", () => {
 describe("マスメンのシェア文", () => {
   it("uses a plain URL and the requested game invitation", () => {
     expect(homeShareText()).toBe(
-      `【マスメン】カードを使いながら5ウェーブを戦い抜け！\n${GAME_URL}`
+      `【マスメン】カードを使いながら4ウェーブを戦い抜け！\n${GAME_URL}`
     );
     expect(homeShareText()).not.toContain("#");
   });

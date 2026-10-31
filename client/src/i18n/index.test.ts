@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
@@ -24,6 +25,17 @@ const placeholders = (text: string) =>
   Array.from(text.matchAll(/\{\d+\}/g), match => match[0]).sort();
 
 describe("presentation language contract", () => {
+  it("describes the actual existing final wave without changing the combat rule", () => {
+    const engine = readFileSync(new URL("../game/GameWorld.ts", import.meta.url), "utf8");
+    const finalWave = Number(/const FINAL_WAVE = (\d+);/.exec(engine)?.[1]);
+    expect(finalWave).toBeGreaterThan(0);
+    for (const index of [458, 459, 585, 605]) {
+      for (const catalog of Object.values(catalogs)) {
+        expect(catalog!.messages[index].replace(/\{\d+\}/g, "").match(/\d+/g)).toEqual([String(finalWave)]);
+      }
+    }
+  });
+
   it("provides every source and extra message in all 15 languages", () => {
     expect(Object.keys(catalogs).sort()).toEqual(languages.map(([id]) => id).sort());
     for (const [id] of languages) {
