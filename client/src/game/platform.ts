@@ -17,7 +17,11 @@ export interface RankingRow {
 
 export function cleanPlayerName(value: string): string {
   // Keep the existing UTF-16 limit without cutting an emoji into invalid text.
-  return value.replace(/\s+/g, " ").trim().slice(0, 20).replace(/[\uD800-\uDBFF]$/, "");
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 20)
+    .replace(/[\uD800-\uDBFF]$/, "");
 }
 
 export function readPlayerName(): string {
@@ -117,11 +121,15 @@ export async function startMasumenPlay(
       p_client_version: clientVersion,
     }
   );
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    throw responseError(null);
   if (payload.accepted !== true) throw responseError(payload.reason);
   if (
     payload.start_id !== startId ||
     typeof payload.play_id !== "string" ||
-    !/^[0-9a-f-]{36}$/i.test(payload.play_id) ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      payload.play_id
+    ) ||
     payload.game_slug !== GAME_SLUG ||
     payload.display_name !== name ||
     payload.normalized_name !== name ||
@@ -151,6 +159,8 @@ export async function finishMasumenPlay(input: {
       p_client_version: input.clientVersion ?? CLIENT_VERSION,
     }
   );
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    throw responseError(null);
   if (payload.accepted !== true) throw responseError(payload.reason);
   if (
     payload.play_id !== input.playId ||
@@ -158,23 +168,39 @@ export async function finishMasumenPlay(input: {
     payload.result_type !== input.resultType ||
     payload.reached_wave !== input.reachedWave ||
     payload.score !== input.score ||
+    (payload.duplicate === false &&
+      (payload.score_recorded !== true ||
+        typeof payload.best_score !== "number" ||
+        !Number.isSafeInteger(payload.best_score) ||
+        typeof payload.play_count !== "number" ||
+        !Number.isSafeInteger(payload.play_count) ||
+        payload.play_count < 0 ||
+        typeof payload.is_new_best !== "boolean")) ||
     typeof payload.duplicate !== "boolean"
   )
     throw responseError(null);
 }
 
 export function normalizeRanking(payload: unknown): RankingRow[] {
-  if (!Array.isArray(payload)) return [];
-  return payload.slice(0, 30).map((row, index) => {
+  if (!Array.isArray(payload)) throw responseError(null);
+  return payload.slice(0, 30).map(row => {
+    if (!row || typeof row !== "object" || Array.isArray(row))
+      throw responseError(null);
     const item = row as Record<string, unknown>;
-    return {
-      rank: Number(item.rank_no ?? item.rank) || index + 1,
-      displayName:
-        cleanPlayerName(
-          String(item.display_name ?? item.player_name ?? "プレイヤー")
-        ) || "プレイヤー",
-      score: Number(item.best_score ?? item.score) || 0,
-    };
+    // Keep the server's shared ranking order and ties, including legacy signed scores.
+    const rank = item.rank_no,
+      score = item.best_score;
+    if (
+      typeof rank !== "number" ||
+      !Number.isSafeInteger(rank) ||
+      rank < 1 ||
+      typeof score !== "number" ||
+      !Number.isSafeInteger(score) ||
+      typeof item.display_name !== "string" ||
+      !item.display_name.trim()
+    )
+      throw responseError(null);
+    return { rank, displayName: item.display_name.trim(), score };
   });
 }
 

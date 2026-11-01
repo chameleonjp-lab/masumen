@@ -19,6 +19,7 @@ import {
   createPlaySession,
   readPendingPlays,
   restorePlaySession,
+  restoreResultSnapshot,
   type PendingPlay,
 } from "@/game/playSession";
 import { ASSET_URLS } from "@/game/assets";
@@ -1078,22 +1079,8 @@ export default function GameCanvas() {
     resetPointerInput();
     restoredResultRef.current = true;
     playSessionRef.current = play;
-    const saved = entry.presentation;
-    // Only result presentation is restored. Never resume or award gameplay again.
-    setSnapshot({
-      ...initialSnapshot,
-      ...(saved ?? {}),
-      mode: "result",
-      score: entry.result.score,
-      reachedWave: entry.result.reachedWave,
-      wave: entry.result.reachedWave,
-      outcome:
-        entry.result.resultType === "clear"
-          ? "victory"
-          : saved?.outcome === "draw"
-            ? "draw"
-            : "defeat",
-    });
+    // Never spread stored engine objects into current gameplay/UI state.
+    setSnapshot(restoreResultSnapshot(entry, initialSnapshot));
     setRanking([]);
     setEntryScreen("game");
     setRankingRetryToken(token => token + 1);

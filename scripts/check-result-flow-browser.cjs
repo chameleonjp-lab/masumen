@@ -5,7 +5,12 @@ const assert=require('node:assert/strict');
  const browser=await engine.launch({headless:true});try{
  const page=await browser.newPage({viewport:{width:402,height:874},locale:'en-US'});const calls=[],errors=[];let lose=true;
  page.on('pageerror',e=>errors.push(e.message));
- await page.route('https://mlpnjgezrnhdxsxolyzj.supabase.co/**',r=>{
+ await page.route('**/*', route => {
+      const url = new URL(route.request().url());
+      const allowed = new URL(process.env.MASUMEN_TEST_URL || 'http://localhost:4175/masumen/');
+      return url.origin === allowed.origin ? route.continue() : route.abort('blockedbyclient');
+    });
+    await page.route('https://mlpnjgezrnhdxsxolyzj.supabase.co/**',r=>{
  const name=r.request().url().split('/').pop(),body=r.request().postDataJSON();calls.push({name,body});let payload=[];
  if(name==='start_masumen_play_v1')payload={accepted:true,duplicate:false,start_id:body.p_start_id,play_id:'30000000-0000-4000-8000-000000000003',game_slug:'masumen',display_name:body.p_display_name,normalized_name:body.p_display_name,client_version:body.p_client_version};
  if(name==='finish_masumen_play_v1'){if(lose)return r.abort('failed');payload={accepted:true,duplicate:true,play_id:body.p_play_id,game_slug:'masumen',result_type:body.p_result_type,reached_wave:body.p_reached_wave,score:body.p_score};}

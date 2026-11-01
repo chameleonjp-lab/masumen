@@ -28,6 +28,11 @@ async function run() {
     const page = await browser.newPage({ viewport: { width: 393, height: 852 }, hasTouch: true });
     const errors = [], calls = [];
     page.on('pageerror', error => errors.push(error.message));
+    await page.route('**/*', route => {
+      const url = new URL(route.request().url());
+      const allowed = new URL(process.env.MASUMEN_TEST_URL || 'http://localhost:4175/masumen/');
+      return url.origin === allowed.origin ? route.continue() : route.abort('blockedbyclient');
+    });
     await page.route('https://mlpnjgezrnhdxsxolyzj.supabase.co/**', route => {
       const url = route.request().url(), body = route.request().postDataJSON(); calls.push({ url, body });
       let payload = [];
@@ -73,7 +78,7 @@ async function run() {
     await page.screenshot({ path: resolve(artifacts, `masumen-${engine.name()}-cards-th.png`) });
     await page.evaluate(() => {
       localStorage.setItem('masumen.language.v1', 'en');
-      localStorage.setItem('masumen.pending-play.v1:10000000-0000-4000-8000-000000000001', JSON.stringify({ startId: '10000000-0000-4000-8000-000000000001', playerName: '連射弾 <b>Alice</b>', clientVersion: 'captured-version', result: { score: 321, resultType: 'clear', reachedWave: 5 } }));
+      localStorage.setItem('masumen.pending-play.v1:10000000-0000-4000-8000-000000000001', JSON.stringify({ startId: '10000000-0000-4000-8000-000000000001', playerName: '連射弾 <b>Alice</b>', clientVersion: 'captured-version', result: { score: 321, resultType: 'clear', reachedWave: 4 } }));
     });
     await page.reload(); await page.locator('#masumen-language').waitFor({ timeout: 90000 }); await languageModule(page);
     await page.locator('.pending-results button').click();

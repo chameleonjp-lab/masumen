@@ -126,12 +126,88 @@ describe("CardAudioの戦闘SE", () => {
   });
 });
 
-it('volume zero avoids creating or resuming audio', () => {
-  vi.stubGlobal('window',{AudioContext:StubAudioContext});
-  const audio = new CardAudio(); audio.setVolume(0); audio.unlock(); audio.playEnemyAttack('melee');
+it("volume zero avoids creating or resuming audio", () => {
+  vi.stubGlobal("window", { AudioContext: StubAudioContext });
+  const audio = new CardAudio();
+  audio.setVolume(0);
+  audio.unlock();
+  audio.playEnemyAttack("melee");
   expect(contexts).toHaveLength(0);
 });
-it('blocked audio constructor does not escape into gameplay', () => {
-  vi.stubGlobal('window',{AudioContext:class {constructor(){throw new Error('blocked')}}});
-  const audio=new CardAudio();expect(()=>audio.unlock()).not.toThrow();expect(()=>audio.playEnemyAttack('melee')).not.toThrow();
+it("blocked audio constructor does not escape into gameplay", () => {
+  vi.stubGlobal("window", {
+    AudioContext: class {
+      constructor() {
+        throw new Error("blocked");
+      }
+    },
+  });
+  const audio = new CardAudio();
+  expect(() => audio.unlock()).not.toThrow();
+  expect(() => audio.playEnemyAttack("melee")).not.toThrow();
+});
+
+it("disconnects the gain even if source disconnection throws", () => {
+  const { audio, context } = setupAudio();
+  const disconnect = vi.fn();
+  vi.spyOn(context, "createGain").mockImplementation(
+    () =>
+      ({ gain: new FakeAudioParam(), connect: () => ({}), disconnect }) as any
+  );
+  vi.spyOn(context, "createOscillator").mockImplementation(
+    () =>
+      ({
+        type: "sine",
+        frequency: new FakeAudioParam(),
+        connect: (g: any) => g,
+        start() {},
+        stop() {},
+        disconnect() {
+          throw Error("source disconnected");
+        },
+      }) as any
+  );
+  audio.playCounter();
+  audio.stop();
+  expect(disconnect).toHaveBeenCalledTimes(3);
+});
+it("isolates node construction failures from gameplay and releases partially built nodes", () => {
+  const { audio, context } = setupAudio();
+  const disconnect = vi.fn(),
+    stop = vi.fn();
+  vi.spyOn(context, "createOscillator").mockImplementation(
+    () => ({ disconnect, stop }) as any
+  );
+  vi.spyOn(context, "createGain").mockImplementation(() => {
+    throw Error("unavailable");
+  });
+  expect(() => audio.playCounter()).not.toThrow();
+  expect(disconnect).toHaveBeenCalled();
+});
+it("stops scheduled voices when the audio context is interrupted", () => {
+  const { audio, context } = setupAudio();
+  const stop = vi.fn();
+  vi.spyOn(context, "createOscillator").mockImplementation(
+    () =>
+      ({
+        type: "sine",
+        frequency: new FakeAudioParam(),
+        connect: (g: any) => g,
+        start() {},
+        stop,
+        disconnect() {},
+      }) as any
+  );
+  audio.playCounter();
+  stop.mockClear();
+  (context as any).state = "interrupted";
+  (context as any).onstatechange?.();
+  expect(stop).toHaveBeenCalledTimes(3);
+});
+it("synchronous close failure never escapes disposal", () => {
+  const { audio, context } = setupAudio();
+  vi.spyOn(context, "close").mockImplementation(() => {
+    throw Error("closed");
+  });
+  expect(() => audio.dispose()).not.toThrow();
 });

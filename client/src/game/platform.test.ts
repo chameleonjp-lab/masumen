@@ -41,9 +41,7 @@ describe("マスメンのシェア文", () => {
         simultaneousDefeats: 1,
         cardsUsed: 5,
       })
-    ).toBe(
-      `【マスメン】今回の結果：1,234点\n${GAME_URL}`
-    );
+    ).toBe(`【マスメン】今回の結果：1,234点\n${GAME_URL}`);
   });
 });
 
@@ -110,14 +108,37 @@ describe("Supabaseランキングの表示変換", () => {
     fetchMock
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ accepted: true, duplicate: false, start_id: "10000000-0000-4000-8000-000000000001",play_id: "30000000-0000-4000-8000-000000000003",game_slug:"masumen",display_name:"テスト名",normalized_name:"テスト名",client_version:CLIENT_VERSION }),
+        json: async () => ({
+          accepted: true,
+          duplicate: false,
+          start_id: "10000000-0000-4000-8000-000000000001",
+          play_id: "30000000-0000-4000-8000-000000000003",
+          game_slug: "masumen",
+          display_name: "テスト名",
+          normalized_name: "テスト名",
+          client_version: CLIENT_VERSION,
+        }),
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ accepted: true, duplicate:false,play_id:"30000000-0000-4000-8000-000000000003",game_slug:"masumen",result_type:"game_over",reached_wave:3,score:4321 }),
+        json: async () => ({
+          accepted: true,
+          duplicate: false,
+          play_id: "30000000-0000-4000-8000-000000000003",
+          game_slug: "masumen",
+          result_type: "game_over",
+          reached_wave: 3,
+          score: 4321,
+          score_recorded: true,
+          best_score: 4321,
+          play_count: 1,
+          is_new_best: true,
+        }),
       } as Response);
 
-    await expect(startMasumenPlay("  テスト名  ","10000000-0000-4000-8000-000000000001")).resolves.toBe("30000000-0000-4000-8000-000000000003");
+    await expect(
+      startMasumenPlay("  テスト名  ", "10000000-0000-4000-8000-000000000001")
+    ).resolves.toBe("30000000-0000-4000-8000-000000000003");
     await expect(
       finishMasumenPlay({
         playId: "30000000-0000-4000-8000-000000000003",
@@ -143,28 +164,71 @@ describe("Supabaseランキングの表示変換", () => {
   });
 });
 
-describe('saved sound preferences', () => {
-  it('keeps explicit off and zero and defaults only invalid values', async () => {
-    const {readSoundPreferences, saveSoundPreferences}=await import('./platform');
-    const values = new Map<string,string>();
-    vi.stubGlobal('localStorage',{getItem:(key:string)=>values.get(key)??null,setItem:(key:string,value:string)=>values.set(key,value)});
-    expect(readSoundPreferences()).toEqual({enabled:true,volume:70});
-    saveSoundPreferences({enabled:false,volume:0});
-    expect(readSoundPreferences()).toEqual({enabled:false,volume:0});
-    saveSoundPreferences({enabled:true,volume:35});
-    expect(readSoundPreferences()).toEqual({enabled:true,volume:35});
+describe("saved sound preferences", () => {
+  it("keeps explicit off and zero and defaults only invalid values", async () => {
+    const { readSoundPreferences, saveSoundPreferences } = await import(
+      "./platform"
+    );
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    expect(readSoundPreferences()).toEqual({ enabled: true, volume: 70 });
+    saveSoundPreferences({ enabled: false, volume: 0 });
+    expect(readSoundPreferences()).toEqual({ enabled: false, volume: 0 });
+    saveSoundPreferences({ enabled: true, volume: 35 });
+    expect(readSoundPreferences()).toEqual({ enabled: true, volume: 35 });
     vi.unstubAllGlobals();
   });
 });
 
-describe('strict acknowledgements for the existing idempotent protocol',()=>{
-  it('does not accept an unrelated start ID/name/version',async()=>{
-    vi.spyOn(globalThis,'fetch').mockResolvedValue({ok:true,json:async()=>({accepted:true,duplicate:false,start_id:'wrong',play_id:'30000000-0000-4000-8000-000000000003',game_slug:'masumen',display_name:'Bob',normalized_name:'Bob',client_version:'new'})} as Response);
-    await expect(startMasumenPlay('Alice','10000000-0000-4000-8000-000000000001','captured')).rejects.toThrow();
+describe("strict acknowledgements for the existing idempotent protocol", () => {
+  it("does not accept an unrelated start ID/name/version", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        accepted: true,
+        duplicate: false,
+        start_id: "wrong",
+        play_id: "30000000-0000-4000-8000-000000000003",
+        game_slug: "masumen",
+        display_name: "Bob",
+        normalized_name: "Bob",
+        client_version: "new",
+      }),
+    } as Response);
+    await expect(
+      startMasumenPlay(
+        "Alice",
+        "10000000-0000-4000-8000-000000000001",
+        "captured"
+      )
+    ).rejects.toThrow();
   });
-  it('does not acknowledge a different result even when accepted is true',async()=>{
-    vi.spyOn(globalThis,'fetch').mockResolvedValue({ok:true,json:async()=>({accepted:true,duplicate:true,play_id:'30000000-0000-4000-8000-000000000003',game_slug:'masumen',result_type:'clear',reached_wave:5,score:999})} as Response);
-    await expect(finishMasumenPlay({playId:'30000000-0000-4000-8000-000000000003',playerName:'Alice',resultType:'clear',reachedWave:5,score:100,clientVersion:'captured'})).rejects.toThrow();
+  it("does not acknowledge a different result even when accepted is true", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        accepted: true,
+        duplicate: true,
+        play_id: "30000000-0000-4000-8000-000000000003",
+        game_slug: "masumen",
+        result_type: "clear",
+        reached_wave: 5,
+        score: 999,
+      }),
+    } as Response);
+    await expect(
+      finishMasumenPlay({
+        playId: "30000000-0000-4000-8000-000000000003",
+        playerName: "Alice",
+        resultType: "clear",
+        reachedWave: 5,
+        score: 100,
+        clientVersion: "captured",
+      })
+    ).rejects.toThrow();
   });
 });
 

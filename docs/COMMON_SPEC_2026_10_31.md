@@ -74,3 +74,30 @@ OFF/0/画面非表示/pagehideでは発声済み音を止める。表示復帰�
 5. 問題時はこのPRをrevertするPRをmainへマージし、同じ検証・公開経路で戻す。DB/参加者/設定/自己ベストの消去は不要。
 
 文言とルールの照合: 実装の GameWorld.FINAL_WAVE は着手時から4だが、既存ホーム・共有・HUDには5ウェーブと書かれていた。実際のルールを変更せず、4つの表示キーと全15訳を4ウェーブに修正した。READMEのWave1〜4は正しく、維持する。
+
+## 2026-11-02 後続検証（上記は 10月31日時点の履歴）
+
+対象の現物を 05:04〜05:07 JST に再確認。DB の `masumen` は active/shared、desc・整数・scale 1、正式 URL と実験場の現表示カードの「遊ぶ」「詳細ランキング」を照合した。公開ページは存在するが cloud browser は `engine / WebGLUnavailable` を表示した。同環境の WebGL 制約と製品不具合を区別し、実プレイ成功・未公開とは断定しない。今回も公開・DB変更・試験スコア送信なし。
+
+### 今回の修正と保持範囲
+
+- **確定結果の保全**: 同一 UUID の破損 raw / 別 payload / 他タブの変更を上書きしない。全バイト読み戻しで永続化を確認してから finish を送る。保存拒否・quota・書込み無視は結果をタブ内に保持し、保存可能になってから同じ ID で再試行する。開始の既存 start イベントはゲーム開始時に維持し、保存や通信をゲーム開始条件にしない。
+- ACK 前後に保存版を再照合し、競合した別結果を削除・上書きしない。ACK 確認済みは同じキーに `sent:true` の受領記録を保持し、未送信一覧から外す。同じ UUID で別プレイを開始しない。受領記録と未送信記録を無断で間引かないため保存量は増え得る。容量不足では既存記録を残して finish を保留し、警告と再試行を表示する。
+- 35件以上の未送信も保持し、返した表示用配列から内部送信 payload を書き換えられない。破損レコードは raw を残し自動送信しない。
+- 復元では保存した戦闘オブジェクトを現在の React 状態に展開しない。確定結果と一致する有限数値・正規配列・整合する得点内訳だけを表示用に復元する。現ゲームは 4 wave であり、途中 wave の clear / wave 5 以降を正常結果として再送しない。古い不整合データは削除せずそのまま残す（旧テストの架空 clear/wave5 を実仕様の wave4 に訂正）。採点・GameWorld・カード・時間・敵・wave 数自体は変更なし。
+- ランキング HTTP 200 でも非配列・欠けた順位/名前・不正得点は失敗表示にする。架空の順位や0点を補わない。共有ランキングの既存 signed integer / 同点順位 / 並び順は維持し、名前の翻訳や統合をしない。
+- 音源作成/接続/停止/切断/close の例外はゲームへ伝播させない。片方の disconnect が失敗してももう片方を解放し、AudioContext の interruption で古い予約音を停止。既存の音色・最大24声・OFF/0を維持。
+
+### 固有 API の確認
+
+現行 SQL 定義を読取確認（データ行や秘密値の複製なし）。`start_masumen_play_v1` は `start_game_play_v1` の JSONB 応答を使い、固有の開始回数・暫定 retire を維持する。start UUID/name/version/game と正しい UUID の play_id を確認する。
+
+`finish_masumen_play_v1` の初回成功は共通 finish JSONB に **score_recorded:true / best_score / play_count / is_new_best** を付ける。その初回 shape と ID/game/result_type/wave/score の一致を確認する。再送の **duplicate:true** は共通 finish の短い JSONB をそのまま返し、score_recorded 等を持たないので、初回専用フィールドを要求しない。finish ACK は name/version を返さず、サーバー内部で照合するため「返されない name/version を全文ACK照合した」とは表現しない。
+
+新設 normal 共通RPC・TABLE形式のACKへ置換していない。現行の固有RPCが存在するため、今回のクライアント修正に新DB適用依存はない。一方、同名別人/改名を超える participant identity と厳密な30人の保証は未完了のまま（本人方式判断・別契約対応が必要）。
+
+### 確認の区別
+
+単体・型検査・既存10監査・ビルドを再実行する。追加の回帰テストは実際に失敗してから修正した。既存 optional Chromium/WebKit スクリプトを標準 ubuntu-latest の Combat CI へ組み込み、Playwright 1.62.1 コンテナと同版 SDK を使用する。ローカル配信先以外の通信は遮断し、Supabase の実サービスに届くリクエストはない。通常戦闘→敗北→実 BattleSnapshot→失われたACK→同じID再送は既存シナリオを維持。CI の確定 SHA / 結果は PR 最新追記を参照する。
+
+本対応はクライアント実装・PR検証の単位。本人マージ、Pages Source 現設定の今回の確認、マージ後の公開動作、iPhone 17 Pro Safari 実機、実際の聴取、全翻訳の母語評価、participant identity/厳密30人は完了扱いにしない。旧「Pages source確認済み」は10月31日の報告であり、今回の設定確認とは区別する。戻す場合は本人による revert PR と同じ検証経路を使い、既存スコア・設定・未送信・受領記録を削除しない。
