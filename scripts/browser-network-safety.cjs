@@ -8,7 +8,8 @@ async function isolateBrowserNetwork(context,base){
  await context.route('**/*',async route=>{
   const request=route.request();
   if(new URL(request.url()).origin!==base.origin||!['GET','HEAD'].includes(request.method()))return route.abort('blockedbyclient');
-  const response=await route.fetch({maxRedirects:0});
+  // Retry only Playwright ECONNRESET for the already restricted local static GET/HEAD.
+  const response=await route.fetch({maxRedirects:0,maxRetries:2});
   if(response.status()>=300&&response.status()<400){await route.abort();throw new Error('Unexpected local redirect blocked');}
   await route.fulfill({response});
  });
