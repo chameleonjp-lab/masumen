@@ -277,7 +277,7 @@ export function homeShareText(): string {
   return t(
     "【マスメン】カードを使いながら4ウェーブを戦い抜け！\n{0}",
     GAME_URL
-  );
+  ) + "\n#マスメン #ゲーム制作";
 }
 
 export function resultShareText(snapshot: {
@@ -293,7 +293,7 @@ export function resultShareText(snapshot: {
     "【マスメン】今回の結果：{0}点\n{1}",
     formatNumber(snapshot.score),
     GAME_URL
-  );
+  ) + "\n#マスメン #ゲーム制作";
 }
 
 const SOUND_PREFERENCE_KEY = "masumen.sound.v1";
