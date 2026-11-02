@@ -1,3 +1,4 @@
+import { t, getLanguage } from "@/i18n";
 import { getCardCombatProfile } from "./data/cardCombatData";
 import { getCardVfxRecipe } from "./cardVisuals";
 import type { AttackProperty, Card, CardElement, TargetShape } from "./types";
@@ -65,10 +66,11 @@ const DEFAULT_SECONDARY = "#DDFBF4";
 
 function formatSeconds(milliseconds: number): string {
   const seconds = milliseconds / 1000;
-  return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}秒`;
+  return t("{0}秒", seconds);
 }
 
 function readableDescription(description: string): string {
+  if (getLanguage() !== "ja") return t(description);
   const normalized = description
     .replace(/(\d+(?:\.\d+)?)\s*ミリ秒/g, (_, value: string) =>
       formatSeconds(Number(value))
@@ -90,33 +92,33 @@ function cardGlyph(card: Card, properties: readonly AttackProperty[]): string {
 }
 
 function impactLabel(card: Card): string {
-  if (card.power > 0) return `威力 ${card.power}`;
+  if (card.power > 0) return t("威力 {0}", card.power);
   if (card.status === "recover" && card.effectValue)
-    return `回復 ${card.effectValue}`;
+    return t("回復 {0}", card.effectValue);
   if (card.status === "barrier" && card.effectValue)
-    return `障壁 ${card.effectValue}`;
-  if (card.effectValue) return `効果 ${card.effectValue}`;
-  return "補助効果";
+    return t("障壁 {0}", card.effectValue);
+  if (card.effectValue) return t("効果 {0}", card.effectValue);
+  return t("補助効果");
 }
 
 export function cardTargetLabel(card: Card | undefined): string {
-  if (!card) return "対象範囲";
-  return card.rangeLabel ?? TARGET_LABELS[card.target] ?? "対象範囲";
+  if (!card) return t("対象範囲");
+  return t(card.rangeLabel ?? TARGET_LABELS[card.target] ?? "対象範囲");
 }
 
 export function cardPresentation(card: Card | undefined): CardPresentation {
   if (!card) {
     return {
       glyph: "◆",
-      signatureLabel: "カードを選択",
-      roleLabel: "カード",
-      propertyLabel: "効果を表示",
-      targetLabel: "対象範囲",
-      impactLabel: "補助効果",
+      signatureLabel: t("カードを選択"),
+      roleLabel: t("カード"),
+      propertyLabel: t("効果を表示"),
+      targetLabel: t("対象範囲"),
+      impactLabel: t("補助効果"),
       hitLabel: null,
       statusLabel: null,
       durationLabel: null,
-      summary: "カードを選ぶと、作用範囲と効果を確認できます。",
+      summary: t("カードを選ぶと、作用範囲と効果を確認できます。"),
       accent: DEFAULT_ACCENT,
       secondary: DEFAULT_SECONDARY,
     };
@@ -130,23 +132,25 @@ export function cardPresentation(card: Card | undefined): CardPresentation {
   const elementLabel = ELEMENT_LABELS[card.element ?? profile.element];
   const hitCount = card.hitCount ?? profile.hitCount;
   const propertyLabel =
-    properties.length > 0 ? properties.join("・") : card.family;
+    properties.length > 0
+      ? properties.map(property => t(property)).join(t("・"))
+      : t(card.family);
 
   return {
     glyph: cardGlyph(card, properties),
-    signatureLabel: recipe?.label ?? card.family,
-    roleLabel: card.family,
+    signatureLabel: t(recipe?.label ?? card.family),
+    roleLabel: t(card.family),
     propertyLabel: elementLabel
-      ? `${elementLabel} / ${propertyLabel}`
+      ? `${t(elementLabel)} / ${propertyLabel}`
       : propertyLabel,
     targetLabel: cardTargetLabel(card),
     impactLabel: impactLabel(card),
-    hitLabel: hitCount > 1 ? `${hitCount}回作用` : null,
+    hitLabel: hitCount > 1 ? t("{0}回作用", hitCount) : null,
     statusLabel: card.status
-      ? (STATUS_LABELS[card.status] ?? card.status)
+      ? t(STATUS_LABELS[card.status] ?? card.status)
       : null,
     durationLabel: card.durationMs
-      ? `時間 ${formatSeconds(card.durationMs)}`
+      ? t("時間 {0}", formatSeconds(card.durationMs))
       : null,
     summary: readableDescription(card.description),
     accent: recipe?.accent ?? DEFAULT_ACCENT,

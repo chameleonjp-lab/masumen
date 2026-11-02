@@ -161,12 +161,21 @@ function buildGameScene(scene: Scene, engine: Engine, canvas: HTMLCanvasElement,
   const glow = new GlowLayer("signal-glow", scene, { blurKernelSize: 28 });
   glow.intensity = 0.52;
   const audio = new CardAudio();
-  const unlockAudio = () => audio.unlock();
+  const unlockAudio = (event: Event) => {
+    if (event.target instanceof Element && event.target.closest(".sound-toggle, .volume-control")) return;
+    audio.unlock();
+  };
   window.addEventListener("pointerdown", unlockAudio, { passive: true });
   window.addEventListener("keydown", unlockAudio);
+  const stopHiddenAudio = () => { if (document.hidden) audio.stop(); };
+  document.addEventListener("visibilitychange", stopHiddenAudio);
+  const stopPageAudio = () => audio.stop();
+  window.addEventListener("pagehide", stopPageAudio);
   scene.onDisposeObservable.add(() => {
     window.removeEventListener("pointerdown", unlockAudio);
     window.removeEventListener("keydown", unlockAudio);
+    document.removeEventListener("visibilitychange", stopHiddenAudio);
+    window.removeEventListener("pagehide", stopPageAudio);
     audio.dispose();
   });
 

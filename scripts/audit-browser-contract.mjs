@@ -58,9 +58,9 @@ if (!index.includes("./assets/relay-mark.svg")) throw new Error("Entry page favi
 if (!index.includes("<title>マスメン</title>")) throw new Error("Entry page title must use マスメン");
 if (index.includes("グリッド・シグナル・アリーナ")) throw new Error("Entry page must not use the legacy game name");
 for (const required of [
-  'aria-label="マスメンの戦闘フィールド"',
-  'alt="マスメン"',
-  "<strong>マスメン</strong>",
+  'aria-label={t("マスメンの戦闘フィールド")}',
+  'alt={t("マスメン")}',
+  '<strong>{msg("マスメン")}</strong>',
 ]) {
   if (!gameCanvas.includes(required)) throw new Error(`Game brand contract missing: ${required}`);
 }
@@ -104,7 +104,7 @@ for (const required of ["syncProjectileVisuals(snapshot)", "projectileVisuals.cl
 if (!gameCanvas.includes("<StartupGate") || !startupUI.includes('state.status !== "ready"'))
   throw new Error("Startup screens must be exclusive");
 for (const required of [
-  "名前を入力して開始",
+  "プレイヤー名（任意）",
   "entryScreen",
   "KeyboardBindingPanel",
   "getKeyboardBindings",
@@ -149,8 +149,8 @@ if (/[A-Z]{3,}[- ]\d+/.test(enemies) || enemies.includes("BULWARK") || enemies.i
 for (const required of [
   "beginPointerAction",
   "touchActionForPointer",
-  'aria-label=\"通常攻撃\"',
-  'aria-label=\"チャージショット\"',
+  'aria-label={t("通常攻撃")}',
+  'aria-label={t("チャージショット")}',
   "controller?.toggleCard(index)",
   "data-card-index={index}",
   "cardPresentation(card)",
@@ -220,7 +220,7 @@ for (const required of [
   if (!platform.includes(required))
     throw new Error(`Ranking platform contract missing: ${required}`);
 }
-for (const required of ["ランキング上位10名", "online-ranking"]) {
+for (const required of ["ランキング上位30名", "online-ranking"]) {
   if (!resultScreen.includes(required))
     throw new Error(`Result screen ranking contract missing: ${required}`);
 }

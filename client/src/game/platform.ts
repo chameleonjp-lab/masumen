@@ -1,9 +1,12 @@
+import { t, formatNumber } from "@/i18n";
 export const GAME_URL = "https://chameleonjp-lab.github.io/masumen/";
-export const LAB_URL = "https://chameleonjp-lab.github.io/chameleonjp_lab/";
+export const LAB_URL =
+  "https://chameleonjp-lab.github.io/chameleonjp_lab/ranking.html?game=masumen";
 const SUPABASE_URL = "https://mlpnjgezrnhdxsxolyzj.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_drzcy0v97knU6FgjqSgBHw_0A9XPdFM";
+const SUPABASE_PUBLISHABLE_KEY =
+  "sb_publishable_drzcy0v97knU6FgjqSgBHw_0A9XPdFM";
 const GAME_SLUG = "masumen";
-const CLIENT_VERSION = "masumen-2026-08-31-platform";
+export const CLIENT_VERSION = "masumen-2026-08-31-platform";
 const PLAYER_NAME_KEY = "masumen.player-name";
 
 export interface RankingRow {
@@ -13,7 +16,12 @@ export interface RankingRow {
 }
 
 export function cleanPlayerName(value: string): string {
-  return value.replace(/\s+/g, " ").trim().slice(0, 20);
+  // Keep the existing UTF-16 limit without cutting an emoji into invalid text.
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 20)
+    .replace(/[\uD800-\uDBFF]$/, "");
 }
 
 export function readPlayerName(): string {
@@ -43,24 +51,36 @@ function apiHeaders(): HeadersInit {
   };
 }
 
-async function callRpc<T>(functionName: string, body: Record<string, unknown>): Promise<T> {
+async function callRpc<T>(
+  functionName: string,
+  body: Record<string, unknown>
+): Promise<T> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10_000);
   try {
-    const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${functionName}`, {
-      method: "POST",
-      headers: apiHeaders(),
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    if (!response.ok) throw new Error(`ランキング通信に失敗しました (${response.status})`);
+    const response = await fetch(
+      `${SUPABASE_URL}/rest/v1/rpc/${functionName}`,
+      {
+        method: "POST",
+        headers: apiHeaders(),
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      }
+    );
+    if (!response.ok)
+      throw new Error(`ランキング通信に失敗しました (${response.status})`);
     return (await response.json()) as T;
   } finally {
     clearTimeout(timeout);
   }
 }
 
-function createRequestId(): string {
+export function createRequestId(): string {
+  try {
+    if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  } catch {
+    /* Keep the existing fallback for older browsers. */
+  }
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, token => {
     const random = Math.floor(Math.random() * 16);
     const value = token === "x" ? random : (random & 0x3) | 0x8;
@@ -68,27 +88,55 @@ function createRequestId(): string {
   });
 }
 
-interface StartMasumenPlayResponse {
-  accepted: boolean;
-  play_id?: string;
-  reason?: string;
-}
-
-interface FinishMasumenPlayResponse {
-  accepted: boolean;
-  duplicate?: boolean;
-  reason?: string;
-}
-
-export async function startMasumenPlay(playerName: string): Promise<string> {
-  const payload = await callRpc<StartMasumenPlayResponse>("start_masumen_play_v1", {
-    p_start_id: createRequestId(),
-    p_display_name: cleanPlayerName(playerName),
-    p_client_version: CLIENT_VERSION,
+function responseError(reason: unknown): Error {
+  const error = new Error(
+    typeof reason === "string" ? reason : "ランキング応答を確認できませんでした"
+  );
+  // Transport/malformed acknowledgements stay retryable. Permanent protocol
+  // rejections retain the original pending result without changing its identity.
+  Object.assign(error, {
+    permanent: [
+      "required_input_missing",
+      "invalid_input",
+      "invalid_score",
+      "score_out_of_range",
+      "start_id_conflict",
+      "play_payload_mismatch",
+      "play_already_finished",
+    ].includes(String(reason)),
   });
-  if (!payload.accepted || typeof payload.play_id !== "string") {
-    throw new Error(payload.reason ?? "プレイ開始を記録できませんでした");
-  }
+  return error;
+}
+export async function startMasumenPlay(
+  playerName: string,
+  startId = createRequestId(),
+  clientVersion = CLIENT_VERSION
+): Promise<string> {
+  const name = cleanPlayerName(playerName);
+  const payload = await callRpc<Record<string, unknown>>(
+    "start_masumen_play_v1",
+    {
+      p_start_id: startId,
+      p_display_name: name,
+      p_client_version: clientVersion,
+    }
+  );
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    throw responseError(null);
+  if (payload.accepted !== true) throw responseError(payload.reason);
+  if (
+    payload.start_id !== startId ||
+    typeof payload.play_id !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      payload.play_id
+    ) ||
+    payload.game_slug !== GAME_SLUG ||
+    payload.display_name !== name ||
+    payload.normalized_name !== name ||
+    payload.client_version !== clientVersion ||
+    typeof payload.duplicate !== "boolean"
+  )
+    throw responseError(null);
   return payload.play_id;
 }
 
@@ -98,39 +146,79 @@ export async function finishMasumenPlay(input: {
   resultType: "clear" | "game_over" | "retire";
   reachedWave: number;
   score: number;
+  clientVersion?: string;
 }): Promise<void> {
-  const payload = await callRpc<FinishMasumenPlayResponse>("finish_masumen_play_v1", {
-    p_play_id: input.playId,
-    p_display_name: cleanPlayerName(input.playerName),
-    p_result_type: input.resultType,
-    p_reached_wave: Math.max(1, Math.round(input.reachedWave)),
-    p_score: Math.max(0, Math.round(input.score)),
-    p_client_version: CLIENT_VERSION,
-  });
-  if (!payload.accepted) throw new Error(payload.reason ?? "スコアを登録できませんでした");
+  const payload = await callRpc<Record<string, unknown>>(
+    "finish_masumen_play_v1",
+    {
+      p_play_id: input.playId,
+      p_display_name: cleanPlayerName(input.playerName),
+      p_result_type: input.resultType,
+      p_reached_wave: input.reachedWave,
+      p_score: input.score,
+      p_client_version: input.clientVersion ?? CLIENT_VERSION,
+    }
+  );
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    throw responseError(null);
+  if (payload.accepted !== true) throw responseError(payload.reason);
+  if (
+    payload.play_id !== input.playId ||
+    payload.game_slug !== GAME_SLUG ||
+    payload.result_type !== input.resultType ||
+    payload.reached_wave !== input.reachedWave ||
+    payload.score !== input.score ||
+    (payload.duplicate === false &&
+      (payload.score_recorded !== true ||
+        typeof payload.best_score !== "number" ||
+        !Number.isInteger(payload.best_score) ||
+        payload.best_score < -2147483648 ||
+        payload.best_score > 2147483647 ||
+        typeof payload.play_count !== "number" ||
+        !Number.isInteger(payload.play_count) ||
+        payload.play_count > 2147483647 ||
+        payload.play_count < 0 ||
+        typeof payload.is_new_best !== "boolean")) ||
+    typeof payload.duplicate !== "boolean"
+  )
+    throw responseError(null);
 }
 
 export function normalizeRanking(payload: unknown): RankingRow[] {
-  if (!Array.isArray(payload)) return [];
-  return payload.slice(0, 10).map((row, index) => {
+  if (!Array.isArray(payload)) throw responseError(null);
+  return payload.slice(0, 30).map(row => {
+    if (!row || typeof row !== "object" || Array.isArray(row))
+      throw responseError(null);
     const item = row as Record<string, unknown>;
-    return {
-      rank: Number(item.rank_no ?? item.rank) || index + 1,
-      displayName: cleanPlayerName(String(item.display_name ?? item.player_name ?? "プレイヤー")) || "プレイヤー",
-      score: Number(item.best_score ?? item.score) || 0,
-    };
+    // Keep the server's shared ranking order and ties, including legacy signed scores.
+    const rank = item.rank_no,
+      score = item.best_score;
+    if (
+      typeof rank !== "number" ||
+      !Number.isSafeInteger(rank) ||
+      rank < 1 ||
+      typeof score !== "number" ||
+      !Number.isSafeInteger(score) ||
+      typeof item.display_name !== "string" ||
+      !item.display_name.trim()
+    )
+      throw responseError(null);
+    return { rank, displayName: item.display_name.trim(), score };
   });
 }
 
 export async function loadRanking(): Promise<RankingRow[]> {
   const payload = await callRpc<unknown>("get_best_score_ranking", {
     p_game_slug: GAME_SLUG,
-    p_limit: 10,
+    p_limit: 30,
   });
   return normalizeRanking(payload);
 }
 
-export async function submitAndLoadRanking(score: number, playerName: string): Promise<RankingRow[]> {
+export async function submitAndLoadRanking(
+  score: number,
+  playerName: string
+): Promise<RankingRow[]> {
   await callRpc<unknown>("submit_score", {
     p_display_name: cleanPlayerName(playerName),
     p_game_slug: GAME_SLUG,
@@ -140,15 +228,23 @@ export async function submitAndLoadRanking(score: number, playerName: string): P
   return loadRanking();
 }
 
-export async function shareOrCopy(text: string): Promise<"shared" | "copied" | "cancelled" | "failed"> {
-  if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+export async function shareOrCopy(
+  text: string
+): Promise<"shared" | "copied" | "cancelled" | "failed"> {
+  if (typeof window !== "undefined") {
+    const intent = new URL("https://x.com/intent/tweet");
+    intent.searchParams.set("text", text);
     try {
-      await navigator.share({ text });
-      return "shared";
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return "cancelled";
+      const composer = window.open(intent.href, "_blank");
+      if (composer) {
+        composer.opener = null;
+        return "shared";
+      }
+    } catch {
+      /* A blocked composer still offers a copy fallback. */
     }
   }
+
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
@@ -168,7 +264,9 @@ export async function shareOrCopy(text: string): Promise<"shared" | "copied" | "
   }
 }
 
-export function shareStatusText(status: "shared" | "copied" | "cancelled" | "failed"): string {
+export function shareStatusText(
+  status: "shared" | "copied" | "cancelled" | "failed"
+): string {
   if (status === "shared") return "シェア画面を開きました";
   if (status === "copied") return "シェア文をコピーしました";
   if (status === "cancelled") return "シェアをキャンセルしました";
@@ -176,7 +274,10 @@ export function shareStatusText(status: "shared" | "copied" | "cancelled" | "fai
 }
 
 export function homeShareText(): string {
-  return `【マスメン】カードを使いながら5ウェーブを戦い抜け！\n${GAME_URL}`;
+  return t(
+    "【マスメン】カードを使いながら4ウェーブを戦い抜け！\n{0}",
+    GAME_URL
+  );
 }
 
 export function resultShareText(snapshot: {
@@ -188,9 +289,40 @@ export function resultShareText(snapshot: {
   simultaneousDefeats: number;
   cardsUsed: number;
 }): string {
-  return [
-    "【マスメン】カードを使いながら5ウェーブを戦い抜け！",
-    `スコア：${snapshot.score.toLocaleString()}点`,
-    GAME_URL,
-  ].join("\n");
+  return t(
+    "【マスメン】今回の結果：{0}点\n{1}",
+    formatNumber(snapshot.score),
+    GAME_URL
+  );
+}
+
+const SOUND_PREFERENCE_KEY = "masumen.sound.v1";
+export function readSoundPreferences(): { enabled: boolean; volume: number } {
+  try {
+    const value = JSON.parse(
+      localStorage.getItem(SOUND_PREFERENCE_KEY) ?? "{}"
+    );
+    return {
+      enabled: typeof value?.enabled === "boolean" ? value.enabled : true,
+      volume:
+        typeof value?.volume === "number" &&
+        Number.isFinite(value.volume) &&
+        value.volume >= 0 &&
+        value.volume <= 100
+          ? value.volume
+          : 70,
+    };
+  } catch {
+    return { enabled: true, volume: 70 };
+  }
+}
+export function saveSoundPreferences(value: {
+  enabled: boolean;
+  volume: number;
+}): void {
+  try {
+    localStorage.setItem(SOUND_PREFERENCE_KEY, JSON.stringify(value));
+  } catch {
+    /* Session choice still applies. */
+  }
 }

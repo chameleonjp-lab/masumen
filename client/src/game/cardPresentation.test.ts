@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { setLanguage } from "@/i18n";
+import { beforeEach, describe, expect, it } from "vitest";
 import { CARD_CATALOG } from "./deck";
 import { OVERLOAD_CARDS } from "./data/overloadCards";
 import { cardPresentation, cardTargetLabel } from "./cardPresentation";
@@ -28,7 +29,7 @@ describe("カード表示用プレゼンテーション", () => {
       CARD_CATALOG.find(card => card.id === "repair")
     );
 
-    expect(rapid.summary).toContain("0.1秒間隔");
+    expect(rapid.summary).toContain("0.09秒間隔");
     expect(block.summary).toContain("耐久100");
     expect(repair.summary).toContain("0.6秒");
     expect(repair.statusLabel).toBe("回復");
@@ -86,3 +87,6 @@ describe("カード表示用プレゼンテーション", () => {
     expect(cardTargetLabel(undefined)).toBe("対象範囲");
   });
 });
+
+// These existing assertions verify the Japanese presentation explicitly.
+beforeEach(() => setLanguage("ja", { persist: false }));
