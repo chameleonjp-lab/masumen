@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { mkdirSync } = require('node:fs');
+const { mkdirSync, writeFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 const { isolateBrowserNetwork, localTestURL } = require('./browser-network-safety.cjs');
 
@@ -37,6 +37,10 @@ async function captureThumbnailScene(browser, engine, baseUrl) {
     const directory = resolve(process.env.MASUMEN_TEST_ARTIFACTS || 'test-artifacts/share');
     mkdirSync(directory, { recursive: true });
     await page.screenshot({ path: resolve(directory, `${engine}-thumbnail-source.png`) });
+    // Existing engine preserves its drawing buffer; read pixels without overlay HUD or a forced draw.
+    const canvasPNG = await page.locator('.game-canvas').evaluate(canvas => canvas.toDataURL('image/png'));
+    assert.match(canvasPNG, /^data:image\/png;base64,/);
+    writeFileSync(resolve(directory, `${engine}-thumbnail-canvas.png`), Buffer.from(canvasPNG.split(',')[1], 'base64'));
     assert.deepEqual(calls, ['start_masumen_play_v1']);
     assert.deepEqual(errors, []);
     console.log(`PASS ${engine}: genuine Japanese battle source captured; image content still requires visual review`);
