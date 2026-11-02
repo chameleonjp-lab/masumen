@@ -1,0 +1,35 @@
+name: Isolated SVG texture diagnosis
+on:
+  push:
+    branches: [diagnostic/masumen-svg-intrinsic-20261102]
+permissions:
+  contents: read
+concurrency:
+  group: svg-texture-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  diagnose:
+    if: github.ref == 'refs/heads/diagnostic/masumen-svg-intrinsic-20261102'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    container: mcr.microsoft.com/playwright:v1.62.1-noble
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install existing pinned browser dependency only
+        run: npm install --prefix "$RUNNER_TEMP/masumen-svg-browser" --no-save --package-lock=false --ignore-scripts playwright@1.62.1
+      - name: Run network-isolated SVG controls without game or RPC
+        env:
+          PLAYWRIGHT_PACKAGE: ${{ runner.temp }}/masumen-svg-browser/node_modules/playwright
+          SVG_DIAGNOSTIC_OUTPUT: test-artifacts/svg-${{ github.run_id }}-${{ github.run_attempt }}
+        run: node scripts/svg-texture-isolation.cjs
+      - name: Preserve numeric diagnostics and anonymous pixels
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: svg-texture-${{ github.sha }}-${{ github.run_attempt }}
+          path: test-artifacts/svg-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: error
+          retention-days: 7
