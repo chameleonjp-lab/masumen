@@ -30,7 +30,7 @@ jobs:
       - name: Audit combat data
         run: pnpm audit:card-vfx && pnpm audit:combat-data && pnpm audit:card-combat && pnpm audit:chain-data && pnpm audit:encounters && pnpm audit:board-data && pnpm audit:attack-data && pnpm audit:folder-data && pnpm audit:browser-contract
       - name: Run unit tests
-        run: pnpm test
+        run: pnpm test && node --test scripts/share-thumbnail.test.cjs
       - name: Type check
         run: pnpm check
       - name: Build
