@@ -2,6 +2,7 @@
 const {chromium,webkit}=require(process.env.PLAYWRIGHT_PACKAGE || 'playwright');
 const assert=require('node:assert/strict');
 const {checkShareAcceptance}=require('./share-acceptance.cjs');
+const {captureThumbnailScene}=require('./capture-thumbnail-scene.cjs');
 const {mkdirSync}=require('node:fs');const {resolve}=require('node:path');
 const {localTestURL,isolateBrowserNetwork}=require('./browser-network-safety.cjs');
 const baseUrl=localTestURL(process.env.MASUMEN_TEST_URL).href;
@@ -38,6 +39,7 @@ const baseUrl=localTestURL(process.env.MASUMEN_TEST_URL).href;
  assert.equal(calls.filter(x=>x.name==='start_masumen_play_v1').length,1);const finishes=calls.filter(x=>x.name==='finish_masumen_play_v1');assert.equal(finishes.length,2);assert.deepEqual(finishes[0].body,finishes[1].body);
  assert.match(await page.locator('.result-share-text').inputValue(),new RegExp(String(saved.result.score)));assert.deepEqual(errors,[]);
  await checkShareAcceptance(browser,engine.name(),baseUrl,saved);
+ await captureThumbnailScene(browser,engine.name(),baseUrl);
  console.log(JSON.stringify({engine:engine.name(),actualResult:saved.result,elapsed:saved.presentation.elapsed,persistedSnapshot:true,sameFinishPayload:true,noProductionWrites:true}));
  }finally{await browser.close()}
 }})().catch(e=>{console.error(e);process.exitCode=1});
