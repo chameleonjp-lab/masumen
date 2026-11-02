@@ -171,9 +171,12 @@ export async function finishMasumenPlay(input: {
     (payload.duplicate === false &&
       (payload.score_recorded !== true ||
         typeof payload.best_score !== "number" ||
-        !Number.isSafeInteger(payload.best_score) ||
+        !Number.isInteger(payload.best_score) ||
+        payload.best_score < -2147483648 ||
+        payload.best_score > 2147483647 ||
         typeof payload.play_count !== "number" ||
-        !Number.isSafeInteger(payload.play_count) ||
+        !Number.isInteger(payload.play_count) ||
+        payload.play_count > 2147483647 ||
         payload.play_count < 0 ||
         typeof payload.is_new_best !== "boolean")) ||
     typeof payload.duplicate !== "boolean"

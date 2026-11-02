@@ -101,3 +101,10 @@ OFF/0/画面非表示/pagehideでは発声済み音を止める。表示復帰�
 単体・型検査・既存10監査・ビルドを再実行する。追加の回帰テストは実際に失敗してから修正した。既存 optional Chromium/WebKit スクリプトを標準 ubuntu-latest の Combat CI へ組み込み、Playwright 1.62.1 コンテナと同版 SDK を使用する。ローカル配信先以外の通信は遮断し、Supabase の実サービスに届くリクエストはない。通常戦闘→敗北→実 BattleSnapshot→失われたACK→同じID再送は既存シナリオを維持。CI の確定 SHA / 結果は PR 最新追記を参照する。
 
 本対応はクライアント実装・PR検証の単位。本人マージ、Pages Source 現設定の今回の確認、マージ後の公開動作、iPhone 17 Pro Safari 実機、実際の聴取、全翻訳の母語評価、participant identity/厳密30人は完了扱いにしない。旧「Pages source確認済み」は10月31日の報告であり、今回の設定確認とは区別する。戻す場合は本人による revert PR と同じ検証経路を使い、既存スコア・設定・未送信・受領記録を削除しない。
+
+## 2026-11-02 専用 finish ACK の整数境界補修
+
+- 09:56 JST の専用 start/finish 関数定義の読取で、初回 finish 応答の `best_score` / `play_count` は PostgreSQL integer と確認。2列が int4 範囲外でも送信済みにする誤受領を、実 `finishMasumenPlay` → 保存キューで再現したため、その境界だけを検査する。
+- 不正 ACK は確定結果・名前・play ID・client version を保持して pending とし、再読込後も同一内容を再送する。正常な duplicate 短縮応答、fallback の count 0、signed best、int4 最大値は拒否しない。normal RPC の9列を専用プロトコルへ要求しない。
+- 新規回帰7件は修正前3失敗/合法4成功、修正後7成功。全39ファイル288単体テスト、型検査を実行。ブラウザ・ビルド・CIの最終結果はこの変更headの検証記録を参照し、以前の成功とは分ける。
+- 採点、開始統計、参加者/保存ID、DB・Edge、本番公開は変更しない。既存の本人判断・設定・実機/母語/音/公開後確認の残件は維持。
