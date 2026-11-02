@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Signal pilot">
+<svg width="128" height="128" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Signal pilot">
 <defs><linearGradient id="p" x2="0" y2="1"><stop stop-color="#b8ffff"/><stop offset=".45" stop-color="#2ad4d9"/><stop offset="1" stop-color="#087d91"/></linearGradient><filter id="g"><feGaussianBlur stdDeviation="2"/></filter></defs>
 <path d="M34 44 41 20h46l8 24 9 10-8 40H31l-9-40z" fill="#07141c" stroke="#54f5ff" stroke-width="3"/>
 <path d="M39 48h50l-4 18H43z" fill="#071017" stroke="#a8f7ff" stroke-width="3"/><path d="m48 56 14-5 18 5-18 6z" fill="#e5ffff"/>

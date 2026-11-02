@@ -30,7 +30,7 @@ jobs:
       - name: Audit combat data
         run: pnpm audit:card-vfx && pnpm audit:combat-data && pnpm audit:card-combat && pnpm audit:chain-data && pnpm audit:encounters && pnpm audit:board-data && pnpm audit:attack-data && pnpm audit:folder-data && pnpm audit:browser-contract
       - name: Run unit tests
-        run: pnpm test && node --test scripts/share-thumbnail.test.cjs
+        run: pnpm test && node --test scripts/share-thumbnail.test.cjs scripts/svg-intrinsic.test.cjs
       - name: Type check
         run: pnpm check
       - name: Build
@@ -39,6 +39,20 @@ jobs:
         run: pnpm audit:build-output
       - name: Install pinned browser test dependency
         run: npm install --prefix "$RUNNER_TEMP/masumen-browser" --no-save --package-lock=false --ignore-scripts playwright@1.62.1
+      - name: SVG intrinsic-size GPU regression (no game or RPC)
+        env:
+          PLAYWRIGHT_PACKAGE: ${{ runner.temp }}/masumen-browser/node_modules/playwright
+        run: |
+          SVG_ASSET=pilot SVG_DIAGNOSTIC_OUTPUT=test-artifacts/svg-${{ github.run_id }}-${{ github.run_attempt }}/pilot node scripts/svg-texture-regression.cjs
+          SVG_ASSET=pilot-attack SVG_DIAGNOSTIC_OUTPUT=test-artifacts/svg-${{ github.run_id }}-${{ github.run_attempt }}/pilot-attack node scripts/svg-texture-regression.cjs
+      - name: Preserve isolated texture regression pixels
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: svg-regression-${{ github.sha }}-${{ github.run_attempt }}
+          path: test-artifacts/svg-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: warn
+          retention-days: 7
       - name: Browser checks with all ranking RPCs mocked
         env:
           PLAYWRIGHT_PACKAGE: ${{ runner.temp }}/masumen-browser/node_modules/playwright

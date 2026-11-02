@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Signal pilot">
+<defs><linearGradient id="p" x2="0" y2="1"><stop stop-color="#b8ffff"/><stop offset=".45" stop-color="#2ad4d9"/><stop offset="1" stop-color="#087d91"/></linearGradient><filter id="g"><feGaussianBlur stdDeviation="2"/></filter></defs>
+<path d="M34 44 41 20h46l8 24 9 10-8 40H31l-9-40z" fill="#07141c" stroke="#54f5ff" stroke-width="3"/>
+<path d="M39 48h50l-4 18H43z" fill="#071017" stroke="#a8f7ff" stroke-width="3"/><path d="m48 56 14-5 18 5-18 6z" fill="#e5ffff"/>
+<path d="M38 70h52l8 24H30z" fill="url(#p)" stroke="#d5fcfc" stroke-width="3"/><path d="M42 78h18m10 0h14M45 87h39" stroke="#07141c" stroke-width="3" opacity=".7"/>
+<path d="M30 76 17 87v12h19m56-23 13 11v12H87M47 94l-4 22m38-22 4 22" fill="none" stroke="#2ad4d9" stroke-width="7" stroke-linecap="round"/>
+<circle cx="64" cy="37" r="24" fill="#2ad4d9" opacity=".22" filter="url(#g)"/>
+</svg>
