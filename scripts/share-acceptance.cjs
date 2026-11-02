@@ -6,13 +6,26 @@ function metrics(el){
  const r=el.getBoundingClientRect(),s=getComputedStyle(el);let opacity=1,visible=true;
  for(let n=el;n;n=n.parentElement){const c=getComputedStyle(n);opacity*=Number(c.opacity);if(n.hidden||c.display==='none'||['hidden','collapse'].includes(c.visibility))visible=false;}
  const hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
- return {width:r.width,height:r.height,left:r.left,right:r.right,top:r.top,bottom:r.bottom,vw:innerWidth,vh:innerHeight,hit:hit===el||el.contains(hit),hitId:hit?.id,opacity,visible,color:s.color,background:s.backgroundColor,disabled:el.disabled,text:el.textContent.trim(),clipped:el.scrollWidth>el.clientWidth+1||el.scrollHeight>el.clientHeight+1};
+ return {width:r.width,height:r.height,left:r.left,right:r.right,top:r.top,bottom:r.bottom,vw:innerWidth,vh:innerHeight,hit:hit===el||el.contains(hit),hitId:hit?.id,opacity,visible,color:s.color,background:s.backgroundColor,transform:s.transform,transition:s.transition,disabled:el.disabled,text:el.textContent.trim(),clipped:el.scrollWidth>el.clientWidth+1||el.scrollHeight>el.clientHeight+1};
+}
+async function waitForStableTarget(el){
+ let previous='',stable=0,active=[];
+ for(let frame=0;frame<120;frame++){
+  await new Promise(resolve=>requestAnimationFrame(resolve));
+  active=[];for(let node=el;node;node=node.parentElement)active.push(...node.getAnimations().filter(animation=>animation.effect?.getTiming().iterations!==Infinity&&(animation.playState==='running'||animation.pending)));
+  const r=el.getBoundingClientRect(),key=JSON.stringify([r.x,r.y,r.width,r.height]);
+  stable=!active.length&&key===previous?stable+1:0;previous=key;
+  if(stable>=2)return;
+ }
+ throw Error('Share target layout did not stabilize: '+JSON.stringify({rect:previous,finiteAnimations:active.map(animation=>({state:animation.playState,pending:animation.pending,timing:animation.effect?.getTiming()}))}));
 }
 async function acceptTarget(page,selector,language,screen,engine,artifacts){
  const button=page.locator(selector),sizes=['ja','en','de'].includes(language)?[{width:393,height:852},{width:852,height:393},{width:393,height:600}]:[{width:393,height:852}];
  for(const size of sizes){
-  await page.setViewportSize(size);await button.scrollIntoViewIfNeeded();const m=await button.evaluate(metrics);
   const prefix=resolve(artifacts,`${engine}-${language}-${screen}-${size.width}x${size.height}`);
+  await page.setViewportSize(size);await button.scrollIntoViewIfNeeded();
+  try{await button.evaluate(waitForStableTarget);}catch(error){await page.screenshot({path:prefix+'-stability-failure.png'});throw error;}
+  const m=await button.evaluate(metrics);
   await page.screenshot({path:prefix+'-diagnostic.png'});
   assert.equal(await button.isVisible(),true);assert.equal(m.visible,true);assert.equal(m.opacity,1);assert.equal(m.disabled,false);assert.equal(m.hit,true,JSON.stringify(m));
   assert.ok(m.width>=44&&m.height>=44,`44px target ${JSON.stringify(m)}`);assert.ok(m.left>=0&&m.right<=m.vw+1&&m.top>=0&&m.bottom<=m.vh+1,'reachable viewport');assert.equal(m.clipped,false);

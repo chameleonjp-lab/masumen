@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const { mkdirSync, writeFileSync } = require('node:fs');
 const { resolve } = require('node:path');
 const { isolateBrowserNetwork, localTestURL } = require('./browser-network-safety.cjs');
+const { inspectPilotTexture } = require('./inspect-pilot-texture.cjs');
 
 // Separate, short genuine play; never changes the mobile defeat/retry context.
 async function captureThumbnailScene(browser, engine, baseUrl) {
@@ -16,7 +17,12 @@ async function captureThumbnailScene(browser, engine, baseUrl) {
       if (name !== 'start_masumen_play_v1') throw Error('Unexpected RPC during scene capture');
       return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ accepted: true, duplicate: false, start_id: body.p_start_id, play_id: '40000000-0000-4000-8000-000000000004', game_slug: 'masumen', display_name: body.p_display_name, normalized_name: body.p_display_name, client_version: body.p_client_version }) });
     });
-    const page = await context.newPage(), errors = [];
+    const page = await context.newPage(), errors = [], warnings = [];
+    page.on('console', message => {
+      if (!['warning', 'error'].includes(message.type())) return;
+      const text = message.text();
+      if (/WebGL|texImage|texture|shader/i.test(text)) warnings.push(/texImage/i.test(text) ? 'texture-upload-warning' : /shader/i.test(text) ? 'shader-warning' : 'webgl-or-texture-warning');
+    });
     page.on('pageerror', error => errors.push(error.message));
     await page.goto(baseUrl + '?seed=12345');
     await page.locator('#masumen-language').waitFor({ timeout: 90000 });
@@ -41,6 +47,7 @@ async function captureThumbnailScene(browser, engine, baseUrl) {
     const canvasPNG = await page.locator('.game-canvas').evaluate(canvas => canvas.toDataURL('image/png'));
     assert.match(canvasPNG, /^data:image\/png;base64,/);
     writeFileSync(resolve(directory, `${engine}-thumbnail-canvas.png`), Buffer.from(canvasPNG.split(',')[1], 'base64'));
+    await inspectPilotTexture(page, engine, warnings);
     assert.deepEqual(calls, ['start_masumen_play_v1']);
     assert.deepEqual(errors, []);
     console.log(`PASS ${engine}: genuine Japanese battle source captured; image content still requires visual review`);
