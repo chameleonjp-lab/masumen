@@ -36,3 +36,12 @@ if (builtAssetFiles.filter(file => /\.svg$/i.test(file)).length < assetFiles.len
   throw new Error("Build output is missing bundled SVG assets");
 
 console.log(`build output ok: ${assetFiles.length} assets, ${builtAssetFiles.length} asset files`);
+
+// Link previews must ship in the same static package as the game, not just source metadata.
+const shareImage = "assets/masumen-og-v1.png";
+if (!builtIndex.includes(`https://chameleonjp-lab.github.io/masumen/${shareImage}`))
+  throw new Error("Build output is missing the canonical share image metadata");
+const preview = await readFile(resolve(root, builtRoot, shareImage));
+if (preview.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a" || preview.readUInt32BE(16) !== 1200 || preview.readUInt32BE(20) !== 630)
+  throw new Error("Build output share image is not a 1200 by 630 PNG");
+console.log("share preview output ok: 1200 x 630 actual-scene PNG");

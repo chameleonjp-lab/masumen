@@ -4,9 +4,10 @@
  */
 const { chromium, webkit } = require(process.env.PLAYWRIGHT_PACKAGE || 'playwright');
 const assert = require('node:assert/strict');
+const {localTestURL,isolateBrowserNetwork}=require('./browser-network-safety.cjs');
 const { mkdirSync } = require('node:fs');
 const { resolve } = require('node:path');
-const baseUrl = process.env.MASUMEN_TEST_URL || 'http://localhost:4175/masumen/';
+const baseUrl = localTestURL(process.env.MASUMEN_TEST_URL).href;
 const artifacts = process.env.MASUMEN_TEST_ARTIFACTS || '/tmp/masumen-browser-artifacts';
 mkdirSync(artifacts, { recursive: true });
 const languages = ['ja','en','es','pt-BR','zh-Hans','fr','de','ko','ru','it','zh-Hant','id','tr','vi','th'];
@@ -25,14 +26,10 @@ async function setRenderLanguage(page, language) {
 async function run() {
   for (const engine of [chromium, webkit]) {
     const browser = await engine.launch({ headless: true }); opened.add(browser);
-    const page = await browser.newPage({ viewport: { width: 393, height: 852 }, hasTouch: true });
+    const page = await browser.newPage({ viewport: { width: 393, height: 852 }, hasTouch: true,serviceWorkers:'block' });
     const errors = [], calls = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.route('**/*', route => {
-      const url = new URL(route.request().url());
-      const allowed = new URL(process.env.MASUMEN_TEST_URL || 'http://localhost:4175/masumen/');
-      return url.origin === allowed.origin ? route.continue() : route.abort('blockedbyclient');
-    });
+    await isolateBrowserNetwork(page.context(),new URL(baseUrl));
     await page.route('https://mlpnjgezrnhdxsxolyzj.supabase.co/**', route => {
       const url = route.request().url(), body = route.request().postDataJSON(); calls.push({ url, body });
       let payload = [];
@@ -52,7 +49,7 @@ async function run() {
       assert.equal(await page.locator('.name-gate .x-share-action').innerText(), expected);
       await page.locator('.name-gate .x-share-action').click();
       const text = await page.evaluate(() => new URL(window.__testShares.at(-1)).searchParams.get('text'));
-      assert.match(text, /https:\/\/chameleonjp-lab.github.io\/masumen\/$/);
+      assert.ok(text.includes('https://chameleonjp-lab.github.io/masumen/'));assert.match(text,/#マスメン #ゲーム制作/u);
       assert.ok(!text.includes('{0}')); assert.equal(calls.length, 0);
     }
     await page.locator('#masumen-language').selectOption('en');

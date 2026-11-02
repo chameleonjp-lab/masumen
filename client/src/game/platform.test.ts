@@ -25,9 +25,9 @@ it("preserves complete emoji within the existing 20-unit name limit", () => {
 describe("マスメンのシェア文", () => {
   it("uses a plain URL and the requested game invitation", () => {
     expect(homeShareText()).toBe(
-      `【マスメン】カードを使いながら4ウェーブを戦い抜け！\n${GAME_URL}`
+      `【マスメン】カードを使いながら4ウェーブを戦い抜け！\n${GAME_URL}\n#マスメン #ゲーム制作`
     );
-    expect(homeShareText()).not.toContain("#");
+    expect(homeShareText()).toContain("#マスメン #ゲーム制作");
   });
 
   it("shares the current result and a plain canonical URL", () => {
@@ -41,7 +41,7 @@ describe("マスメンのシェア文", () => {
         simultaneousDefeats: 1,
         cardsUsed: 5,
       })
-    ).toBe(`【マスメン】今回の結果：1,234点\n${GAME_URL}`);
+    ).toBe(`【マスメン】今回の結果：1,234点\n${GAME_URL}\n#マスメン #ゲーム制作`);
   });
 });
 

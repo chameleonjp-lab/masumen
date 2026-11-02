@@ -2148,3 +2148,6 @@ select {
 .home-help { margin-top: 12px; color: #d4e9e4; font-size: 14px; line-height: 1.6; }
 .home-help summary { min-height: 44px; padding-block: 10px; cursor: pointer; }
 .home-help p { margin-block: 8px; overflow-wrap: anywhere; }
+
+/* Keep the home X target at 44px despite the older links-row button rule. */
+.name-gate__links .x-share-action { min-height: 44px; }

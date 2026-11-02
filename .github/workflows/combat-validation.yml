@@ -30,7 +30,7 @@ jobs:
       - name: Audit combat data
         run: pnpm audit:card-vfx && pnpm audit:combat-data && pnpm audit:card-combat && pnpm audit:chain-data && pnpm audit:encounters && pnpm audit:board-data && pnpm audit:attack-data && pnpm audit:folder-data && pnpm audit:browser-contract
       - name: Run unit tests
-        run: pnpm test
+        run: pnpm test && node --test scripts/share-thumbnail.test.cjs
       - name: Type check
         run: pnpm check
       - name: Build
@@ -47,5 +47,14 @@ jobs:
           VITE_PID=$!
           trap 'kill "$VITE_PID" 2>/dev/null || true' EXIT
           node -e 'let n=0;const check=()=>fetch("http://localhost:4175/").then(r=>{if(!r.ok)throw Error(r.status)}).catch(e=>{if(++n>=60){console.error(e);process.exit(1)}setTimeout(check,1000)});check()'
+          node --test scripts/browser-network-safety.test.cjs
           node scripts/check-localization-browser.cjs
           node scripts/check-result-flow-browser.cjs
+      - name: Preserve isolated share screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: share-acceptance-${{ github.sha }}
+          path: test-artifacts/share/*.png
+          if-no-files-found: warn
+          retention-days: 7
