@@ -15,7 +15,7 @@ async function acceptTarget(page,selector,language,screen,engine,artifacts){
   const prefix=resolve(artifacts,`${engine}-${language}-${screen}-${size.width}x${size.height}`);
   await page.screenshot({path:prefix+'-diagnostic.png'});
   assert.equal(await button.isVisible(),true);assert.equal(m.visible,true);assert.equal(m.opacity,1);assert.equal(m.disabled,false);assert.equal(m.hit,true,JSON.stringify(m));
-  assert.ok(m.width>=44&&m.height>=44,'44px target');assert.ok(m.left>=0&&m.right<=m.vw+1&&m.top>=0&&m.bottom<=m.vh+1,'reachable viewport');assert.equal(m.clipped,false);
+  assert.ok(m.width>=44&&m.height>=44,`44px target ${JSON.stringify(m)}`);assert.ok(m.left>=0&&m.right<=m.vw+1&&m.top>=0&&m.bottom<=m.vh+1,'reachable viewport');assert.equal(m.clipped,false);
   assert.equal(m.background,'rgb(0, 0, 0)');assert.equal(m.color,'rgb(255, 255, 255)');if(language==='ja')assert.equal(m.text,'Xでシェア');
   await button.focus();assert.equal(await button.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(0, 0, 0)');
   await page.mouse.move((m.left+m.right)/2,(m.top+m.bottom)/2);await page.mouse.down();

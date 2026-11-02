@@ -1,4 +1,4 @@
-function localTestURL(value='http://localhost:4175/masumen/'){
+function localTestURL(value='http://localhost:4175/'){
  const url=new URL(value);
  if(url.protocol!=='http:'||!['localhost','127.0.0.1'].includes(url.hostname)||url.port!=='4175'||url.username||url.password)throw new Error('Browser checks require the local test server on port 4175');
  return url;

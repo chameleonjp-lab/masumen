@@ -1,7 +1,7 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const {localTestURL,isolateBrowserNetwork}=require('./browser-network-safety.cjs');
 test('test entry accepts only known loopback HTTP origins without credentials',()=>{
  for(const url of ['https://chameleonjp-lab.github.io/masumen/','http://localhost.evil:4175/','http://user:pass@localhost:4175/','https://localhost:4175/','http://localhost:80/'])assert.throws(()=>localTestURL(url));
- assert.equal(localTestURL().origin,'http://localhost:4175');assert.equal(localTestURL('http://127.0.0.1:4175/masumen/').origin,'http://127.0.0.1:4175');
+ assert.equal(localTestURL().origin,'http://localhost:4175');assert.equal(localTestURL().pathname,'/');assert.equal(localTestURL('http://127.0.0.1:4175/masumen/').origin,'http://127.0.0.1:4175');
 });
 test('only same-origin static GET/HEAD fetched, redirects and websockets denied',async()=>{
  let handler,ws;const context={route:async(_,h)=>handler=h,routeWebSocket:async(_,h)=>ws=h};await isolateBrowserNetwork(context,localTestURL());

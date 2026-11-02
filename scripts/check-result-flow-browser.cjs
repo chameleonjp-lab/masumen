@@ -22,7 +22,7 @@ const baseUrl=localTestURL(process.env.MASUMEN_TEST_URL).href;
  while(Date.now()<deadline){
  const mode=await page.locator('.game-shell').getAttribute('data-mode');
  if(mode==='result'){result=true;break}
- if(mode==='battle'&&!captured){const path=resolve(process.env.MASUMEN_TEST_ARTIFACTS||'test-artifacts/share');mkdirSync(path,{recursive:true});await page.screenshot({path:resolve(path,`${engine.name()}-actual-battle.png`)});captured=true;}
+ if(mode==='battle'&&!captured){await page.waitForFunction(()=>{const logo=document.querySelector('img[src$="/assets/relay-mark.svg"]');return logo&&logo.getBoundingClientRect().width>0&&logo.complete&&logo.naturalWidth>0&&[...document.images].filter(img=>img.getBoundingClientRect().width>0).every(img=>img.complete&&img.naturalWidth>0);});const path=resolve(process.env.MASUMEN_TEST_ARTIFACTS||'test-artifacts/share');mkdirSync(path,{recursive:true});await page.screenshot({path:resolve(path,`${engine.name()}-actual-battle.png`)});captured=true;}
  if(mode==='custom'){
  const cards=page.locator('.signal-card');await cards.first().waitFor();if(await page.locator('.signal-card[aria-pressed="true"]').count()===0)await cards.first().click();
  await page.locator('.custom-console .engage-button').click();
